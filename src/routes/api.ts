@@ -23,12 +23,14 @@ import {
   isUniqueViolation,
   listDevices,
   listMessages,
+  listMessagesSince,
   MAX_DEVICES,
   updatePasswordHash,
 } from "../db";
 import { isCrossSite, json, readCookie, readLimitedBytes } from "../http";
-import { logInfo } from "../log";
+import { logError, logInfo } from "../log";
 import { compileLikeQuery } from "../search";
+import { createInboxStream, resolveCursor, SSE_BATCH } from "../sse";
 import type { SessionUser } from "../types";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -51,6 +53,10 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
   if (path === "/api/v1/auth/me") {
     if (method !== "GET") return methodNotAllowed("GET");
     return me(request, env);
+  }
+  if (path === "/api/v1/events") {
+    if (method !== "GET") return methodNotAllowed("GET");
+    return events(request, env, url);
   }
   if (path === "/api/v1/messages") {
     if (method !== "GET") return methodNotAllowed("GET");
@@ -148,6 +154,34 @@ async function me(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   return json({ ok: true, user: { id: user.id, username: user.username } });
+}
+
+async function events(request: Request, env: Env, url: URL): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const cursor = resolveCursor(request.headers.get("last-event-id"), url.searchParams.get("cursor"), Date.now());
+  const stream = createInboxStream({
+    cursor,
+    signal: request.signal,
+    poll: async (current) => {
+      try {
+        return await listMessagesSince(env.DB, {
+          userId: user.id,
+          createdAt: current.createdAt,
+          id: current.id,
+          limit: SSE_BATCH,
+        });
+      } catch (error) {
+        logError({
+          message: "sse_poll_failed",
+          user_id: user.id,
+          error: error instanceof Error ? error.message.slice(0, 180) : "unknown",
+        });
+        throw error;
+      }
+    },
+  });
+  return sseResponse(stream);
 }
 
 async function list(request: Request, env: Env, url: URL): Promise<Response> {
@@ -312,4 +346,15 @@ function decodePart(value: string): string | null {
 
 function methodNotAllowed(allow: string): Response {
   return json({ ok: false, error: "方法不允许" }, 405, { allow });
+}
+
+function sseResponse(stream: ReadableStream<Uint8Array>): Response {
+  const headers = new Headers();
+  headers.set("content-type", "text/event-stream; charset=utf-8");
+  headers.set("cache-control", "no-cache, no-store");
+  headers.set("x-content-type-options", "nosniff");
+  headers.set("x-accel-buffering", "no");
+  headers.set("referrer-policy", "same-origin");
+  headers.set("cross-origin-resource-policy", "same-origin");
+  return new Response(stream, { status: 200, headers });
 }

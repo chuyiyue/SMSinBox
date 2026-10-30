@@ -175,6 +175,17 @@ mark.code {
   padding: 0 0.2rem;
 }
 
+.banner {
+  width: 100%;
+  text-align: left;
+  background: #e7f5ef;
+  color: var(--green-dark);
+  border: 1px solid #b7dece;
+  border-radius: 1rem;
+  padding: 0.75rem 1rem;
+  margin: 0.2rem 0 0.8rem;
+}
+
 .token-box, .error, .empty {
   border-radius: 1rem;
   padding: 0.9rem 1rem;

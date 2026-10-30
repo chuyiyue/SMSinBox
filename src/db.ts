@@ -248,6 +248,27 @@ export async function listMessages(
   };
 }
 
+export async function listMessagesSince(
+  db: D1Database,
+  query: { userId: string; createdAt: number; id: string; limit: number },
+): Promise<MessageView[]> {
+  // Same ordering contract as isAfterCursor: created_at, then id.
+  const listed = await db
+    .prepare(
+      `SELECT m.id, m.device_id, d.name AS device_name, m.from_number, m.to_number,
+              m.content, m.code, m.raw_payload, m.received_at, m.created_at
+       FROM messages m
+       JOIN devices d ON d.id = m.device_id
+       WHERE d.user_id = ?
+         AND (m.created_at > ? OR (m.created_at = ? AND m.id > ?))
+       ORDER BY m.created_at ASC, m.id ASC
+       LIMIT ?`,
+    )
+    .bind(query.userId, query.createdAt, query.createdAt, query.id, query.limit)
+    .all<MessageRecord>();
+  return listed.results.map(toMessageView);
+}
+
 export async function getMessage(db: D1Database, userId: string, messageId: string): Promise<MessageView | null> {
   const row = await db
     .prepare(
