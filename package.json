@@ -1,0 +1,26 @@
+{
+  "name": "smsinbox",
+  "version": "0.1.0",
+  "private": true,
+  "description": "自部署短信转发网关：Cloudflare Workers + D1 + 静态收件箱",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "cf-typegen": "wrangler types",
+    "db:migrate:local": "wrangler d1 migrations apply smsinbox --local",
+    "db:migrate:remote": "wrangler d1 migrations apply smsinbox --remote"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261030.1",
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.156.0"
+  }
+}

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>设备 · SMSinBox</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <span class="mark" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 32 32"><path d="M5 10h22v14H5z" fill="none" stroke="#0e6b4f" stroke-width="2"/><path d="M5 12l11 8 11-8" fill="none" stroke="#0e6b4f" stroke-width="2"/></svg>
+        </span>
+        SMSinBox
+      </a>
+      <nav class="nav">
+        <a href="/">收件箱</a>
+        <a class="active" href="/devices.html">设备</a>
+        <button id="logout" type="button">退出</button>
+      </nav>
+    </header>
+    <main class="wrap">
+      <section class="panel">
+        <h1>设备</h1>
+        <p class="lede">每个设备有自己的 token。token 只在创建时显示一次，丢失后请删除并新建。</p>
+        <form id="device-form" class="device-form">
+          <label>名称<input name="name" required maxlength="64" placeholder="例如：我的 Pixel" /></label>
+          <label>签名密钥（可选）<input name="secret" maxlength="256" placeholder="留空则只校验 Bearer token" autocomplete="off" /></label>
+          <button type="submit">新建设备</button>
+        </form>
+        <p id="device-error" class="error" hidden></p>
+        <div id="token-box" class="token-box" hidden>
+          <strong>设备 token，只显示这一次</strong>
+          <code id="token-value"></code>
+          <p>请立刻保存。关闭或刷新页面后无法再查看。请求头使用 <code>Authorization: Bearer &lt;token&gt;</code>。</p>
+          <button id="copy-token" class="secondary" type="button">复制 token</button>
+        </div>
+        <div id="devices" class="devices"></div>
+      </section>
+      <section class="guide">
+        <h2>怎么把短信送进来</h2>
+        <details open>
+          <summary>Android · SmsForwarder</summary>
+          <ol>
+            <li>安装 <a href="https://github.com/pppscn/SmsForwarder">SmsForwarder</a>，授予短信和通知权限。</li>
+            <li>添加发送通道，类型选 Webhook，方法 POST。</li>
+            <li>URL 填 <code id="sms-url"></code></li>
+            <li>请求头添加 <code>Authorization: Bearer 设备token</code> 和 <code>Content-Type: application/json</code>。</li>
+            <li>请求体使用下面的模板，然后建一条「收到短信时转发到该通道」的规则。</li>
+          </ol>
+          <pre id="android-template"></pre>
+          <button id="copy-template" class="secondary" type="button">复制模板</button>
+        </details>
+        <details>
+          <summary>iOS · 快捷指令自动化</summary>
+          <ol>
+            <li>打开「快捷指令」→「自动化」→ 新建 →「信息」。</li>
+            <li>触发选短信到达。发件人可选任何人，或只填会发验证码的号码。</li>
+            <li>关闭「运行前询问」，打开「立即运行」。</li>
+            <li>添加「获取 URL 内容」：POST 到上面的地址，标头同上。</li>
+            <li>请求体用 JSON，把「发件人」和「快捷指令输入」插进 from 和 content。timestamp 可省略。</li>
+          </ol>
+          <p class="subtle">iOS 只转发符合触发条件的新短信，不支持彩信。手机重启后需要解锁一次，自动化才会继续跑。</p>
+        </details>
+        <details>
+          <summary>可选 HMAC</summary>
+          <p>创建设备时如果填写了签名密钥，之后每次上报都必须带 <code>X-Timestamp</code>（Unix 秒或毫秒）和 <code>X-Signature</code>。签名是 <code>HMAC-SHA256(X-Timestamp + 原始请求体, secret)</code> 的十六进制，时间窗口 ±5 分钟。SmsForwarder 和快捷指令的默认配置不会签名，密钥请留空。</p>
+        </details>
+      </section>
+    </main>
+    <script type="module" src="/devices.js"></script>
+  </body>
+</html>
