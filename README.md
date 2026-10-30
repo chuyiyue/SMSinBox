@@ -121,11 +121,22 @@ iOS 没有安卓那种常驻转发器，只能用「快捷指令」的短信自�
 
 时间与服务器相差不能超过 5 分钟。SmsForwarder 和快捷指令的默认模板不会签名，给这两类客户端使用时不要填密钥。
 
+## 推送
+
+设备页可以给当前用户添加 Telegram、企业微信群机器人、Bark 和邮件。短信成功入库之后才推送；重复上报不会再推一次。某个渠道超时或返回错误时，只记下失败，收件箱里的短信仍然保留。
+
+- Telegram：bot token 和 chat id。请求发往 `api.telegram.org`。
+- 企业微信：群机器人 Webhook，主机必须是 `qyapi.weixin.qq.com`。
+- Bark：device key。服务器留空时用 `https://api.day.app`，也可以换成你自己的公网 Bark 地址。
+- 邮件：二选一。Webhook 收到 JSON `{ "to", "from", "subject", "text" }`；或者 SMTP，只支持 465 端口的隐式 TLS。
+
+渠道配置写在你自己的 D1 里。列表接口只返回掩码。日志不记录短信正文、bot token、Webhook key 或邮箱密码。每个用户最多 10 个渠道。部署新版本后执行一次 `npx wrangler d1 migrations apply smsinbox --remote`（本地用 `--local`），把 `0002_notify.sql` 应用到数据库。
+
 ## 网页
 
 - `/login.html`：用户名和密码登录。
 - `/`：收件箱。新短信在前，可按设备、号码和关键词筛选。页面通过 `GET /api/v1/events` 的 SSE 接收新短信：服务端按 `created_at` 和短信 id 记住游标，大约每 2 秒查一次 D1，连接大约保持 25 秒后主动结束，浏览器会带上 `Last-Event-ID` 自动重连。标签页切到后台时断开。另外每 30 秒补拉一次第一页，避免重连间隙漏消息。验证码会高亮，并可以一键复制。
-- `/devices.html`：创建设备、复制一次性 token、删除设备（同时删除该设备的短信），以及上面的配置说明。
+- `/devices.html`：创建设备、复制一次性 token、删除设备（同时删除该设备的短信），配置推送渠道，以及上面的配置说明。
 
 关键词搜索用 SQL `LIKE`。D1 的 LIKE 模式最长 50 字节，超出会返回错误。
 
@@ -156,4 +167,4 @@ npx tsc --noEmit
 
 ## 这次没做
 
-Telegram / 企业微信 / Bark / 邮件通知、短信加密存储、打包好的 iOS 快捷指令文件、多用户。这些留到后续版本。
+短信加密存储、打包好的 iOS 快捷指令文件、多用户。这些留到后续版本。

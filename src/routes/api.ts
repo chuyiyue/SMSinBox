@@ -11,25 +11,33 @@ import {
 } from "../auth";
 import {
   countDevices,
+  countNotifyChannels,
   countUsers,
   createSession,
   deleteDevice,
+  deleteNotifyChannel,
   deleteSession,
+  findNotifyChannel,
   findSessionUser,
   findUserByUsername,
   getMessage,
   insertDevice,
+  insertNotifyChannel,
   insertUser,
   isUniqueViolation,
   listDevices,
   listMessages,
   listMessagesSince,
+  listNotifyChannels,
   MAX_DEVICES,
+  setNotifyChannelEnabled,
   updatePasswordHash,
 } from "../db";
 import { isCrossSite, json, readCookie, readLimitedBytes } from "../http";
 import { logError, logInfo } from "../log";
 import { compileLikeQuery } from "../search";
+import { channelFromRow, deliverChannels, MAX_NOTIFY_CHANNELS, parseChannelInput, redactConfig } from "../notify";
+import { openSmtpSocket } from "../smtp";
 import { createInboxStream, resolveCursor, SSE_BATCH } from "../sse";
 import type { SessionUser } from "../types";
 
@@ -66,6 +74,22 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
   if (messageMatch?.[1]) {
     if (method !== "GET") return methodNotAllowed("GET");
     return detail(request, env, messageMatch[1]);
+  }
+  if (path === "/api/v1/notifications") {
+    if (method === "GET") return listNotifications(request, env);
+    if (method === "POST") return createNotification(request, env);
+    return methodNotAllowed("GET, POST");
+  }
+  const notifyTest = /^\/api\/v1\/notifications\/([^/]+)\/test$/.exec(path);
+  if (notifyTest?.[1]) {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return testNotification(request, env, notifyTest[1]);
+  }
+  const notifyItem = /^\/api\/v1\/notifications\/([^/]+)$/.exec(path);
+  if (notifyItem?.[1]) {
+    if (method === "DELETE") return removeNotification(request, env, notifyItem[1]);
+    if (method === "POST") return setNotificationEnabled(request, env, notifyItem[1]);
+    return methodNotAllowed("POST, DELETE");
   }
   if (path === "/api/v1/devices") {
     if (method === "GET") return devices(request, env);
@@ -264,6 +288,112 @@ async function createDevice(request: Request, env: Env): Promise<Response> {
       has_secret: parsed.secret !== null,
     },
   });
+}
+
+async function listNotifications(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const channels = [];
+  for (const row of await listNotifyChannels(env.DB, user.id)) {
+    const channel = channelFromRow(row);
+    if (!channel) continue;
+    channels.push(presentChannel(channel));
+  }
+  return json({ ok: true, channels });
+}
+
+async function createNotification(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const parsed = parseChannelInput(body.value);
+  if (!parsed.ok) return json({ ok: false, error: parsed.error }, 400);
+  if ((await countNotifyChannels(env.DB, user.id)) >= MAX_NOTIFY_CHANNELS) {
+    return json({ ok: false, error: "推送渠道已达上限" }, 400);
+  }
+  const id = crypto.randomUUID();
+  const createdAt = Date.now();
+  await insertNotifyChannel(env.DB, {
+    id,
+    userId: user.id,
+    kind: parsed.kind,
+    config: JSON.stringify(parsed.config),
+    enabled: 1,
+    createdAt,
+  });
+  logInfo({ message: "notify_channel_created", channel_id: id, user_id: user.id, kind: parsed.kind });
+  return json({
+    ok: true,
+    channel: presentChannel({
+      id,
+      kind: parsed.kind,
+      config: parsed.config,
+      enabled: true,
+      createdAt,
+    }),
+  });
+}
+
+async function removeNotification(request: Request, env: Env, rawId: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const id = decodePart(rawId);
+  if (!id || !UUID_RE.test(id)) return json({ ok: false, error: "渠道不存在" }, 404);
+  const removed = await deleteNotifyChannel(env.DB, user.id, id);
+  if (!removed) return json({ ok: false, error: "渠道不存在" }, 404);
+  logInfo({ message: "notify_channel_deleted", channel_id: id, user_id: user.id });
+  return json({ ok: true });
+}
+
+async function setNotificationEnabled(request: Request, env: Env, rawId: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const id = decodePart(rawId);
+  if (!id || !UUID_RE.test(id)) return json({ ok: false, error: "渠道不存在" }, 404);
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  if (!body.value || typeof body.value !== "object" || Array.isArray(body.value)) {
+    return json({ ok: false, error: "请求体无效" }, 400);
+  }
+  const enabled = (body.value as Record<string, unknown>).enabled;
+  if (typeof enabled !== "boolean") return json({ ok: false, error: "请指定是否启用" }, 400);
+  const updated = await setNotifyChannelEnabled(env.DB, user.id, id, enabled);
+  if (!updated) return json({ ok: false, error: "渠道不存在" }, 404);
+  return json({ ok: true, enabled });
+}
+
+async function testNotification(request: Request, env: Env, rawId: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const id = decodePart(rawId);
+  if (!id || !UUID_RE.test(id)) return json({ ok: false, error: "渠道不存在" }, 404);
+  const row = await findNotifyChannel(env.DB, user.id, id);
+  const channel = row ? channelFromRow(row) : null;
+  if (!channel) return json({ ok: false, error: "渠道不存在" }, 404);
+  const [result] = await deliverChannels(
+    [channel],
+    { title: "SMSinBox 测试", text: "这是一条测试通知，不包含短信内容。" },
+    { fetch, openSmtp: openSmtpSocket },
+  );
+  if (!result?.ok) return json({ ok: false, error: result?.error || "发送失败" }, 502);
+  return json({ ok: true });
+}
+
+function presentChannel(channel: {
+  id: string;
+  kind: "telegram" | "wecom" | "bark" | "email";
+  config: Parameters<typeof redactConfig>[1];
+  enabled: boolean;
+  createdAt: number;
+}) {
+  return {
+    id: channel.id,
+    kind: channel.kind,
+    enabled: channel.enabled,
+    created_at: channel.createdAt,
+    config: redactConfig(channel.kind, channel.config),
+  };
 }
 
 async function removeDevice(request: Request, env: Env, rawId: string): Promise<Response> {

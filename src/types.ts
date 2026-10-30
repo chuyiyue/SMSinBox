@@ -64,3 +64,12 @@ export interface SessionUser {
   username: string;
   expires_at: number;
 }
+
+export interface NotifyChannelRow {
+  id: string;
+  user_id: string;
+  kind: string;
+  config: string;
+  enabled: number;
+  created_at: number;
+}

@@ -40,6 +40,25 @@
         </div>
         <div id="devices" class="devices"></div>
       </section>
+      <section class="panel">
+        <h2>推送</h2>
+        <p class="lede">短信先写入收件箱，再推送到已启用的渠道。某个渠道失败不会丢掉短信。</p>
+        <form id="notify-form" class="stack">
+          <label>渠道
+            <select name="kind">
+              <option value="telegram">Telegram</option>
+              <option value="wecom">企业微信</option>
+              <option value="bark">Bark</option>
+              <option value="email">邮件</option>
+            </select>
+          </label>
+          <div id="notify-fields" class="stack"></div>
+          <button type="submit">添加渠道</button>
+        </form>
+        <p id="notify-error" class="error" hidden></p>
+        <p id="notify-status" class="subtle" hidden></p>
+        <div id="notify-list" class="devices"></div>
+      </section>
       <section class="guide">
         <h2>怎么把短信送进来</h2>
         <details open>
@@ -72,5 +91,6 @@
       </section>
     </main>
     <script type="module" src="/devices.js"></script>
+    <script type="module" src="/notify.js"></script>
   </body>
 </html>

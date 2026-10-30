@@ -1,6 +1,14 @@
 import { logInfo } from "./log";
 import { readRawMeta } from "./parse";
-import type { DeviceRecord, DeviceView, MessageRecord, MessageView, SessionUser, UserRecord } from "./types";
+import type {
+  DeviceRecord,
+  DeviceView,
+  MessageRecord,
+  MessageView,
+  NotifyChannelRow,
+  SessionUser,
+  UserRecord,
+} from "./types";
 
 export const RATE_LIMIT_PER_MINUTE = 60;
 export const MAX_DEVICES = 50;
@@ -145,6 +153,75 @@ export async function deleteDevice(db: D1Database, userId: string, deviceId: str
     db.prepare("DELETE FROM devices WHERE id = ? AND user_id = ?").bind(deviceId, userId),
   ]);
   return true;
+}
+
+export async function countNotifyChannels(db: D1Database, userId: string): Promise<number> {
+  const row = await db
+    .prepare("SELECT COUNT(*) AS total FROM notify_channels WHERE user_id = ?")
+    .bind(userId)
+    .first<{ total: number }>();
+  return row?.total ?? 0;
+}
+
+export async function listNotifyChannels(db: D1Database, userId: string): Promise<NotifyChannelRow[]> {
+  const result = await db
+    .prepare(
+      `SELECT id, user_id, kind, config, enabled, created_at
+       FROM notify_channels
+       WHERE user_id = ?
+       ORDER BY created_at DESC`,
+    )
+    .bind(userId)
+    .all<NotifyChannelRow>();
+  return result.results;
+}
+
+export async function findNotifyChannel(
+  db: D1Database,
+  userId: string,
+  channelId: string,
+): Promise<NotifyChannelRow | null> {
+  return db
+    .prepare(
+      `SELECT id, user_id, kind, config, enabled, created_at
+       FROM notify_channels WHERE id = ? AND user_id = ?`,
+    )
+    .bind(channelId, userId)
+    .first<NotifyChannelRow>();
+}
+
+export async function insertNotifyChannel(
+  db: D1Database,
+  channel: { id: string; userId: string; kind: string; config: string; enabled: number; createdAt: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO notify_channels (id, user_id, kind, config, enabled, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(channel.id, channel.userId, channel.kind, channel.config, channel.enabled, channel.createdAt)
+    .run();
+}
+
+export async function deleteNotifyChannel(db: D1Database, userId: string, channelId: string): Promise<boolean> {
+  const result = await db
+    .prepare("DELETE FROM notify_channels WHERE id = ? AND user_id = ?")
+    .bind(channelId, userId)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+export async function setNotifyChannelEnabled(
+  db: D1Database,
+  userId: string,
+  channelId: string,
+  enabled: boolean,
+): Promise<boolean> {
+  const result = await db
+    .prepare("UPDATE notify_channels SET enabled = ? WHERE id = ? AND user_id = ?")
+    .bind(enabled ? 1 : 0, channelId, userId)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
 }
 
 export async function findMessageByHash(

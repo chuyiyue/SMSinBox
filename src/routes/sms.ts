@@ -16,9 +16,14 @@ import {
 import { extractCode } from "../extract";
 import { json, MAX_BODY_BYTES, readLimitedBytes } from "../http";
 import { logInfo } from "../log";
+import { notifyStoredSms, scheduleNotify } from "../notify";
 import { buildRawPayload, parseSmsPayload } from "../parse";
 
-export async function handleSms(request: Request, env: Env): Promise<Response> {
+export async function handleSms(
+  request: Request,
+  env: Env,
+  ctx: { waitUntil(promise: Promise<unknown>): void },
+): Promise<Response> {
   const bytes = await readLimitedBytes(request, MAX_BODY_BYTES);
   if (bytes === null) return json({ ok: false, error: "请求体过大" }, 413);
 
@@ -86,6 +91,15 @@ export async function handleSms(request: Request, env: Env): Promise<Response> {
 
   await touchDevice(env.DB, device.id, now);
   logInfo({ message: "sms_stored", device_id: device.id, message_id: id, has_code: code !== null });
+  scheduleNotify(ctx, () =>
+    notifyStoredSms(env, device.user_id, {
+      from: parsed.sms.from,
+      content: parsed.sms.content,
+      code,
+      deviceName: device.name,
+      receivedAt: parsed.sms.receivedAt,
+    }),
+  );
   return json({ ok: true, id, code });
 }
 

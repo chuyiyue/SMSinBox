@@ -5,7 +5,7 @@ import { handleApi } from "./routes/api";
 import { handleSms } from "./routes/sms";
 
 export default {
-  async fetch(request, env, _ctx): Promise<Response> {
+  async fetch(request, env, ctx): Promise<Response> {
     const url = new URL(request.url);
     const requestId = crypto.randomUUID();
     try {
@@ -13,7 +13,7 @@ export default {
       if (url.pathname === "/api/v1/sms") {
         response =
           request.method.toUpperCase() === "POST"
-            ? await handleSms(request, env)
+            ? await handleSms(request, env, ctx)
             : json({ ok: false, error: "方法不允许" }, 405, { allow: "POST" });
       } else if (url.pathname.startsWith("/api/")) {
         response = await handleApi(request, env);
