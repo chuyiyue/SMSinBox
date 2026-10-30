@@ -1,2 +1,4 @@
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=change-me-please
+# 留空表示短信明文存储。填写 32 字节密钥的 base64 后启用 AES-GCM。
+CONTENT_KEY=

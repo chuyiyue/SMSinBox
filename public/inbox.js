@@ -10,6 +10,7 @@ const state = {
   fallback: 0,
   cursor: "",
   liveStatus: "正在连接",
+  searchNote: "",
   expectReconnect: false,
   pending: false,
   seen: new Set(),
@@ -190,6 +191,7 @@ async function loadMessages() {
     if (nextCursor && cursorIsNewer(nextCursor, state.cursor)) state.cursor = nextCursor;
     else if (!state.cursor) state.cursor = `${Date.now()}:`;
     if (state.page === 1) banner.hidden = true;
+    state.searchNote = result.data.search_truncated ? " · 加密搜索只覆盖最近 500 条" : "";
     setLiveStatus(state.liveStatus);
     renderMessages(result.data.messages || []);
     const pages = Math.max(1, Math.ceil(state.total / state.pageSize));
@@ -299,7 +301,7 @@ function cursorTuple(value) {
 
 function setLiveStatus(status) {
   state.liveStatus = status;
-  summary.textContent = `共 ${state.total} 条 · ${status}`;
+  summary.textContent = `共 ${state.total} 条 · ${status}${state.searchNote}`;
 }
 
 function showError(reason) {

@@ -3,6 +3,7 @@ import {
   sha256Hex,
   verifyHmacSignature,
 } from "../auth";
+import { resolveContentKey, revealCode, sealMessage } from "../crypto";
 import { dedupHash } from "../dedup";
 import {
   consumeRateLimit,
@@ -64,10 +65,17 @@ export async function handleSms(
     content: parsed.sms.content,
     receivedAt: parsed.sms.receivedAt,
   });
-  const duplicate = await duplicateResponse(env, device.id, contentHash, now);
+  const contentKey = resolveContentKey(env.CONTENT_KEY);
+  const duplicate = await duplicateResponse(env, device.id, contentHash, now, contentKey);
   if (duplicate) return duplicate;
 
   const code = extractCode(parsed.sms.content);
+  const sealed = await sealMessage(contentKey, {
+    content: parsed.sms.content,
+    code,
+    rawPayload: buildRawPayload(bodyText, parsed.sms),
+  });
+  if ("error" in sealed) return json({ ok: false, error: "内容加密密钥无效" }, 500);
   const id = crypto.randomUUID();
   try {
     await insertMessage(env.DB, {
@@ -75,16 +83,17 @@ export async function handleSms(
       deviceId: device.id,
       from: parsed.sms.from,
       to: parsed.sms.to,
-      content: parsed.sms.content,
+      content: sealed.content,
       contentHash,
-      code,
-      rawPayload: buildRawPayload(bodyText, parsed.sms),
+      code: sealed.code,
+      rawPayload: sealed.rawPayload,
       receivedAt: parsed.sms.receivedAt,
       createdAt: now,
+      encrypted: sealed.encrypted,
     });
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
-    const raced = await duplicateResponse(env, device.id, contentHash, now);
+    const raced = await duplicateResponse(env, device.id, contentHash, now, contentKey);
     if (raced) return raced;
     throw error;
   }
@@ -108,15 +117,17 @@ async function duplicateResponse(
   deviceId: string,
   contentHash: string,
   now: number,
+  contentKey: ReturnType<typeof resolveContentKey>,
 ): Promise<Response | null> {
   const existing = await findMessageByHash(env.DB, contentHash);
   if (!existing) return null;
+  const code = await revealCode(contentKey, existing.code, existing.encrypted === 1);
   await touchDevice(env.DB, deviceId, now);
   logInfo({
     message: "sms_duplicate",
     device_id: deviceId,
     message_id: existing.id,
-    has_code: existing.code !== null,
+    has_code: code !== null,
   });
-  return json({ ok: true, id: existing.id, code: existing.code, duplicate: true });
+  return json({ ok: true, id: existing.id, code, duplicate: true });
 }

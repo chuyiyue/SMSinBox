@@ -1,5 +1,7 @@
+import { revealCode, revealRaw, revealText, type ContentKey } from "./crypto";
 import { logInfo } from "./log";
 import { readRawMeta } from "./parse";
+import { messageMatchesQuery } from "./search";
 import type {
   DeviceRecord,
   DeviceView,
@@ -12,6 +14,10 @@ import type {
 
 export const RATE_LIMIT_PER_MINUTE = 60;
 export const MAX_DEVICES = 50;
+export const ENCRYPTED_SEARCH_LIMIT = 500;
+
+const MESSAGE_COLUMNS = `m.id, m.device_id, d.name AS device_name, m.from_number, m.to_number,
+              m.content, m.code, m.raw_payload, m.received_at, m.created_at, m.encrypted`;
 
 export function retentionDays(value: string | undefined): number {
   const parsed = Number(value);
@@ -227,11 +233,11 @@ export async function setNotifyChannelEnabled(
 export async function findMessageByHash(
   db: D1Database,
   contentHash: string,
-): Promise<{ id: string; code: string | null } | null> {
+): Promise<{ id: string; code: string | null; encrypted: number } | null> {
   return db
-    .prepare("SELECT id, code FROM messages WHERE content_hash = ?")
+    .prepare("SELECT id, code, encrypted FROM messages WHERE content_hash = ?")
     .bind(contentHash)
-    .first<{ id: string; code: string | null }>();
+    .first<{ id: string; code: string | null; encrypted: number }>();
 }
 
 export async function insertMessage(
@@ -247,13 +253,15 @@ export async function insertMessage(
     rawPayload: string;
     receivedAt: number;
     createdAt: number;
+    encrypted: number;
   },
 ): Promise<void> {
   await db
     .prepare(
       `INSERT INTO messages (
-         id, device_id, from_number, to_number, content, content_hash, code, raw_payload, received_at, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         id, device_id, from_number, to_number, content, content_hash, code, raw_payload,
+         received_at, created_at, encrypted
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       message.id,
@@ -266,6 +274,7 @@ export async function insertMessage(
       message.rawPayload,
       message.receivedAt,
       message.createdAt,
+      message.encrypted,
     )
     .run();
 }
@@ -277,10 +286,12 @@ export async function listMessages(
     deviceId: string | null;
     from: string | null;
     like: string | null;
+    text: string | null;
     limit: number;
     offset: number;
+    contentKey: ContentKey;
   },
-): Promise<{ total: number; messages: MessageView[] }> {
+): Promise<{ total: number; messages: MessageView[]; searchTruncated: boolean }> {
   const where = ["d.user_id = ?"];
   const binds: Array<string | number> = [query.userId];
   if (query.deviceId) {
@@ -290,6 +301,27 @@ export async function listMessages(
   if (query.from) {
     where.push("m.from_number = ?");
     binds.push(query.from);
+  }
+  // Ciphertext cannot be matched with SQL LIKE. Scan a bounded recent window and filter after decrypt.
+  if (query.contentKey.state === "on" && query.text) {
+    const scanned = await db
+      .prepare(
+        `SELECT ${MESSAGE_COLUMNS}
+         FROM messages m
+         JOIN devices d ON d.id = m.device_id
+         WHERE ${where.join(" AND ")}
+         ORDER BY m.received_at DESC, m.created_at DESC
+         LIMIT ?`,
+      )
+      .bind(...binds, ENCRYPTED_SEARCH_LIMIT)
+      .all<MessageRecord>();
+    const revealed = await revealRows(scanned.results, query.contentKey);
+    const matched = revealed.filter((message) => messageMatchesQuery(message, query.text ?? ""));
+    return {
+      total: matched.length,
+      messages: matched.slice(query.offset, query.offset + query.limit),
+      searchTruncated: scanned.results.length >= ENCRYPTED_SEARCH_LIMIT,
+    };
   }
   if (query.like) {
     where.push(
@@ -309,8 +341,7 @@ export async function listMessages(
     .first<{ total: number }>();
   const listed = await db
     .prepare(
-      `SELECT m.id, m.device_id, d.name AS device_name, m.from_number, m.to_number,
-              m.content, m.code, m.raw_payload, m.received_at, m.created_at
+      `SELECT ${MESSAGE_COLUMNS}
        FROM messages m
        JOIN devices d ON d.id = m.device_id
        WHERE ${whereSql}
@@ -321,19 +352,19 @@ export async function listMessages(
     .all<MessageRecord>();
   return {
     total: totalRow?.total ?? 0,
-    messages: listed.results.map(toMessageView),
+    messages: await revealRows(listed.results, query.contentKey),
+    searchTruncated: false,
   };
 }
 
 export async function listMessagesSince(
   db: D1Database,
-  query: { userId: string; createdAt: number; id: string; limit: number },
+  query: { userId: string; createdAt: number; id: string; limit: number; contentKey: ContentKey },
 ): Promise<MessageView[]> {
   // Same ordering contract as isAfterCursor: created_at, then id.
   const listed = await db
     .prepare(
-      `SELECT m.id, m.device_id, d.name AS device_name, m.from_number, m.to_number,
-              m.content, m.code, m.raw_payload, m.received_at, m.created_at
+      `SELECT ${MESSAGE_COLUMNS}
        FROM messages m
        JOIN devices d ON d.id = m.device_id
        WHERE d.user_id = ?
@@ -343,21 +374,25 @@ export async function listMessagesSince(
     )
     .bind(query.userId, query.createdAt, query.createdAt, query.id, query.limit)
     .all<MessageRecord>();
-  return listed.results.map(toMessageView);
+  return revealRows(listed.results, query.contentKey);
 }
 
-export async function getMessage(db: D1Database, userId: string, messageId: string): Promise<MessageView | null> {
+export async function getMessage(
+  db: D1Database,
+  userId: string,
+  messageId: string,
+  contentKey: ContentKey,
+): Promise<MessageView | null> {
   const row = await db
     .prepare(
-      `SELECT m.id, m.device_id, d.name AS device_name, m.from_number, m.to_number,
-              m.content, m.code, m.raw_payload, m.received_at, m.created_at
+      `SELECT ${MESSAGE_COLUMNS}
        FROM messages m
        JOIN devices d ON d.id = m.device_id
        WHERE m.id = ? AND d.user_id = ?`,
     )
     .bind(messageId, userId)
     .first<MessageRecord>();
-  return row ? toMessageView(row) : null;
+  return row ? revealMessage(row, contentKey) : null;
 }
 
 export async function purgeExpired(db: D1Database, now: number, retention: string): Promise<void> {
@@ -376,16 +411,24 @@ export async function purgeExpired(db: D1Database, now: number, retention: strin
   });
 }
 
-function toMessageView(row: MessageRecord): MessageView {
-  const meta = readRawMeta(row.raw_payload);
+async function revealRows(rows: MessageRecord[], key: ContentKey): Promise<MessageView[]> {
+  const views: MessageView[] = [];
+  for (const row of rows) views.push(await revealMessage(row, key));
+  return views;
+}
+
+async function revealMessage(row: MessageRecord, key: ContentKey): Promise<MessageView> {
+  const encrypted = row.encrypted === 1;
+  const raw = await revealRaw(key, row.raw_payload, encrypted);
+  const meta = readRawMeta(raw);
   return {
     id: row.id,
     device_id: row.device_id,
     device_name: row.device_name,
     from_number: row.from_number,
     to_number: row.to_number,
-    content: row.content,
-    code: row.code,
+    content: await revealText(key, row.content, encrypted),
+    code: await revealCode(key, row.code, encrypted),
     sim: meta.sim,
     reported_device: meta.device,
     received_at: row.received_at,

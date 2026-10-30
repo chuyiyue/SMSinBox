@@ -36,6 +36,7 @@ import {
 import { isCrossSite, json, readCookie, readLimitedBytes } from "../http";
 import { logError, logInfo } from "../log";
 import { compileLikeQuery } from "../search";
+import { resolveContentKey } from "../crypto";
 import { channelFromRow, deliverChannels, MAX_NOTIFY_CHANNELS, parseChannelInput, redactConfig } from "../notify";
 import { openSmtpSocket } from "../smtp";
 import { createInboxStream, resolveCursor, SSE_BATCH } from "../sse";
@@ -194,6 +195,7 @@ async function events(request: Request, env: Env, url: URL): Promise<Response> {
           createdAt: current.createdAt,
           id: current.id,
           limit: SSE_BATCH,
+          contentKey: resolveContentKey(env.CONTENT_KEY),
         });
       } catch (error) {
         logError({
@@ -226,8 +228,10 @@ async function list(request: Request, env: Env, url: URL): Promise<Response> {
     deviceId: deviceId || null,
     from: from || null,
     like: like.pattern,
+    text: like.pattern ? (url.searchParams.get("q")?.trim() ?? null) : null,
     limit: pageSize,
     offset: (page - 1) * pageSize,
+    contentKey: resolveContentKey(env.CONTENT_KEY),
   });
   return json({
     ok: true,
@@ -235,6 +239,7 @@ async function list(request: Request, env: Env, url: URL): Promise<Response> {
     page,
     page_size: pageSize,
     total: result.total,
+    search_truncated: result.searchTruncated,
   });
 }
 
@@ -243,7 +248,7 @@ async function detail(request: Request, env: Env, rawId: string): Promise<Respon
   if (user instanceof Response) return user;
   const id = decodePart(rawId);
   if (!id || !UUID_RE.test(id)) return json({ ok: false, error: "短信不存在" }, 404);
-  const message = await getMessage(env.DB, user.id, id);
+  const message = await getMessage(env.DB, user.id, id, resolveContentKey(env.CONTENT_KEY));
   if (!message) return json({ ok: false, error: "短信不存在" }, 404);
   return json({ ok: true, message });
 }

@@ -18,6 +18,7 @@ export interface MessageRecord {
   raw_payload: string;
   received_at: number;
   created_at: number;
+  encrypted: number;
 }
 
 export interface MessageView {

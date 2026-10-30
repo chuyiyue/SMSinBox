@@ -5,6 +5,7 @@ interface __BaseEnv_Env {
 	DB: D1Database;
 	ASSETS: Fetcher;
 	RETENTION_DAYS: "90";
+	CONTENT_KEY: string;
 	ADMIN_USERNAME: string;
 	ADMIN_PASSWORD: string;
 }
@@ -19,7 +20,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "RETENTION_DAYS" | "ADMIN_USERNAME" | "ADMIN_PASSWORD">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "RETENTION_DAYS" | "CONTENT_KEY" | "ADMIN_USERNAME" | "ADMIN_PASSWORD">> {}
 }
 declare module "*.txt" {
 	const value: string;

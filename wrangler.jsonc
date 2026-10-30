@@ -27,7 +27,8 @@
     "crons": ["15 3 * * *"]
   },
   "vars": {
-    "RETENTION_DAYS": "90"
+    "RETENTION_DAYS": "90",
+    "CONTENT_KEY": ""
   },
   "secrets": {
     "required": ["ADMIN_USERNAME", "ADMIN_PASSWORD"]
