@@ -497,6 +497,24 @@ export async function clearLoginFailures(db: D1Database, key: string, now: numbe
     .run();
 }
 
+// Reads the counter without incrementing it, so a caller can refuse the
+// attempt before it checks a password or TOTP code.
+export async function readRateLimitWindow(
+  db: D1Database,
+  tokenHash: string,
+  now: number,
+  windowMs: number,
+): Promise<number> {
+  const windowStart = Math.floor(now / windowMs) * windowMs;
+  const row = await db
+    .prepare(
+      `SELECT "count" AS total FROM rate_limits WHERE token_hash = ? AND window_start = ?`,
+    )
+    .bind(tokenHash, windowStart)
+    .first<{ total: number }>();
+  return row?.total ?? 0;
+}
+
 export async function countDevices(db: D1Database, userId: string): Promise<number> {
   const row = await db
     .prepare("SELECT COUNT(*) AS total FROM devices WHERE user_id = ?")

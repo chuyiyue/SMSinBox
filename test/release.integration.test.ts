@@ -8,7 +8,7 @@ import { bytesToBase64Url, hashPassword, sha256Hex, signHmacHex } from "../src/a
 import { LOGIN_FAILURE_LIMIT, loginRateKey } from "../src/db";
 import { ENCRYPTED_PREFIX } from "../src/crypto";
 import worker from "../src/index";
-import { base32Decode, hotp, totpCounter } from "../src/totp";
+import { base32Decode, hotp, totpCounter, TOTP_FAILURE_LIMIT, TOTP_FAILURE_WINDOW_MS } from "../src/totp";
 
 const ORIGIN = "http://smsinbox.test";
 const ADMIN_USERNAME = "admin";
@@ -1370,6 +1370,77 @@ describe("two-factor login", () => {
     const body = await expectStatus(right, 200);
     expect(body.totp_required).toBe(true);
     expect(String(body.ticket)).toMatch(/^tot_/);
+  }, 20_000);
+
+  it("stops checking codes after the account failure window is spent", async () => {
+    const user = await env.DB.prepare("SELECT id FROM users WHERE username = ?")
+      .bind(ADMIN_USERNAME)
+      .first<{ id: string }>();
+    const userId = String(user?.id);
+    const windowStart = Math.floor(Date.now() / TOTP_FAILURE_WINDOW_MS) * TOTP_FAILURE_WINDOW_MS;
+    await runSql(env.DB, "DELETE FROM rate_limits WHERE token_hash = ?", [`totp-login:${userId}`]);
+    await runSql(
+      env.DB,
+      "INSERT INTO rate_limits (token_hash, window_start, count) VALUES (?, ?, ?)",
+      [`totp-login:${userId}`, windowStart, TOTP_FAILURE_LIMIT + 1],
+    );
+    await resetReplayGuard();
+    const good = await codeFor(state.secret);
+
+    const locked = await call(
+      "/api/v1/auth/login",
+      jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
+    );
+    expect(locked.headers.get("set-cookie")).toBeNull();
+    expect((await expectStatus(locked, 429)).error).toContain("尝试过多");
+    expect(await countOf("SELECT COUNT(*) AS total FROM totp_tickets")).toBe(0);
+
+    const ticket = `tot_${"b".repeat(43)}`;
+    const now = Date.now();
+    await runSql(
+      env.DB,
+      "INSERT INTO totp_tickets (id, user_id, expires_at, attempts, created_at) VALUES (?, ?, ?, 0, ?)",
+      [await sha256Hex(ticket), userId, now + 60_000, now],
+    );
+    const bypass = await call("/api/v1/auth/totp/verify", jsonInit({ ticket, code: good }));
+    expect((await expectStatus(bypass, 429)).error).toContain("尝试过多");
+    const counter = await env.DB.prepare("SELECT totp_last_counter FROM users WHERE id = ?")
+      .bind(userId)
+      .first<{ totp_last_counter: number | null }>();
+    expect(counter?.totp_last_counter).toBeNull();
+
+    await runSql(env.DB, "DELETE FROM rate_limits WHERE token_hash = ?", [`totp-login:${userId}`]);
+    const fresh = await challenge();
+    const verified = await call("/api/v1/auth/totp/verify", jsonInit({ ticket: fresh.ticket, code: good }));
+    await expectStatus(verified, 200);
+  }, 20_000);
+
+  it("throttles password guesses before turning two-factor off", async () => {
+    const user = await env.DB.prepare("SELECT id FROM users WHERE username = ?")
+      .bind(ADMIN_USERNAME)
+      .first<{ id: string }>();
+    const userId = String(user?.id);
+    await runSql(env.DB, "DELETE FROM rate_limits WHERE token_hash = ?", [`totp:${userId}`]);
+    for (let index = 0; index < 5; index += 1) {
+      const wrong = await call(
+        "/api/v1/auth/totp/disable",
+        jsonInit({ password: `wrong-${index}`, code: "000000" }),
+        state.cookie,
+      );
+      expect((await expectStatus(wrong, 401)).error).toBe("密码不正确");
+    }
+    await resetReplayGuard();
+    const blocked = await call(
+      "/api/v1/auth/totp/disable",
+      jsonInit({ password: ADMIN_PASSWORD, code: await codeFor(state.secret) }),
+      state.cookie,
+    );
+    expect((await expectStatus(blocked, 429)).error).toContain("频繁");
+    expect((await expectStatus(await call("/api/v1/auth/totp", {}, state.cookie), 200)).enabled).toBe(true);
+    const counter = await env.DB.prepare("SELECT totp_last_counter FROM users WHERE id = ?")
+      .bind(userId)
+      .first<{ totp_last_counter: number | null }>();
+    expect(counter?.totp_last_counter).toBeNull();
   }, 20_000);
 });
 
