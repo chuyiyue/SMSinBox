@@ -83,6 +83,12 @@ export interface SessionUser {
   expires_at: number;
 }
 
+export interface ListedSession {
+  id: string;
+  created_at: number;
+  expires_at: number;
+}
+
 export interface NotifyChannelRow {
   id: string;
   user_id: string;

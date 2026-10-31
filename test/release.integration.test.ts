@@ -5,6 +5,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Miniflare } from "miniflare";
 import { bytesToBase64Url, hashPassword, sha256Hex, signHmacHex } from "../src/auth";
+import { LOGIN_FAILURE_LIMIT, loginRateKey } from "../src/db";
 import { ENCRYPTED_PREFIX } from "../src/crypto";
 import worker from "../src/index";
 
@@ -784,6 +785,176 @@ describe("single user convergence", () => {
     } finally {
       env.ADMIN_USERNAME = previous;
     }
+  }, 30_000);
+});
+
+describe("admin account", () => {
+  beforeAll(async () => {
+    await resetSchema();
+  });
+
+  it("renames, rotates the password, and revokes sessions without dropping devices", async () => {
+    const first = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
+    const cookieA = sessionCookie(first);
+    const tokenA = /smsinbox_session=([^;]+)/.exec(first.headers.get("set-cookie") ?? "")?.[1] ?? "";
+    const second = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
+    const cookieB = sessionCookie(second);
+
+    const listed = await expectStatus(await call("/api/v1/auth/sessions", {}, cookieA), 200);
+    const sessions = listed.sessions as Array<{ id: string; current: boolean }>;
+    expect(sessions).toHaveLength(2);
+    expect(sessions.filter((item) => item.current)).toHaveLength(1);
+    expect(JSON.stringify(listed)).not.toContain(tokenA);
+    expect(JSON.stringify(listed)).not.toContain("password");
+
+    const loggedOut = await call("/api/v1/auth/logout", { method: "POST" }, cookieB);
+    expect(loggedOut.status).toBe(200);
+    expect(loggedOut.headers.get("set-cookie")).toContain("Max-Age=0");
+    expect((await call("/api/v1/auth/me", {}, cookieB)).status).toBe(401);
+    expect((await call("/api/v1/auth/me", {}, cookieA)).status).toBe(200);
+
+    const third = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
+    const cookieC = sessionCookie(third);
+    const others = await call("/api/v1/auth/sessions/revoke-others", { method: "POST" }, cookieA);
+    expect(others.status).toBe(200);
+    expect((await call("/api/v1/auth/me", {}, cookieC)).status).toBe(401);
+    expect((await expectStatus(await call("/api/v1/auth/sessions", {}, cookieA), 200)).sessions).toEqual([
+      expect.objectContaining({ current: true }),
+    ]);
+
+    const again = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
+    const cookieD = sessionCookie(again);
+    const both = (await expectStatus(await call("/api/v1/auth/sessions", {}, cookieA), 200)).sessions as Array<{
+      id: string;
+      current: boolean;
+    }>;
+    const otherId = both.find((item) => !item.current)?.id ?? "";
+    expect(otherId).toMatch(/^[0-9a-f]{64}$/);
+    const removed = await call(`/api/v1/auth/sessions/${otherId}`, { method: "DELETE" }, cookieA);
+    expect(removed.status).toBe(200);
+    expect(removed.headers.get("set-cookie")).toBeNull();
+    expect((await call("/api/v1/auth/me", {}, cookieD)).status).toBe(401);
+
+    const created = await expectStatus(await call("/api/v1/devices", jsonInit({ name: "仍在" }), cookieA), 200);
+    const deviceToken = String(created.token);
+    const cross = await call(
+      "/api/v1/auth/password",
+      jsonInit({ current_password: ADMIN_PASSWORD, password: "replacement-pass-1" }, { origin: "https://evil.test" }),
+      cookieA,
+    );
+    expect((await expectStatus(cross, 403)).error).toBe("跨站请求被拒绝");
+    const sameSite = await call(
+      "/api/v1/auth/password",
+      jsonInit(
+        { current_password: ADMIN_PASSWORD, password: "replacement-pass-1" },
+        { origin: ORIGIN, "sec-fetch-site": "same-site" },
+      ),
+      cookieA,
+    );
+    expect((await expectStatus(sameSite, 403)).error).toBe("跨站请求被拒绝");
+    const nullOrigin = await call(
+      "/api/v1/auth/username",
+      jsonInit(
+        { current_password: ADMIN_PASSWORD, username: "owner" },
+        { origin: "null", "sec-fetch-site": "same-origin" },
+      ),
+      cookieA,
+    );
+    expect((await expectStatus(nullOrigin, 403)).error).toBe("跨站请求被拒绝");
+
+    const renamed = await expectStatus(
+      await call(
+        "/api/v1/auth/username",
+        jsonInit(
+          { current_password: ADMIN_PASSWORD, username: "owner" },
+          { origin: ORIGIN, "sec-fetch-site": "same-origin" },
+        ),
+        cookieA,
+      ),
+      200,
+    );
+    expect(renamed.user).toMatchObject({ username: "owner", role: "admin" });
+    expect((await expectStatus(await call("/api/v1/auth/me", {}, cookieA), 200)).user).toMatchObject({
+      username: "owner",
+    });
+    expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
+
+    const changed = await call(
+      "/api/v1/auth/password",
+      jsonInit(
+        { current_password: ADMIN_PASSWORD, password: "replacement-pass-1" },
+        { origin: ORIGIN, "sec-fetch-site": "none" },
+      ),
+      cookieA,
+    );
+    expect(changed.status).toBe(200);
+    expect(changed.headers.get("set-cookie")).toContain("Max-Age=0");
+    expect((await call("/api/v1/auth/me", {}, cookieA)).status).toBe(401);
+    expect(await countOf("SELECT COUNT(*) AS total FROM sessions")).toBe(0);
+    const stored = await expectStatus(
+      await call("/api/v1/sms", {
+        method: "POST",
+        headers: { authorization: `Bearer ${deviceToken}`, "content-type": "application/json" },
+        body: JSON.stringify({ from: "10086", content: "验证码 135790", device: "Android" }),
+      }),
+      200,
+    );
+    expect(stored).toMatchObject({ ok: true, code: "135790" });
+
+    const fresh = await call(
+      "/api/v1/auth/login",
+      jsonInit({ username: "owner", password: "replacement-pass-1" }),
+    );
+    expect((await expectStatus(fresh, 200)).user).toMatchObject({ username: "owner", role: "admin" });
+    const oldName = await call(
+      "/api/v1/auth/login",
+      jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
+    );
+    expect((await expectStatus(oldName, 409)).error).toContain("不会再创建管理员");
+    expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
+    expect((await call("/api/v1/users", jsonInit({ username: "mina", password: "mina-pass-1" }))).status).toBe(410);
+
+    const userKey = await loginRateKey("user", "owner");
+    const missed = await call("/api/v1/auth/login", jsonInit({ username: "owner", password: "wrong-pass-1" }));
+    expect(missed.status).toBe(401);
+    const row = await env.DB.prepare("SELECT count FROM rate_limits WHERE token_hash = ?")
+      .bind(userKey)
+      .first<{ count: number }>();
+    expect(row?.count).toBe(1);
+    await runSql(env.DB, "UPDATE rate_limits SET count = ? WHERE token_hash = ?", [LOGIN_FAILURE_LIMIT, userKey]);
+    const limited = await call(
+      "/api/v1/auth/login",
+      jsonInit({ username: "owner", password: "replacement-pass-1" }),
+    );
+    expect((await expectStatus(limited, 429)).error).toBe("登录尝试过多，请稍后再试");
+    expect(limited.headers.get("retry-after")).toBeTruthy();
+    expect(
+      (await env.DB.prepare("SELECT count FROM rate_limits WHERE token_hash = ?").bind(userKey).first<{ count: number }>())
+        ?.count,
+    ).toBe(LOGIN_FAILURE_LIMIT);
+    await runSql(env.DB, "DELETE FROM rate_limits WHERE token_hash = ?", [userKey]);
+    const cleared = await call(
+      "/api/v1/auth/login",
+      jsonInit({ username: "owner", password: "replacement-pass-1" }),
+    );
+    expect(cleared.status).toBe(200);
+    expect(await countOf("SELECT COUNT(*) AS total FROM rate_limits WHERE token_hash = ?", [userKey])).toBe(0);
+  }, 30_000);
+
+  it("lets the configured password replace a hash set through the API", async () => {
+    await resetSchema();
+    const login = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
+    const cookie = sessionCookie(login);
+    const changed = await call(
+      "/api/v1/auth/password",
+      jsonInit({ current_password: ADMIN_PASSWORD, password: "replacement-pass-1" }),
+      cookie,
+    );
+    expect(changed.status).toBe(200);
+    expect((await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: "replacement-pass-1" }))).status).toBe(200);
+    expect((await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }))).status).toBe(200);
+    expect((await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: "replacement-pass-1" }))).status).toBe(401);
+    expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
   }, 30_000);
 });
 

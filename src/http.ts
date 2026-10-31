@@ -37,6 +37,24 @@ export function isCrossSite(request: Request): boolean {
   }
 }
 
+// SameSite=Lax already withholds the cookie on cross-site POST. Account writes
+// also reject Origin: null and any Sec-Fetch-Site other than same-origin or none,
+// so a same-site subdomain cannot change the password. Missing Origin stays
+// allowed for non-browser clients.
+export function rejectsSensitiveWrite(request: Request): boolean {
+  if (isCrossSite(request)) return true;
+  if (request.headers.get("origin") === "null") return true;
+  const site = request.headers.get("sec-fetch-site")?.trim().toLowerCase() ?? "";
+  if (!site) return false;
+  return site !== "same-origin" && site !== "none";
+}
+
+export function clientAddress(request: Request): string | null {
+  const value = request.headers.get("cf-connecting-ip")?.trim() ?? "";
+  if (!value || value.length > 64 || /[\u0000-\u001f\s]/.test(value)) return null;
+  return value;
+}
+
 export async function readLimitedBytes(request: Request, maxBytes: number): Promise<Uint8Array | null> {
   const declared = request.headers.get("content-length");
   if (declared !== null) {

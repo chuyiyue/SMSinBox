@@ -12,13 +12,17 @@ import {
 } from "../auth";
 import { resolveContentKey, revealCode, sealMessage } from "../crypto";
 import {
+  clearLoginFailures,
   countDevices,
   countNotifyChannels,
   countUsers,
   createSession,
   deleteDevice,
   deleteNotifyChannel,
+  deleteOtherUserSessions,
   deleteSession,
+  deleteUserSessionById,
+  deleteUserSessions,
   ensureAdmin,
   findDeviceForUser,
   findMessageByHash,
@@ -26,6 +30,7 @@ import {
   findOwnedDevice,
   findSessionUser,
   findUserByUsername,
+  findUserRecordById,
   getMessage,
   insertDevice,
   insertMessage,
@@ -36,18 +41,26 @@ import {
   listMessages,
   listMessagesSince,
   listNotifyChannels,
+  listUserSessions,
+  LOGIN_FAILURE_LIMIT,
+  LOGIN_IP_FAILURE_LIMIT,
+  loginAttemptCount,
+  loginRateKey,
+  loginRetryAfterSeconds,
   MAX_DEVICES,
   mergeIntoAdmin,
   pushState,
+  recordLoginFailure,
   replaceDevicePushToken,
   revokeDevicePush,
   setNotifyChannelEnabled,
   touchDevice,
   updatePasswordHash,
+  updateUsername,
 } from "../db";
 import { dedupHash } from "../dedup";
 import { extractCode } from "../extract";
-import { isCrossSite, json, readCookie, readLimitedBytes } from "../http";
+import { clientAddress, isCrossSite, json, readCookie, readLimitedBytes, rejectsSensitiveWrite } from "../http";
 import { errorText, logError, logInfo } from "../log";
 import {
   channelFromRow,
@@ -64,9 +77,11 @@ import { buildShortcut, shortcutFilename, type ShortcutVariant } from "../shortc
 import { buildTestSms } from "./sms";
 import { openSmtpSocket } from "../smtp";
 import { createInboxStream, resolveCursor, SSE_BATCH } from "../sse";
-import type { SessionUser } from "../types";
+import type { SessionUser, UserRecord } from "../types";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const USERNAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const SESSION_ID_RE = /^[0-9a-f]{64}$/;
 
 type WaitCtx = { waitUntil(promise: Promise<unknown>): void };
 
@@ -88,6 +103,27 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
   if (path === "/api/v1/auth/me") {
     if (method !== "GET") return methodNotAllowed("GET");
     return me(request, env);
+  }
+  if (path === "/api/v1/auth/username") {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return changeUsername(request, env);
+  }
+  if (path === "/api/v1/auth/password") {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return changePassword(request, env);
+  }
+  if (path === "/api/v1/auth/sessions") {
+    if (method !== "GET") return methodNotAllowed("GET");
+    return sessions(request, env);
+  }
+  if (path === "/api/v1/auth/sessions/revoke-others") {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return revokeOtherSessions(request, env);
+  }
+  const sessionMatch = /^\/api\/v1\/auth\/sessions\/([^/]+)$/.exec(path);
+  if (sessionMatch?.[1]) {
+    if (method !== "DELETE") return methodNotAllowed("DELETE");
+    return revokeSession(request, env, sessionMatch[1]);
   }
   if (path === "/api/v1/events") {
     if (method !== "GET") return methodNotAllowed("GET");
@@ -166,6 +202,12 @@ async function login(request: Request, env: Env): Promise<Response> {
     }
   }
 
+  const now = Date.now();
+  const userKey = await loginRateKey("user", credentials.username);
+  const ip = clientAddress(request);
+  const ipKey = ip ? await loginRateKey("ip", ip) : null;
+  if (await loginIsLimited(env, userKey, ipKey, now)) return loginLimited(now);
+
   const existing = await findUserByUsername(env.DB, credentials.username);
   const passwordOk = await verifyPassword(credentials.password, existing?.password_hash ?? "");
   const adminOk =
@@ -173,7 +215,11 @@ async function login(request: Request, env: Env): Promise<Response> {
     adminPassword.length > 0 &&
     credentials.username === adminUsername &&
     (await secretsEqual(credentials.password, adminPassword));
-  if (!passwordOk && !adminOk) return json({ ok: false, error: "用户名或密码错误" }, 401);
+  if (!passwordOk && !adminOk) {
+    await recordLoginFailure(env.DB, userKey, now);
+    if (ipKey) await recordLoginFailure(env.DB, ipKey, now);
+    return json({ ok: false, error: "用户名或密码错误" }, 401);
+  }
 
   let user = existing;
   if (adminOk && !user) {
@@ -214,8 +260,10 @@ async function login(request: Request, env: Env): Promise<Response> {
     await mergeIntoAdmin(env.DB, user);
   }
 
+  await clearLoginFailures(env.DB, userKey, now);
+  if (ipKey) await clearLoginFailures(env.DB, ipKey, now);
+
   const token = randomToken();
-  const now = Date.now();
   await createSession(env.DB, {
     id: await sha256Hex(token),
     userId: user.id,
@@ -241,6 +289,86 @@ async function me(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   return json({ ok: true, user: publicUser(user) });
+}
+
+async function changeUsername(request: Request, env: Env): Promise<Response> {
+  const user = await requireSensitiveUser(request, env);
+  if (user instanceof Response) return user;
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const parsed = readUsernameChange(body.value);
+  if ("error" in parsed) return json({ ok: false, error: parsed.error }, 400);
+  const check = await checkCurrentPassword(env, user.id, parsed.currentPassword);
+  if (check.status !== "ok") return passwordCheckResponse(check.status);
+  if (parsed.username === check.user.username) return json({ ok: true, user: publicUser(check.user) });
+  try {
+    await updateUsername(env.DB, user.id, parsed.username);
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    return json({ ok: false, error: "用户名已被占用" }, 409);
+  }
+  logInfo({ message: "username_changed", user_id: user.id });
+  return json({ ok: true, user: publicUser({ ...check.user, username: parsed.username }) });
+}
+
+async function changePassword(request: Request, env: Env): Promise<Response> {
+  const user = await requireSensitiveUser(request, env);
+  if (user instanceof Response) return user;
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const parsed = readPasswordChange(body.value);
+  if ("error" in parsed) return json({ ok: false, error: parsed.error }, 400);
+  const check = await checkCurrentPassword(env, user.id, parsed.currentPassword);
+  if (check.status !== "ok") return passwordCheckResponse(check.status);
+  if (parsed.password === parsed.currentPassword) {
+    return json({ ok: false, error: "新密码不能与当前密码相同" }, 400);
+  }
+  await updatePasswordHash(env.DB, user.id, await hashPassword(parsed.password));
+  await deleteUserSessions(env.DB, user.id);
+  logInfo({ message: "password_changed", user_id: user.id });
+  const headers = new Headers();
+  headers.set("set-cookie", sessionCookieHeader("", requestIsSecure(request), 0));
+  return json({ ok: true }, 200, headers);
+}
+
+async function sessions(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const now = Date.now();
+  const rows = await listUserSessions(env.DB, user.id, now);
+  return json({
+    ok: true,
+    sessions: rows.map((row) => ({
+      id: row.id,
+      created_at: row.created_at,
+      expires_at: row.expires_at,
+      current: row.id === user.session_id,
+    })),
+  });
+}
+
+async function revokeOtherSessions(request: Request, env: Env): Promise<Response> {
+  const user = await requireSensitiveUser(request, env);
+  if (user instanceof Response) return user;
+  const bytes = await readLimitedBytes(request, 8 * 1024);
+  if (bytes === null) return json({ ok: false, error: "请求体过大" }, 413);
+  await deleteOtherUserSessions(env.DB, user.id, user.session_id);
+  logInfo({ message: "sessions_revoked", user_id: user.id });
+  return json({ ok: true });
+}
+
+async function revokeSession(request: Request, env: Env, rawId: string): Promise<Response> {
+  const user = await requireSensitiveUser(request, env);
+  if (user instanceof Response) return user;
+  const id = decodePart(rawId)?.toLowerCase() ?? "";
+  if (!SESSION_ID_RE.test(id)) return json({ ok: false, error: "会话编号无效" }, 400);
+  const removed = await deleteUserSessionById(env.DB, user.id, id);
+  if (!removed) return json({ ok: false, error: "会话不存在" }, 404);
+  logInfo({ message: "session_revoked", user_id: user.id });
+  if (id !== user.session_id) return json({ ok: true });
+  const headers = new Headers();
+  headers.set("set-cookie", sessionCookieHeader("", requestIsSecure(request), 0));
+  return json({ ok: true }, 200, headers);
 }
 
 async function events(request: Request, env: Env, url: URL): Promise<Response> {
@@ -634,7 +762,10 @@ function publicUser(user: { id: string; username: string; role?: string }) {
   };
 }
 
-async function requireUser(request: Request, env: Env): Promise<SessionUser | Response> {
+type ActiveUser = SessionUser & { session_id: string };
+type PasswordCheck = "ok" | "bad" | "limited" | "missing";
+
+async function requireUser(request: Request, env: Env): Promise<ActiveUser | Response> {
   if (isCrossSite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const token = readCookie(request.headers.get("cookie"), SESSION_COOKIE);
   if (!token) return json({ ok: false, error: "未登录" }, 401);
@@ -644,7 +775,52 @@ async function requireUser(request: Request, env: Env): Promise<SessionUser | Re
     if (user) await deleteSession(env.DB, sessionHash);
     return json({ ok: false, error: "未登录" }, 401);
   }
+  return { ...user, session_id: sessionHash };
+}
+
+async function requireSensitiveUser(request: Request, env: Env): Promise<ActiveUser | Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   return user;
+}
+
+async function loginIsLimited(env: Env, userKey: string, ipKey: string | null, now: number): Promise<boolean> {
+  if ((await loginAttemptCount(env.DB, userKey, now)) >= LOGIN_FAILURE_LIMIT) return true;
+  if (!ipKey) return false;
+  return (await loginAttemptCount(env.DB, ipKey, now)) >= LOGIN_IP_FAILURE_LIMIT;
+}
+
+function loginLimited(now: number): Response {
+  return json({ ok: false, error: "登录尝试过多，请稍后再试" }, 429, {
+    "retry-after": String(loginRetryAfterSeconds(now)),
+  });
+}
+
+async function checkCurrentPassword(env: Env, userId: string, password: string): Promise<
+  { status: "ok"; user: UserRecord } | { status: Exclude<PasswordCheck, "ok"> }
+> {
+  const now = Date.now();
+  const key = await loginRateKey("account", userId);
+  if ((await loginAttemptCount(env.DB, key, now)) >= LOGIN_FAILURE_LIMIT) return { status: "limited" };
+  const record = await findUserRecordById(env.DB, userId);
+  if (!record) return { status: "missing" };
+  if (!(await verifyPassword(password, record.password_hash))) {
+    await recordLoginFailure(env.DB, key, now);
+    return { status: "bad" };
+  }
+  await clearLoginFailures(env.DB, key, now);
+  return { status: "ok", user: record };
+}
+
+function passwordCheckResponse(status: Exclude<PasswordCheck, "ok">): Response {
+  if (status === "limited") {
+    return json({ ok: false, error: "尝试过多，请稍后再试" }, 429, {
+      "retry-after": String(loginRetryAfterSeconds(Date.now())),
+    });
+  }
+  if (status === "missing") return json({ ok: false, error: "未登录" }, 401);
+  return json({ ok: false, error: "当前密码不正确" }, 401);
 }
 
 async function readJson(
@@ -669,6 +845,41 @@ function readCredentials(value: unknown): { username: string; password: string }
     return null;
   }
   return { username, password: record.password };
+}
+
+function readCurrentPassword(record: Record<string, unknown>): string | { error: string } {
+  if (typeof record.current_password !== "string" || record.current_password.length === 0) {
+    return { error: "请填写当前密码" };
+  }
+  if (record.current_password.length > 256) return { error: "当前密码需要 1 到 256 个字符" };
+  return record.current_password;
+}
+
+function readUsernameChange(value: unknown): { currentPassword: string; username: string } | { error: string } {
+  if (!value || typeof value !== "object") return { error: "请求体无效" };
+  const record = value as Record<string, unknown>;
+  const currentPassword = readCurrentPassword(record);
+  if (typeof currentPassword !== "string") return currentPassword;
+  if (typeof record.username !== "string") return { error: "请填写用户名" };
+  const username = record.username.trim();
+  if (!USERNAME_RE.test(username)) {
+    return { error: "用户名需以字母或数字开头，只能包含字母、数字、. _ -，最长 64" };
+  }
+  return { currentPassword, username };
+}
+
+function readPasswordChange(value: unknown): { currentPassword: string; password: string } | { error: string } {
+  if (!value || typeof value !== "object") return { error: "请求体无效" };
+  const record = value as Record<string, unknown>;
+  const currentPassword = readCurrentPassword(record);
+  if (typeof currentPassword !== "string") return currentPassword;
+  if (typeof record.password !== "string" || record.password.length === 0) {
+    return { error: "请填写新密码" };
+  }
+  if (record.password.length < 8 || record.password.length > 256) {
+    return { error: "新密码需要 8 到 256 个字符" };
+  }
+  return { currentPassword, password: record.password };
 }
 
 function readDeviceBody(value: unknown): { name: string; secret: string | null } | { error: string } {

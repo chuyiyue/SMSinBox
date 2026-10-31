@@ -225,7 +225,9 @@ describe("single admin", () => {
     const deviceUpdate = recovery.calls.find((call) => call.sql.startsWith("UPDATE devices"));
     expect(deviceUpdate?.args).toEqual([ADMIN_ID, ADMIN_ID]);
     expect(recovery.calls.some((call) => call.sql.includes("DELETE FROM messages"))).toBe(false);
-    expect(recovery.calls.some((call) => call.sql.includes("token_hash"))).toBe(false);
+    expect(
+      recovery.calls.some((call) => call.sql.includes("token_hash") && !call.sql.includes("rate_limits")),
+    ).toBe(false);
     expect(recovery.calls.some((call) => call.sql.includes("push_token_hash"))).toBe(false);
     const marker = recovery.calls.find((call) => call.sql.includes("schema_meta"));
     expect(marker?.args[0]).toBe(SINGLE_USER_MERGED_KEY);

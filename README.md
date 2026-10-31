@@ -45,7 +45,7 @@ openssl rand -base64 32 | npx wrangler secret put CONTENT_KEY
 
 更换或清空这个密钥之后，之前加密的短信无法再解密，收件箱会显示无法解密。部署含 `0003_message_encryption.sql`、`0004_users.sql`、`0005_device_push.sql` 或 `0006_single_user.sql` 的版本后，同样需要再执行一次数据库迁移。读取推送链接列的 Worker 必须在 `0005` 应用之后部署。顺序、冒烟和回滚见 [docs/RELEASE_IOS_V2.md](docs/RELEASE_IOS_V2.md)。
 
-之后如果改了 `ADMIN_PASSWORD`，用新密码再登录一次即可。程序会在用户名与密钥一致时更新保存的口令哈希，并把这个账号设为管理员、取消停用。只改密钥、还没用新密码登录之前，旧密码仍然有效。改 `ADMIN_USERNAME` 不会再创建第二个管理员。密钥里的用户名必须就是要留下的那个账号；对不上时登录会停下，不会按创建时间挑一个管理员。
+之后如果改了 `ADMIN_PASSWORD`，用新密码再登录一次即可。程序会在用户名与密钥一致时更新保存的口令哈希，并把这个账号设为管理员、取消停用。只改密钥、还没用新密码登录之前，旧密码仍然有效。改 `ADMIN_USERNAME` 不会再创建第二个管理员。密钥里的用户名必须就是要留下的那个账号；对不上时登录会停下，不会按创建时间挑一个管理员。登录之后也可以用下面的账号接口改用户名和密码。
 
 库里如果还有其他用户，用这对密钥成功登录一次即可归并。顺序是：先把他们的设备和通知渠道改挂到这个管理员，再删掉他们的会话和用户行。短信、设备 token、推送链接和 `CONTENT_KEY` 都保留。归并不走删除用户的级联，避免把短信一起删掉。旧的成员 Cookie 不会改挂到管理员身上。请先执行含 `0006_single_user.sql` 的迁移再登录。`0006` 只增加 `schema_meta`，用来记下已经归并过；它自己不猜管理员，也不删数据。合并之后如果设备超过 50 台，或通知渠道超过 10 个，已有记录都留着，只是暂时不能再新建，直到删到上限以内。
 
@@ -59,7 +59,7 @@ npm run db:migrate:local
 npm run dev
 ```
 
-打开 Wrangler 打印的本地地址。本地是 HTTP，会话 Cookie 不会带 `Secure`；部署到 Cloudflare 之后是 HTTPS，Cookie 会带 `Secure` 和 `HttpOnly`。
+打开 Wrangler 打印的本地地址。本地是 HTTP，会话 Cookie 不会带 `Secure`；部署到 Cloudflare 之后是 HTTPS，Cookie 会带 `Secure` 和 `HttpOnly`。Cookie 的其它属性和跨站规则见「Cookie 与跨站请求」。
 
 ## 接收短信
 
@@ -137,13 +137,62 @@ iOS 27 及以上从导入的快捷指令展开触发器，打开自动化开关�
 
 渠道配置写在你自己的 D1 里。列表接口只返回掩码。日志不记录短信正文、bot token、Webhook key 或邮箱密码。最多 10 个渠道。部署新版本后执行一次 `npx wrangler d1 migrations apply smsinbox --remote`（本地用 `--local`），把 `0002_notify.sql` 应用到数据库。
 
+## 管理员账号
+
+没有公开注册，也不能创建第二个管理员。`POST /api/v1/users` 以及按 id 修改、删除用户仍然返回 410。下面的接口只改当前登录的这一位管理员，本批没有新的数据库迁移。`/users.html` 仍是旧的用户管理壳，系统管理四区留给后续页面；这些接口可以直接调用。
+
+改用户名和改密码都要带当前密码。当前密码对的是库里的口令哈希。连续 8 次不对，同一个 15 分钟窗口内返回 429，错误是「尝试过多，请稍后再试」，并带 `Retry-After`。对上一次会清掉这个计数。
+
+```http
+POST /api/v1/auth/username
+Content-Type: application/json
+Cookie: smsinbox_session=...
+
+{"current_password":"当前密码","username":"new-name"}
+```
+
+用户名以字母或数字开头，其余只能是字母、数字、`.`、`_`、`-`，最长 64。改名只更新这一行，不新开账号，也不撤销会话。名字被占用时返回 409。
+
+```http
+POST /api/v1/auth/password
+Content-Type: application/json
+Cookie: smsinbox_session=...
+
+{"current_password":"当前密码","password":"至少 8 位的新密码"}
+```
+
+新密码长度为 8 到 256，且不能与当前密码相同。成功后删除该用户的全部会话，包括当前这次，并清掉 Cookie。要用新密码重新登录。
+
+用户名仍然等于 `ADMIN_USERNAME` 时，用环境变量里的 `ADMIN_PASSWORD` 登录会把库里的哈希写回这个密钥。这是忘记网页密码时的恢复办法。要让接口里设的新密码一直有效，请把 `ADMIN_PASSWORD` 更新成同一个值。用户名改掉之后，再用旧的 `ADMIN_USERNAME` 登录不会创建第二个管理员。
+
+| 方法 | 路径 | 作用 |
+|---|---|---|
+| GET | `/api/v1/auth/sessions` | 未过期会话。`current: true` 是这次请求。`id` 是 Cookie 的 SHA-256，响应里只有这个哈希 |
+| POST | `/api/v1/auth/sessions/revoke-others` | 撤销其它会话，保留当前。请求体可空 |
+| DELETE | `/api/v1/auth/sessions/:id` | 撤销指定会话。撤到当前会话时一并清掉 Cookie |
+| POST | `/api/v1/auth/logout` | 只删除当前会话并清掉 Cookie |
+
+登录防爆破写在同一张 `rate_limits` 表里，窗口是 15 分钟。短信上报仍按设备每分钟 60 次单独计算。同一个用户名密码错误 8 次，或同一个 `CF-Connecting-IP` 错误 30 次，返回 429「登录尝试过多，请稍后再试」。成功登录会清掉当前窗口里这两个计数。键是 `login:user:`、`login:ip:` 或账号口令的 `login:account:` 加上 SHA-256，不存明文用户名，和设备 token 的键分开。不读 `X-Forwarded-For`。跨站请求和还没填用户名密码的请求不计数。
+
+### Cookie 与跨站请求
+
+会话 Cookie 名是 `smsinbox_session`：`HttpOnly`、`Path=/`、不设置 `Domain`（只发给当前主机）、`SameSite=Lax`。HTTPS 加 `Secure`。有效期 7 天。
+
+`SameSite=Lax` 会在跨站 POST 时不带 Cookie，所以别的网站提交的登录、改密、撤会话带不来会话。不用 `Strict`，是为了从外部链接点进收件箱时，顶层导航仍然带着登录态。
+
+会改状态或要登录才能读的接口用 `isCrossSite`：`Sec-Fetch-Site` 为 `cross-site`，或者带了 `Origin` 且和请求源不一致，返回 403「跨站请求被拒绝」。没有 `Origin` 的非浏览器客户端可以调用。短信上报不读 Cookie，也不做这项检查。
+
+改用户名、改密码、撤销指定会话、撤销其它会话再严一点：`Origin: null` 直接拒绝；请求里如果有 `Sec-Fetch-Site`，只接受 `same-origin` 和 `none`，`same-site` 也拒绝。没有另发 CSRF token。这挡的是浏览器跨站请求。已经在本站页面里的脚本仍能带 Cookie 调用。
+
+`POST /api/v1/auth/logout` 仍只按原来的 `isCrossSite` 拒绝跨站。
+
 ## 网页
 
 - `/login.html`：用户名和密码登录。居中卡片。
 - `/`：收件箱。左侧固定深色侧边栏，右侧浅色内容区。新短信在前，可按设备、号码和关键词筛选；侧边栏设备列表和顶部搜索也会筛选。页面通过 `GET /api/v1/events` 的 SSE 接收新短信：服务端按 `created_at` 和短信 id 记住游标，大约每 2 秒查一次 D1，连接大约保持 25 秒后主动结束，浏览器会带上 `Last-Event-ID` 自动重连。标签页切到后台时断开。另外每 30 秒补拉一次第一页，避免重连间隙漏消息。列表是行式的，验证码 chip 可一键复制，点击行在桌面展开详情、在窄屏打开抽屉。
 - `/devices.html`：设备卡片显示名称、平台（来自最近一条短信的 `device` 字段）、推送状态、设备 ID、最近一次短信接收时间，以及快捷指令配置状态。创建或轮换后，黄框里的 Bearer token 和推送链接可以一键复制；刷新后不再显示。数据库只存哈希，没有再显示明文的入口，丢掉推送链接就轮换。生成、轮换和撤销都会先确认。页面保留 iOS 安装说明，并给出 iCloud 分享链接与未签名备用下载。每个设备可以「发送测试消息」，把一条带验证码 `654321` 的短信写入收件箱。删除设备会同时删除该设备的短信。
 - `/notify.html`：给当前用户添加 Telegram、企业微信群机器人、Bark 和邮件推送渠道。
-- `/users.html`：用户列表、创建、改角色、停用和删除的接口已关闭，调用会返回 410。页面文件还在，系统管理改版不在这一步。改密码仍用上面的 `ADMIN_PASSWORD` 再登录一次。
+- `/users.html`：用户列表、创建、改角色、停用和删除的接口已关闭，调用会返回 410。页面文件还在，系统管理四区不在这一步。改用户名、改密码和撤销会话用「管理员账号」里的接口。
 
 关键词搜索用 SQL `LIKE`。D1 的 LIKE 模式最长 50 字节，超出会返回错误。
 
@@ -162,6 +211,7 @@ iOS 27 及以上从导入的快捷指令展开触发器，打开自动化开关�
 - Workers 免费套餐大约每天 10 万次请求。收件箱的 SSE 大约每 25 秒重新连接一次，页面一直开着时一天大约 3500 次请求。每次连接里大约每 2 秒读一次 D1，单页大约每天 4 万次读取。D1 免费套餐的读取额度大约是每天 500 万行。
 - D1 免费套餐大约每天写入 10 万行、读取 500 万行，单个数据库大约 500 MB。每条新短信大约写入 3 行（限流计数、短信、设备最后上报时间），所以实际能接收的条数明显少于 10 万。超出后查询会失败，直到 UTC 零点重置。
 - 没有公开注册，也没有第二个管理员。`ADMIN_USERNAME` / `ADMIN_PASSWORD` 只引导或认领唯一管理员。业务查询仍按 `user_id` 过滤，归并之后这些行都属于这个管理员。
+- 登录和当前密码各有 15 分钟的失败上限（用户名 8 次，来源 IP 30 次）。成功登录会清掉当前窗口的登录失败计数。窗口按 15 分钟对齐，过期行随每天的清理任务在两天后删掉。
 
 ## 开发
 
@@ -170,4 +220,4 @@ npm test
 npx tsc --noEmit
 ```
 
-测试覆盖验证码提取、上报内容解析、去重哈希、登录口令 / token / HMAC，以及推送、加密、快捷指令和单用户归并。`test/release.integration.test.ts` 再用本地 D1 跑迁移和整条上报链路，不连接生产。改了 `wrangler.jsonc` 的绑定后，运行 `npm run cf-typegen` 重新生成 `worker-configuration.d.ts`。
+测试覆盖验证码提取、上报内容解析、去重哈希、登录口令 / token / HMAC、登录限流、改用户名改密码、会话撤销，以及推送、加密、快捷指令和单用户归并。`test/release.integration.test.ts` 再用本地 D1 跑迁移和整条上报链路，不连接生产。改了 `wrangler.jsonc` 的绑定后，运行 `npm run cf-typegen` 重新生成 `worker-configuration.d.ts`。

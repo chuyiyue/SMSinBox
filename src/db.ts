@@ -1,3 +1,4 @@
+import { sha256Hex } from "./auth";
 import { revealCode, revealRaw, revealText, type ContentKey } from "./crypto";
 import { logInfo } from "./log";
 import { readRawMeta } from "./parse";
@@ -5,6 +6,7 @@ import { messageMatchesQuery } from "./search";
 import type {
   DeviceRecord,
   DeviceView,
+  ListedSession,
   MessageRecord,
   MessageView,
   NotifyChannelRow,
@@ -52,6 +54,15 @@ export async function findUserById(db: D1Database, userId: string): Promise<User
     .first<UserAccount>();
 }
 
+export async function findUserRecordById(db: D1Database, userId: string): Promise<UserRecord | null> {
+  return db
+    .prepare(
+      "SELECT id, username, password_hash, role, disabled_at, created_at FROM users WHERE id = ?",
+    )
+    .bind(userId)
+    .first<UserRecord>();
+}
+
 export async function listUsers(db: D1Database): Promise<UserAccount[]> {
   const result = await db
     .prepare("SELECT id, username, role, disabled_at, created_at FROM users ORDER BY created_at ASC")
@@ -85,6 +96,10 @@ export async function insertUser(
 
 export async function updatePasswordHash(db: D1Database, userId: string, passwordHash: string): Promise<void> {
   await db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(passwordHash, userId).run();
+}
+
+export async function updateUsername(db: D1Database, userId: string, username: string): Promise<void> {
+  await db.prepare("UPDATE users SET username = ? WHERE id = ?").bind(username, userId).run();
 }
 
 export async function ensureAdmin(db: D1Database, userId: string): Promise<void> {
@@ -190,6 +205,31 @@ export async function deleteSession(db: D1Database, sessionHash: string): Promis
   await db.prepare("DELETE FROM sessions WHERE id = ?").bind(sessionHash).run();
 }
 
+export async function listUserSessions(db: D1Database, userId: string, now: number): Promise<ListedSession[]> {
+  const result = await db
+    .prepare(
+      `SELECT id, created_at, expires_at
+       FROM sessions
+       WHERE user_id = ? AND expires_at > ?
+       ORDER BY created_at DESC, id ASC`,
+    )
+    .bind(userId, now)
+    .all<ListedSession>();
+  return result.results;
+}
+
+export async function deleteUserSessionById(db: D1Database, userId: string, sessionId: string): Promise<boolean> {
+  const result = await db
+    .prepare("DELETE FROM sessions WHERE user_id = ? AND id = ?")
+    .bind(userId, sessionId)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+export async function deleteOtherUserSessions(db: D1Database, userId: string, keepSessionId: string): Promise<void> {
+  await db.prepare("DELETE FROM sessions WHERE user_id = ? AND id <> ?").bind(userId, keepSessionId).run();
+}
+
 export function pushState(hash: string | null | undefined, revokedAt: number | null | undefined): PushState {
   if (hash == null || hash === "") return "none";
   if (revokedAt != null) return "revoked";
@@ -233,6 +273,54 @@ export async function consumeRateLimit(db: D1Database, tokenHash: string, now: n
     .bind(tokenHash, windowStart)
     .first<{ count: number }>();
   return row?.count ?? 1;
+}
+
+// Login and current-password failures share rate_limits with ingest.
+// Keys are `login:user|ip|account:` plus a SHA-256, so they cannot collide
+// with a device token hash. The window is 15 minutes, not one minute.
+export const LOGIN_FAILURE_LIMIT = 8;
+export const LOGIN_IP_FAILURE_LIMIT = 30;
+export const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+
+export function loginWindowStart(now: number): number {
+  return Math.floor(now / LOGIN_WINDOW_MS) * LOGIN_WINDOW_MS;
+}
+
+export function loginRetryAfterSeconds(now: number): number {
+  const end = loginWindowStart(now) + LOGIN_WINDOW_MS;
+  return Math.max(1, Math.ceil((end - now) / 1000));
+}
+
+export async function loginRateKey(kind: "user" | "ip" | "account", value: string): Promise<string> {
+  return `login:${kind}:${await sha256Hex(value)}`;
+}
+
+export async function loginAttemptCount(db: D1Database, key: string, now: number): Promise<number> {
+  const row = await db
+    .prepare("SELECT count FROM rate_limits WHERE token_hash = ? AND window_start = ?")
+    .bind(key, loginWindowStart(now))
+    .first<{ count: number }>();
+  return row?.count ?? 0;
+}
+
+export async function recordLoginFailure(db: D1Database, key: string, now: number): Promise<number> {
+  const row = await db
+    .prepare(
+      `INSERT INTO rate_limits (token_hash, window_start, count)
+       VALUES (?, ?, 1)
+       ON CONFLICT(token_hash, window_start) DO UPDATE SET count = count + 1
+       RETURNING count`,
+    )
+    .bind(key, loginWindowStart(now))
+    .first<{ count: number }>();
+  return row?.count ?? 1;
+}
+
+export async function clearLoginFailures(db: D1Database, key: string, now: number): Promise<void> {
+  await db
+    .prepare("DELETE FROM rate_limits WHERE token_hash = ? AND window_start = ?")
+    .bind(key, loginWindowStart(now))
+    .run();
 }
 
 export async function countDevices(db: D1Database, userId: string): Promise<number> {

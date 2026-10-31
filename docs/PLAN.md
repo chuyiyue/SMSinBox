@@ -52,3 +52,20 @@ SSE 实时、Telegram/企业微信/Bark/邮件推送、AES-GCM 加密存储、�
 
 ## 已知限制（写进 README）
 iOS 只能转发匹配快捷指令触发条件的短信，需开机联网、重启后解锁一次、无 MMS、需关闭“运行前确认”。免费套餐 D1 写入约 10 万/天。
+
+## 账号与会话（批次 3）
+
+仍是一位管理员。不开放注册，不创建第二个管理员，`/api/v1/users` 保持 410。没有新的 migration。
+
+| 方法 | 路径 | 用途 | 鉴权 |
+|---|---|---|---|
+| POST | /api/v1/auth/username | 改用户名，必须带当前密码 | 管理员会话，敏感写 |
+| POST | /api/v1/auth/password | 改密码，必须带当前密码；成功后撤销全部会话 | 管理员会话，敏感写 |
+| GET | /api/v1/auth/sessions | 列出会话，`current` 标出当前 | 管理员会话 |
+| POST | /api/v1/auth/sessions/revoke-others | 撤销其它会话 | 管理员会话，敏感写 |
+| DELETE | /api/v1/auth/sessions/:id | 撤销指定会话 | 管理员会话，敏感写 |
+
+- 登录失败写入已有 `rate_limits`：用户名 8 次 / 15 分钟，`CF-Connecting-IP` 30 次 / 15 分钟，超出 429。成功登录清掉当前窗口。改当前密码另有 8 次 / 15 分钟。
+- Cookie：`HttpOnly`、`Path=/`、主机级（无 `Domain`）、`SameSite=Lax`，HTTPS 加 `Secure`，7 天。跨站 POST 不带 Cookie。
+- 敏感写在 `isCrossSite` 之外，还拒绝 `Origin: null` 和除 `same-origin` / `none` 以外的 `Sec-Fetch-Site`。没有单独的 CSRF token。`logout` 仍只做原来的跨站拒绝，并且只删当前会话。
+- 用户名仍等于 `ADMIN_USERNAME` 时，用 `ADMIN_PASSWORD` 登录会把库里的哈希写回该密钥。

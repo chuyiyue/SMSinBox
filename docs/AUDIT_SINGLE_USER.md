@@ -121,6 +121,8 @@ Cookie：`HttpOnly`、`Path=/`、`SameSite=Lax`、HTTPS 下 `Secure`；会话 TT
 | 会话列表 / 撤其它会话 | **无**（仅当前 logout；改密清该用户全部 session） |
 | iOS 快捷指令 / 设备推送链接 | **已有，必须保留**（0005、`shortcut.ts`、devices 页推送 UI）；收敛时不得轮转 token / 改 `CONTENT_KEY` |
 
+批次 3 已补登录限流、改用户名、改密码和会话撤销，见 §7。TOTP 仍留给批次 4。
+
 ---
 
 ## 3. 单用户迁移：风险与步骤
@@ -185,6 +187,8 @@ Cookie：`HttpOnly`、`Path=/`、`SameSite=Lax`、HTTPS 下 `Secure`；会话 TT
 
 改用户名 / 改密码（验当前密码）/ 改密撤会话 / 登录限流防爆破 / Cookie 与敏感操作 CSRF 加固 / 会话列表与撤销。**不允许**公开注册或第二管理员。
 
+**状态**：已在 `stage2-admin` 落地，无新 migration。接口、限流和 Cookie 以 §7 为准。上面 §2.2–§2.5 仍是批次 0 对 `452e255` 的记录。
+
 ### 批次 4 — TOTP 2FA（P2）
 
 增量列（如加密 `totp_secret`、`totp_enabled_at`、恢复码哈希）；绑定须先验码；关闭须密码+TOTP；恢复码单次失效；防重放与尝试验流；密钥不进日志。可复用 `CONTENT_KEY` 思路加密 secret（实现时再定）。
@@ -215,4 +219,25 @@ Cookie：`HttpOnly`、`Path=/`、`SameSite=Lax`、HTTPS 下 `Secure`；会话 TT
 
 ---
 
-*文档结束。源码结论均已在 `452e255` worktree 核对；若 `main` 后续提交改变侧栏加载函数名，以最新文件为准，根因（MPA 整页重建 + 空容器后填）不变。*
+## 7. 批次 3 落地（管理员账号）
+
+对照 §2.5 的缺口。本批不实现 TOTP，也不把 `users.html` 改成系统管理四区。没有新的 SQL migration：会话主键仍是 Cookie 的 SHA-256，登录失败计数复用 `rate_limits`。
+
+| 原缺口 | 现在 |
+|--------|------|
+| 改用户名 | `POST /api/v1/auth/username`，必须带 `current_password`。只更新当前行，不 `INSERT` 用户 |
+| 改密码 | `POST /api/v1/auth/password`。验当前密码后 `updatePasswordHash`，再 `deleteUserSessions` 撤销全部会话并清 Cookie |
+| 会话列表 / 撤销 | `GET /api/v1/auth/sessions`（`current: true` 为本次）、`POST /api/v1/auth/sessions/revoke-others`、`DELETE /api/v1/auth/sessions/:id` |
+| 登录限流 | 用户名 8 次 / 15 分钟，`CF-Connecting-IP` 30 次 / 15 分钟，429「登录尝试过多，请稍后再试」。成功登录删除当前窗口的计数 |
+| 公开注册 / 第二管理员 | 仍无。`/api/v1/users` 保持 410。配置用户名对不上时不会再插入管理员 |
+| TOTP | 仍无，留给批次 4 |
+
+`logout` 不变：只删当前会话并清 Cookie，跨站仍走原来的 `isCrossSite`。
+
+Cookie 保持 `HttpOnly`、`Path=/`、无 `Domain`、`SameSite=Lax`，HTTPS 加 `Secure`，7 天。Lax 让跨站 POST 带不走 Cookie，同时允许从外部链接进入收件箱。敏感写（改名、改密、撤会话）在 `isCrossSite` 之外拒绝 `Origin: null`，并且只接受 `Sec-Fetch-Site: same-origin` 或 `none`。没有单独的 CSRF token。
+
+当前密码另有 `login:account:` 计数，8 次不对则 429「尝试过多，请稍后再试」。用户名仍等于 `ADMIN_USERNAME` 时，用环境变量 `ADMIN_PASSWORD` 登录会把库里的哈希写回该密钥。说明见 README「管理员账号」和「Cookie 与跨站请求」。
+
+---
+
+*批次 0 的源码结论在 `452e255` 核对。侧栏根因（MPA 整页重建 + 空容器后填）在后来的持久壳落地后再以批次 1 为准。§7 只补批次 3 的账号行为。*
