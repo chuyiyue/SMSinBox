@@ -78,13 +78,27 @@
           </div>
           <button id="live-banner" class="banner" type="button" hidden>有新短信，点击查看</button>
           <p id="inbox-error" class="error" hidden></p>
-          <div id="list" class="list" aria-live="polite"></div>
+          <div id="list" class="list message-list" aria-live="polite"></div>
           <div class="pager">
             <button id="prev" class="secondary" type="button">上一页</button>
             <span id="page-label"></span>
             <button id="next" class="secondary" type="button">下一页</button>
           </div>
         </div>
+      </div>
+    </div>
+    <div class="message-drawer" id="message-drawer" hidden>
+      <div class="message-drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawer-sender">
+        <header class="message-drawer-head">
+          <div>
+            <div class="sender" id="drawer-sender"></div>
+            <time class="time" id="drawer-time"></time>
+          </div>
+          <button id="drawer-close" class="secondary" type="button">关闭</button>
+        </header>
+        <p class="subtle" id="drawer-meta"></p>
+        <div id="drawer-code"></div>
+        <p class="content" id="drawer-body"></p>
       </div>
     </div>
     <script type="module" src="/inbox.js"></script>

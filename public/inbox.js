@@ -33,6 +33,12 @@ const errorBox = document.querySelector("#inbox-error");
 const pageLabel = document.querySelector("#page-label");
 const deviceSelect = document.querySelector("#device");
 const banner = document.querySelector("#live-banner");
+const drawer = document.querySelector("#message-drawer");
+const drawerSender = document.querySelector("#drawer-sender");
+const drawerTime = document.querySelector("#drawer-time");
+const drawerMeta = document.querySelector("#drawer-meta");
+const drawerCode = document.querySelector("#drawer-code");
+const drawerBody = document.querySelector("#drawer-body");
 
 initShell({
   onLogout() {
@@ -52,6 +58,13 @@ initShell({
     banner.hidden = true;
     loadMessages().catch(showError);
   },
+});
+document.querySelector("#drawer-close")?.addEventListener("click", closeDrawer);
+drawer?.addEventListener("click", (event) => {
+  if (event.target === drawer) closeDrawer();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeDrawer();
 });
 document.querySelector("#prev").addEventListener("click", () => {
   if (state.page > 1) {
@@ -230,6 +243,7 @@ async function loadMessages() {
 }
 
 function renderMessages(messages) {
+  closeDrawer();
   list.replaceChildren();
   if (messages.length === 0) {
     const empty = document.createElement("p");
@@ -243,55 +257,155 @@ function renderMessages(messages) {
 
 function renderMessage(message) {
   const article = document.createElement("article");
-  article.className = "message";
+  article.className = "message-row";
   article.id = `msg-${message.id}`;
-  const header = document.createElement("header");
+  article.tabIndex = 0;
+  article.setAttribute("aria-expanded", "false");
+  const senderText = message.from_number || "未知发件人";
+  const timeLabel = formatTime(message.received_at);
+  const metaText = messageMeta(message);
+
+  const line = document.createElement("div");
+  line.className = "message-row-line";
   const sender = document.createElement("div");
   sender.className = "sender";
-  sender.textContent = message.from_number || "未知发件人";
+  sender.textContent = senderText;
+  const preview = document.createElement("div");
+  preview.className = "preview";
+  preview.textContent = previewText(message.content);
+  const end = document.createElement("div");
+  end.className = "message-row-end";
+  if (message.code) end.append(codeChip(message.code));
   const time = document.createElement("time");
   time.className = "time";
   time.dateTime = new Date(message.received_at).toISOString();
-  time.textContent = formatTime(message.received_at);
-  header.append(sender, time);
+  time.textContent = timeLabel;
+  end.append(time);
+  line.append(sender, preview, end);
 
+  const detail = document.createElement("div");
+  detail.className = "message-detail";
   const meta = document.createElement("p");
   meta.className = "subtle";
-  const bits = [message.device_name];
-  if (message.sim) bits.push(`SIM ${message.sim}`);
-  if (message.to_number) bits.push(`接收 ${message.to_number}`);
-  meta.textContent = bits.filter(Boolean).join(" · ");
-
-  article.append(header, meta);
+  meta.textContent = metaText;
+  detail.append(meta);
   if (message.code) {
     const row = document.createElement("div");
     row.className = "code-row";
-    const chip = document.createElement("span");
-    chip.className = "chip";
-    chip.textContent = message.code;
-    const copy = document.createElement("button");
-    copy.type = "button";
-    copy.className = "secondary";
-    copy.textContent = "复制验证码";
-    copy.addEventListener("click", async () => {
-      try {
-        await copyText(message.code);
-        copy.textContent = "已复制";
-        window.setTimeout(() => {
-          copy.textContent = "复制验证码";
-        }, 1600);
-      } catch {
-        copy.textContent = "复制失败";
-      }
-    });
-    row.append(chip, copy);
-    article.append(row);
+    row.append(codeChip(message.code), copyButton(message.code));
+    detail.append(row);
   }
   const content = document.createElement("p");
   content.className = "content";
   renderContent(content, message.content, message.code);
-  article.append(content);
+  detail.append(content);
+
+  article.append(line, detail);
+  article.addEventListener("click", (event) => {
+    if (event.target.closest(".chip, .code-row button")) return;
+    openMessage(article, message);
+  });
+  article.addEventListener("keydown", (event) => {
+    if (event.target.closest(".chip, .code-row button")) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openMessage(article, message);
+  });
   return article;
+}
+
+function openMessage(article, message) {
+  if (window.matchMedia("(max-width: 768px)").matches) {
+    openDrawer(message);
+    return;
+  }
+  const open = article.classList.contains("is-open");
+  for (const row of list.querySelectorAll(".message-row.is-open")) {
+    row.classList.remove("is-open");
+    row.setAttribute("aria-expanded", "false");
+  }
+  if (!open) {
+    article.classList.add("is-open");
+    article.setAttribute("aria-expanded", "true");
+  }
+}
+
+function openDrawer(message) {
+  if (!drawer) return;
+  drawerSender.textContent = message.from_number || "未知发件人";
+  drawerTime.dateTime = new Date(message.received_at).toISOString();
+  drawerTime.textContent = formatTime(message.received_at);
+  drawerMeta.textContent = messageMeta(message);
+  drawerCode.replaceChildren();
+  if (message.code) {
+    const row = document.createElement("div");
+    row.className = "code-row";
+    row.append(codeChip(message.code), copyButton(message.code));
+    drawerCode.append(row);
+  }
+  renderContent(drawerBody, message.content, message.code);
+  drawer.hidden = false;
+  document.body.classList.add("drawer-open");
+  document.querySelector("#drawer-close")?.focus();
+}
+
+function closeDrawer() {
+  if (!drawer || drawer.hidden) return;
+  drawer.hidden = true;
+  document.body.classList.remove("drawer-open");
+}
+
+function messageMeta(message) {
+  const bits = [message.device_name];
+  if (message.sim) bits.push(`SIM ${message.sim}`);
+  if (message.to_number) bits.push(`接收 ${message.to_number}`);
+  return bits.filter(Boolean).join(" · ");
+}
+
+function previewText(content) {
+  return String(content || "").replace(/\s+/g, " ").trim();
+}
+
+function codeChip(code) {
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = "chip";
+  chip.textContent = code;
+  chip.title = "复制验证码";
+  chip.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    const label = code;
+    try {
+      await copyText(code);
+      chip.textContent = "已复制";
+    } catch {
+      chip.textContent = "失败";
+    }
+    window.setTimeout(() => {
+      chip.textContent = label;
+    }, 1600);
+  });
+  return chip;
+}
+
+function copyButton(code) {
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "secondary";
+  copy.textContent = "复制验证码";
+  copy.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    try {
+      await copyText(code);
+      copy.textContent = "已复制";
+      window.setTimeout(() => {
+        copy.textContent = "复制验证码";
+      }, 1600);
+    } catch {
+      copy.textContent = "复制失败";
+    }
+  });
+  return copy;
 }
 
 function maxCursor(messages) {

@@ -28,7 +28,8 @@ body {
   color: var(--ink);
 }
 
-body.nav-open { overflow: hidden; }
+body.nav-open,
+body.drawer-open { overflow: hidden; }
 
 button, input, select { font: inherit; color: inherit; }
 
@@ -343,6 +344,111 @@ input, select {
 
 .list { display: grid; gap: 0.8rem; }
 
+.message-list {
+  gap: 0;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.message-list .empty {
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.message-row {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: #fff;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.message-row:last-child { border-bottom: 0; }
+
+.message-row:hover { background: #fbf8f2; }
+
+.message-row.is-open { background: #f4fbf7; }
+
+.message-row-line {
+  display: grid;
+  grid-template-columns: minmax(7rem, 12rem) minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.85rem 1rem;
+  min-height: 3.25rem;
+}
+
+.message-row .sender {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-row .preview {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-row-end {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.message-row .time { text-align: right; white-space: nowrap; }
+
+.message-row .chip {
+  font-size: 0.95rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.message-detail {
+  display: none;
+  padding: 0 1rem 1rem;
+}
+
+.message-row.is-open .message-detail { display: block; }
+
+.message-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  justify-items: end;
+  background: rgba(28, 25, 21, 0.45);
+}
+
+.message-drawer[hidden] { display: none; }
+
+.message-drawer-panel {
+  width: min(32rem, 100%);
+  height: 100%;
+  background: #fff;
+  padding: 1rem 1.15rem 1.5rem;
+  overflow: auto;
+  box-shadow: var(--shadow);
+}
+
+.message-drawer-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: flex-start;
+  margin-bottom: 0.7rem;
+}
+
 .message {
   border: 1px solid var(--line);
   border-radius: 1rem;
@@ -493,6 +599,13 @@ mark.code {
   .main { margin-left: 0; }
   .topbar { padding: 0.65rem 0.9rem; }
   .page, .wrap { width: min(100% - 1.2rem, 1100px); }
+  .message-drawer { align-items: end; }
+  .message-drawer-panel {
+    width: 100%;
+    height: auto;
+    max-height: 88vh;
+    border-radius: 1rem 1rem 0 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
