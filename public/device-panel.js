@@ -1,0 +1,127 @@
+// Presentation rules for the device page. Secrets stay out of this module:
+// the database stores only hashes, and nothing here can ask for plaintext again.
+
+export function canRevealPushSecret() {
+  return false;
+}
+
+export function pushLabel(push) {
+  if (push === "active") return "推送链接有效";
+  if (push === "revoked") return "推送链接已撤销";
+  return "未生成推送链接";
+}
+
+export function pushLinkHint(push) {
+  if (push === "active") {
+    return "推送链接有效。明文只在创建或轮换后的黄框里，刷新后不能再查看，丢掉请轮换。";
+  }
+  if (push === "revoked") {
+    return "推送链接已撤销。旧链接不会再显示。需要新链接时点生成或轮换，并先确认。";
+  }
+  return "还没有推送链接。生成后请立刻从黄框复制。";
+}
+
+export function pushActions(push) {
+  if (push === "active") {
+    return [
+      { action: "rotate", label: "轮换" },
+      { action: "revoke", label: "撤销" },
+    ];
+  }
+  if (push === "revoked") {
+    return [
+      { action: "issue", label: "生成推送链接" },
+      { action: "rotate", label: "轮换" },
+    ];
+  }
+  return [{ action: "issue", label: "生成推送链接" }];
+}
+
+export function pushConfirm(action, name) {
+  const safe = String(name || "").trim() || "该设备";
+  if (action === "issue") {
+    return `为「${safe}」生成推送链接？链接只显示一次，请立刻从黄框复制。刷新后不能再查看。`;
+  }
+  if (action === "rotate") {
+    return `轮换「${safe}」的推送链接？手机上的旧链接会立刻失效。新链接只显示一次。`;
+  }
+  if (action === "revoke") {
+    return `撤销「${safe}」的推送链接？短信仍会保留。旧链接不会再显示。`;
+  }
+  return null;
+}
+
+export function platformFromReport(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return { key: "unknown", label: "尚未上报" };
+  if (/^ios$/i.test(text)) return { key: "ios", label: "iOS" };
+  if (/^android$/i.test(text)) return { key: "android", label: "Android" };
+  return { key: "reported", label: text };
+}
+
+export function receiveTime(device, latest) {
+  const at = Number(latest?.received_at);
+  if (Number.isFinite(at) && at > 0) return { kind: "message", at };
+  const seen = Number(device?.last_seen_at);
+  if (Number.isFinite(seen) && seen > 0) return { kind: "seen-without-message", at: seen };
+  return { kind: "none", at: null };
+}
+
+export function credentialBoxes(input) {
+  const token = String(input?.token || "");
+  const pushUrl = String(input?.pushUrl || "");
+  return {
+    showBearer: token.length > 0,
+    showPush: pushUrl.length > 0,
+    showBox: token.length > 0 || pushUrl.length > 0,
+  };
+}
+
+export function latestByDevice(messages) {
+  const map = new Map();
+  for (const message of messages || []) {
+    const id = message?.device_id;
+    if (!id) continue;
+    const at = Number(message.received_at) || 0;
+    const prev = map.get(id);
+    if (!prev || at >= (Number(prev.received_at) || 0)) map.set(id, message);
+  }
+  return map;
+}
+
+function shortcutConfigLine(platform, received) {
+  if (received.kind === "none") {
+    return "还没有短信。快捷指令是否装好、自动化是否打开，要在 iPhone 上确认。";
+  }
+  if (platform.key === "ios") {
+    return "已收到 iOS 短信。这只说明推送链接曾经写入过，不能证明自动化仍然开着。";
+  }
+  return `已收到短信，上报的 device 是「${platform.label}」。测试短信会写成设备名称，不能当成 iOS 已装好。自动化开关要在 iPhone 上确认。`;
+}
+
+export function describeDevice(device, latest) {
+  const push = device?.push === "active" || device?.push === "revoked" ? device.push : "none";
+  const platform = platformFromReport(latest?.reported_device);
+  const received = receiveTime(device, latest);
+  return {
+    name: String(device?.name || ""),
+    id: String(device?.id || ""),
+    platform,
+    push,
+    pushLabel: pushLabel(push),
+    pushHint: pushLinkHint(push),
+    hmac: device?.has_secret ? "已启用 HMAC" : "未启用 HMAC",
+    received,
+    shortcut: shortcutConfigLine(platform, received),
+    actions: pushActions(push),
+  };
+}
+
+export function shortcutStatusLines() {
+  return [
+    "模板：统一快捷指令 SMSinBox-iOS.shortcut。导入时只填写推送链接。",
+    "签名：未签名。iOS 15 及更高版本可能拒绝导入。",
+    "iCloud：尚未发布。不要使用来路不明的分享链接。",
+    "配置状态：本页看不到手机上的自动化开关。收到 device 为 iOS 的短信后，设备卡片会写成「已收到 iOS 短信」。发送测试消息不会写成 iOS。",
+  ];
+}
