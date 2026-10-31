@@ -13,69 +13,95 @@ import {
   showNotice,
   toast,
 } from "./common.js";
+import { ensureMe } from "./device-store.js";
+import { go, registerView } from "./shell.js";
 import { rememberFlash } from "./ui.js";
 
 const USERNAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-const form = document.querySelector("#user-form");
-const errorBox = document.querySelector("#user-error");
-const statusBox = document.querySelector("#user-status");
-const list = document.querySelector("#users");
-const table = document.querySelector("#user-table");
-const empty = document.querySelector("#user-empty");
-const dialog = document.querySelector("#user-dialog");
-const usernameInput = document.querySelector("#new-username");
-const passwordInput = document.querySelector("#new-password");
-const usernameError = document.querySelector("#username-error");
-const passwordError = document.querySelector("#password-error");
-const formError = document.querySelector("#user-form-error");
-const strength = document.querySelector("#password-strength");
+let form;
+let errorBox;
+let statusBox;
+let list;
+let table;
+let empty;
+let dialog;
+let usernameInput;
+let passwordInput;
+let usernameError;
+let passwordError;
+let formError;
+let strength;
 let me = null;
 let users = [];
+let viewToken = 0;
 
-initShell({
-  onLogout: () => logout().catch(() => setError("退出失败")),
-  onRefresh: () => loadUsers().catch((error) => {
-    if (isUnauthorized(error)) return;
+function startView() {
+  viewToken += 1;
+  const token = viewToken;
+  me = null;
+  users = [];
+  form = document.querySelector("#user-form");
+  errorBox = document.querySelector("#user-error");
+  statusBox = document.querySelector("#user-status");
+  list = document.querySelector("#users");
+  table = document.querySelector("#user-table");
+  empty = document.querySelector("#user-empty");
+  dialog = document.querySelector("#user-dialog");
+  usernameInput = document.querySelector("#new-username");
+  passwordInput = document.querySelector("#new-password");
+  usernameError = document.querySelector("#username-error");
+  passwordError = document.querySelector("#password-error");
+  formError = document.querySelector("#user-form-error");
+  strength = document.querySelector("#password-strength");
+  initShell({
+    onLogout: () => logout().catch(() => setError("退出失败")),
+    onRefresh: () => loadUsers().catch((error) => {
+      if (isUnauthorized(error)) return;
+      setError("加载用户失败");
+    }),
+  });
+  document.querySelector("#add-user").addEventListener("click", openCreate);
+  document.querySelector("#user-cancel").addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+  dialog.addEventListener("close", () => document.body.classList.remove("modal-open"));
+  usernameInput.addEventListener("input", () => paintUsername());
+  passwordInput.addEventListener("input", () => paintPassword());
+  document.querySelector("#generate-password").addEventListener("click", () => {
+    passwordInput.value = generatePassword();
+    passwordInput.type = "text";
+    paintPassword();
+    passwordInput.focus();
+  });
+  form.addEventListener("submit", submitUser);
+  boot(token).catch((error) => {
+    if (token !== viewToken || isUnauthorized(error)) return;
     setError("加载用户失败");
-  }),
-});
+  });
+  return () => {
+    if (viewToken === token) viewToken += 1;
+    if (dialog?.open) dialog.close();
+  };
+}
 
-document.querySelector("#add-user").addEventListener("click", openCreate);
-document.querySelector("#user-cancel").addEventListener("click", () => dialog.close());
-dialog.addEventListener("click", (event) => {
-  if (event.target === dialog) dialog.close();
-});
-dialog.addEventListener("close", () => document.body.classList.remove("modal-open"));
-usernameInput.addEventListener("input", () => paintUsername());
-passwordInput.addEventListener("input", () => paintPassword());
-document.querySelector("#generate-password").addEventListener("click", () => {
-  passwordInput.value = generatePassword();
-  passwordInput.type = "text";
-  paintPassword();
-  passwordInput.focus();
-});
-form.addEventListener("submit", submitUser);
-
-boot().catch((error) => {
-  if (isUnauthorized(error)) return;
-  setError("加载用户失败");
-});
-
-async function boot() {
-  const meResult = await api("/api/v1/auth/me");
-  const user = meResult.data.user || null;
-  const denied = meResult.response.status === 403 || (meResult.response.ok && user?.role !== "admin");
+async function boot(token) {
+  const meResult = await ensureMe();
+  if (token !== viewToken || meResult?.stale) return;
+  const user = meResult.user || null;
+  const denied = meResult.status === 403 || (meResult.ok && user?.role !== "admin");
   if (denied) {
     rememberFlash("需要管理员权限");
-    location.assign("/");
+    go("/", { replace: true });
     return;
   }
-  if (!meResult.response.ok) {
+  if (!meResult.ok) {
     setError("");
-    showUserRetry(meResult.data.error || "加载用户失败", () => boot());
+    showUserRetry(meResult.error || "加载用户失败", () => boot(viewToken));
     return;
   }
   me = await loadNav();
+  if (token !== viewToken) return;
   await loadUsers();
 }
 
@@ -152,11 +178,13 @@ async function submitUser(event) {
 }
 
 async function loadUsers() {
+  const token = viewToken;
   const result = await api("/api/v1/users");
+  if (token !== viewToken) return;
   if (!result.response.ok) {
     if (result.response.status === 403) {
       rememberFlash("需要管理员权限");
-      location.assign("/");
+      go("/", { replace: true });
       return;
     }
     const message = result.data.error || "加载用户失败";
@@ -435,3 +463,5 @@ function setError(message) {
 function setStatus(message) {
   showNotice(statusBox, message);
 }
+
+registerView("/users.html", startView);
