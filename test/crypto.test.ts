@@ -64,7 +64,12 @@ describe("optional AES-GCM storage", () => {
     const key = keyFrom(bytes);
     const sealed = await sealMessage(key, PLAIN);
     if ("error" in sealed || sealed.code === null) throw new Error("seal failed");
-    const flipped = `${sealed.content.slice(0, -1)}${sealed.content.endsWith("a") ? "b" : "a"}`;
+    // The final base64url character can be unused padding bits, so flipping it
+    // sometimes leaves the ciphertext bytes unchanged. Flip the first character
+    // of the cipher segment, which always changes a decrypted byte.
+    const cipherAt = sealed.content.indexOf(".") + 1;
+    const cipherChar = sealed.content[cipherAt] === "a" ? "b" : "a";
+    const flipped = `${sealed.content.slice(0, cipherAt)}${cipherChar}${sealed.content.slice(cipherAt + 1)}`;
     expect(await decryptString(bytes, flipped)).toBeNull();
     expect(await revealText(key, flipped, true)).toBe(UNREADABLE_CONTENT);
     const other = new Uint8Array(32);
