@@ -1,13 +1,16 @@
 import {
   api,
-  copyText,
+  emptyParagraph,
+  flashLabel,
   formatTime,
   initShell,
+  isUnauthorized,
   loadNav,
   logout,
   renderContent,
   renderSidebarDevices,
   setActiveDevice,
+  showNotice,
 } from "./common.js";
 
 const FALLBACK_MS = 30_000;
@@ -21,6 +24,7 @@ const state = {
   cursor: "",
   liveStatus: "正在连接",
   searchNote: "",
+  deviceError: "",
   expectReconnect: false,
   pending: false,
   seen: new Set(),
@@ -44,8 +48,7 @@ initShell({
   onLogout() {
     stopRealtime();
     return logout().catch(() => {
-      errorBox.textContent = "退出失败";
-      errorBox.hidden = false;
+      showNotice(errorBox, "退出失败");
     });
   },
   onRefresh() {
@@ -96,7 +99,7 @@ filters.addEventListener("submit", (event) => {
 });
 
 boot().catch((error) => {
-  if (error instanceof Error && error.message === "unauthorized") return;
+  if (isUnauthorized(error)) return;
   showError(error);
 });
 
@@ -192,7 +195,16 @@ function matchesFilters(message) {
 }
 
 async function loadDevices() {
+  const box = document.querySelector("#sidebar-devices");
+  if (box) box.dataset.loaded = "1";
   const result = await api("/api/v1/devices");
+  if (!result.response.ok) {
+    state.deviceError = result.data.error || "加载设备失败";
+    showError(state.deviceError);
+    await loadNav();
+    return;
+  }
+  state.deviceError = "";
   const params = new URLSearchParams(location.search);
   const current = params.get("device_id") || deviceSelect.value;
   deviceSelect.replaceChildren(new Option("全部设备", ""));
@@ -226,7 +238,8 @@ async function loadMessages() {
       showError(result.data.error || "加载失败");
       return;
     }
-    errorBox.hidden = true;
+    if (state.deviceError) showError(state.deviceError);
+    else errorBox.hidden = true;
     state.total = result.data.total || 0;
     state.page = result.data.page || state.page;
     const nextCursor = maxCursor(result.data.messages || []);
@@ -249,10 +262,7 @@ function renderMessages(messages) {
   closeDrawer();
   list.replaceChildren();
   if (messages.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "empty";
-    empty.textContent = "还没有短信。到设备页配置 iOS 快捷指令或 SmsForwarder。";
-    list.append(empty);
+    list.append(emptyParagraph("还没有短信。到设备页配置 iOS 快捷指令或 SmsForwarder。"));
     return;
   }
   for (const message of messages) list.append(renderMessage(message));
@@ -377,16 +387,7 @@ function codeChip(code) {
   chip.title = "复制验证码";
   chip.addEventListener("click", async (event) => {
     event.stopPropagation();
-    const label = code;
-    try {
-      await copyText(code);
-      chip.textContent = "已复制";
-    } catch {
-      chip.textContent = "失败";
-    }
-    window.setTimeout(() => {
-      chip.textContent = label;
-    }, 1600);
+    await flashLabel(chip, code, code);
   });
   return chip;
 }
@@ -398,15 +399,7 @@ function copyButton(code) {
   copy.textContent = "复制验证码";
   copy.addEventListener("click", async (event) => {
     event.stopPropagation();
-    try {
-      await copyText(code);
-      copy.textContent = "已复制";
-      window.setTimeout(() => {
-        copy.textContent = "复制验证码";
-      }, 1600);
-    } catch {
-      copy.textContent = "复制失败";
-    }
+    await flashLabel(copy, code, "复制验证码");
   });
   return copy;
 }
@@ -448,6 +441,6 @@ function setLiveStatus(status) {
 }
 
 function showError(reason) {
-  errorBox.hidden = false;
-  errorBox.textContent = reason instanceof Error ? "加载失败" : String(reason || "加载失败");
+  const message = reason instanceof Error ? "加载失败" : String(reason || "加载失败");
+  showNotice(errorBox, message);
 }

@@ -55,7 +55,7 @@ import {
 import { dedupHash } from "../dedup";
 import { extractCode } from "../extract";
 import { isCrossSite, json, readCookie, readLimitedBytes } from "../http";
-import { logError, logInfo } from "../log";
+import { errorText, logError, logInfo } from "../log";
 import {
   channelFromRow,
   deliverChannels,
@@ -265,7 +265,7 @@ async function events(request: Request, env: Env, url: URL): Promise<Response> {
         logError({
           message: "sse_poll_failed",
           user_id: user.id,
-          error: error instanceof Error ? error.message.slice(0, 180) : "unknown",
+          error: errorText(error),
         });
         throw error;
       }

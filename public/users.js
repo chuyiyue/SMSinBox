@@ -1,4 +1,4 @@
-import { api, formatTime, initShell, loadNav, logout } from "./common.js";
+import { api, emptyParagraph, formatTime, initShell, isUnauthorized, loadNav, logout, showNotice } from "./common.js";
 
 const form = document.querySelector("#user-form");
 const errorBox = document.querySelector("#user-error");
@@ -35,7 +35,7 @@ form.addEventListener("submit", async (event) => {
     setStatus(`已添加 ${result.data.user?.username || ""}`);
     await loadUsers();
   } catch (error) {
-    if (error instanceof Error && error.message === "unauthorized") return;
+    if (isUnauthorized(error)) return;
     setError("添加失败");
   } finally {
     button.disabled = false;
@@ -43,7 +43,7 @@ form.addEventListener("submit", async (event) => {
 });
 
 boot().catch((error) => {
-  if (error instanceof Error && error.message === "unauthorized") return;
+  if (isUnauthorized(error)) return;
   setError("加载用户失败");
 });
 
@@ -54,17 +54,15 @@ async function boot() {
 
 async function loadUsers() {
   const result = await api("/api/v1/users");
-  list.replaceChildren();
   if (!result.response.ok) {
     setError(result.data.error || "加载用户失败");
     return;
   }
+  setError("");
+  list.replaceChildren();
   const rows = result.data.users || [];
   if (rows.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "empty";
-    empty.textContent = "还没有用户。";
-    list.append(empty);
+    list.append(emptyParagraph("还没有用户。"));
     return;
   }
   for (const user of rows) list.append(renderUser(user));
@@ -72,7 +70,7 @@ async function loadUsers() {
 
 function renderUser(user) {
   const row = document.createElement("article");
-  row.className = "device";
+  row.className = "record";
   const text = document.createElement("div");
   const title = document.createElement("strong");
   title.textContent = user.username;
@@ -80,13 +78,13 @@ function renderUser(user) {
   meta.className = "subtle";
   const role = user.role === "admin" ? "管理员" : "普通用户";
   const state = user.disabled_at ? "已停用" : "正常";
-  const self = me && user.id === me.id ? " · 这是你自己" : "";
-  meta.textContent = `${role} · ${state} · 创建于 ${formatTime(user.created_at)}${self}`;
+  const isSelf = Boolean(me && user.id === me.id);
+  meta.textContent = `${role} · ${state} · 创建于 ${formatTime(user.created_at)}${isSelf ? " · 这是你自己" : ""}`;
   text.append(title, meta);
 
   const actions = document.createElement("div");
   actions.className = "actions";
-  if (!self) {
+  if (!isSelf) {
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.className = "secondary";
@@ -111,20 +109,26 @@ function renderUser(user) {
     await patchUser(user, { password }, "重置密码");
   });
   actions.append(roleButton, reset);
-  if (!self) {
+  if (!isSelf) {
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "danger";
     remove.textContent = "删除";
     remove.addEventListener("click", async () => {
       if (!window.confirm(`删除「${user.username}」及其设备、短信和推送渠道？`)) return;
-      const deleted = await api(`/api/v1/users/${user.id}`, { method: "DELETE" });
-      if (!deleted.response.ok) {
-        setError(deleted.data.error || "删除失败");
-        return;
+      setError("");
+      try {
+        const deleted = await api(`/api/v1/users/${user.id}`, { method: "DELETE" });
+        if (!deleted.response.ok) {
+          setError(deleted.data.error || "删除失败");
+          return;
+        }
+        setStatus(`已删除 ${user.username}`);
+        await loadUsers();
+      } catch (error) {
+        if (isUnauthorized(error)) return;
+        setError("删除失败");
       }
-      setStatus(`已删除 ${user.username}`);
-      await loadUsers();
     });
     actions.append(remove);
   }
@@ -143,17 +147,15 @@ async function patchUser(user, body, label) {
     setStatus(body.password ? "密码已更新。如果改的是自己的密码，请重新登录。" : `已更新 ${user.username}`);
     await loadUsers();
   } catch (error) {
-    if (error instanceof Error && error.message === "unauthorized") return;
+    if (isUnauthorized(error)) return;
     setError(`${label}失败`);
   }
 }
 
 function setError(message) {
-  errorBox.hidden = !message;
-  errorBox.textContent = message;
+  showNotice(errorBox, message);
 }
 
 function setStatus(message) {
-  statusBox.hidden = !message;
-  statusBox.textContent = message;
+  showNotice(statusBox, message);
 }

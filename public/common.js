@@ -32,6 +32,37 @@ export function formatTime(ms) {
   return new Date(ms).toLocaleString("zh-CN", { hour12: false });
 }
 
+export function isUnauthorized(error) {
+  return error instanceof Error && error.message === "unauthorized";
+}
+
+export function showNotice(element, message) {
+  if (!element) return;
+  const text = message ? String(message) : "";
+  element.hidden = text.length === 0;
+  element.textContent = text;
+}
+
+export function emptyParagraph(text) {
+  const empty = document.createElement("p");
+  empty.className = "empty";
+  empty.textContent = text;
+  return empty;
+}
+
+export async function flashLabel(button, value, label) {
+  if (!button) return;
+  try {
+    await copyText(value);
+    button.textContent = "已复制";
+  } catch {
+    button.textContent = "复制失败";
+  }
+  window.setTimeout(() => {
+    button.textContent = label;
+  }, 1600);
+}
+
 export async function copyText(value) {
   if (navigator.clipboard && window.isSecureContext) {
     await navigator.clipboard.writeText(value);
@@ -106,7 +137,7 @@ export function renderSidebarDevices(devices) {
   if (!devices.length) {
     const empty = document.createElement("p");
     empty.className = "sidebar-empty";
-    empty.textContent = "还没有设备";
+    empty.textContent = "还没有设备。";
     box.append(empty);
     return;
   }
@@ -169,7 +200,7 @@ export async function loadNav() {
   const box = document.querySelector("#sidebar-devices");
   if (box && box.dataset.loaded !== "1") {
     const result = await api("/api/v1/devices");
-    renderSidebarDevices(result.data.devices || []);
+    if (result.response.ok) renderSidebarDevices(result.data.devices || []);
   }
   return user;
 }

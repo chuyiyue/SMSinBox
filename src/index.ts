@@ -1,6 +1,6 @@
 import { purgeExpired } from "./db";
 import { json } from "./http";
-import { logError, logInfo } from "./log";
+import { errorText, logError, logInfo } from "./log";
 import { handleApi } from "./routes/api";
 import { handleIngest, handleSms } from "./routes/sms";
 
@@ -47,7 +47,7 @@ export default {
         request_id: requestId,
         method: request.method,
         path,
-        error: error instanceof Error ? error.message.slice(0, 180) : "unknown",
+        error: errorText(error),
       });
       return json({ ok: false, error: "服务器错误", request_id: requestId }, 500);
     }
@@ -57,7 +57,7 @@ export default {
       purgeExpired(env.DB, Date.now(), env.RETENTION_DAYS).catch((error: unknown) => {
         logError({
           message: "retention_failed",
-          error: error instanceof Error ? error.message.slice(0, 180) : "unknown",
+          error: errorText(error),
         });
       }),
     );

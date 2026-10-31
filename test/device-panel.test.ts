@@ -172,7 +172,8 @@ describe("devices page", () => {
   });
 
   it("keeps the yellow credential box and the phone breakpoints", () => {
-    expect(css).toMatch(/\.token-box \{ background: #fff7e8;/);
+    expect(css).toContain("--warn-bg: #fff7e8");
+    expect(css).toMatch(/\.token-box \{ background: var\(--warn-bg\);/);
     expect(css).toContain(".device-facts");
     expect(css).toContain(".device.is-highlighted");
     expect(css).toContain("@media (max-width: 640px)");

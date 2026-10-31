@@ -1,4 +1,4 @@
-import { api, initShell, loadNav, logout } from "./common.js";
+import { api, emptyParagraph, initShell, isUnauthorized, loadNav, logout, showNotice } from "./common.js";
 
 const KINDS = {
   telegram: "Telegram",
@@ -35,7 +35,7 @@ form.addEventListener("submit", async (event) => {
     setStatus("已添加。密钥只以掩码显示。");
     await loadChannels();
   } catch (error) {
-    if (error instanceof Error && error.message === "unauthorized") return;
+    if (isUnauthorized(error)) return;
     setError("添加失败");
   } finally {
     button.disabled = false;
@@ -48,10 +48,10 @@ initShell({
 });
 renderFields();
 loadNav().catch((error) => {
-  if (error instanceof Error && error.message === "unauthorized") return;
+  if (isUnauthorized(error)) return;
 });
 loadChannels().catch((error) => {
-  if (error instanceof Error && error.message === "unauthorized") return;
+  if (isUnauthorized(error)) return;
   setError("加载推送渠道失败");
 });
 
@@ -112,18 +112,20 @@ function readForm() {
 
 async function loadChannels() {
   const result = await api("/api/v1/notifications");
+  if (!result.response.ok) {
+    setError(result.data.error || "加载推送渠道失败");
+    return;
+  }
+  setError("");
   list.replaceChildren();
   const rows = result.data.channels || [];
   if (rows.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "empty";
-    empty.textContent = "还没有推送渠道。";
-    list.append(empty);
+    list.append(emptyParagraph("还没有推送渠道。"));
     return;
   }
   for (const channel of rows) {
     const row = document.createElement("article");
-    row.className = "device";
+    row.className = "record";
     const text = document.createElement("div");
     const title = document.createElement("strong");
     title.textContent = `${KINDS[channel.kind] || channel.kind}${channel.enabled ? "" : " · 已停用"}`;
@@ -204,7 +206,7 @@ function actionButton(label, onClick, className) {
   button.textContent = label;
   button.addEventListener("click", () => {
     onClick().catch((error) => {
-      if (error instanceof Error && error.message === "unauthorized") return;
+      if (isUnauthorized(error)) return;
       setError("操作失败");
     });
   });
@@ -212,11 +214,9 @@ function actionButton(label, onClick, className) {
 }
 
 function setError(message) {
-  errorBox.hidden = !message;
-  errorBox.textContent = message;
+  showNotice(errorBox, message);
 }
 
 function setStatus(message) {
-  statusBox.hidden = !message;
-  statusBox.textContent = message;
+  showNotice(statusBox, message);
 }

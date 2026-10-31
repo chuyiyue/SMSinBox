@@ -1,4 +1,15 @@
-import { api, copyText, formatTime, initShell, loadNav, logout, renderSidebarDevices } from "./common.js";
+import {
+  api,
+  emptyParagraph,
+  flashLabel,
+  formatTime,
+  initShell,
+  isUnauthorized,
+  loadNav,
+  logout,
+  renderSidebarDevices,
+  showNotice,
+} from "./common.js";
 import { credentialBoxes, describeDevice, pushConfirm, shortcutStatusLines } from "./device-panel.js";
 
 const TEMPLATE = '{"from":"{{FROM}}","content":"{{SMS}}","timestamp":"{{RECEIVE_TIME}}","device":"{{DEVICE_NAME}}","sim":"{{CARD_SLOT}}"}';
@@ -22,13 +33,13 @@ initShell({
   onRefresh: () => loadDevices().catch(() => setError("加载设备失败")),
 });
 document.querySelector("#copy-template").addEventListener("click", async (event) => {
-  await copyAndFlash(event.currentTarget, TEMPLATE, "复制模板");
+  await flashLabel(event.currentTarget, TEMPLATE, "复制模板");
 });
 document.querySelector("#copy-token").addEventListener("click", async (event) => {
-  await copyAndFlash(event.currentTarget, tokenValue.textContent || "", "复制 token");
+  await flashLabel(event.currentTarget, tokenValue.textContent || "", "复制 token");
 });
 document.querySelector("#copy-push-url").addEventListener("click", async (event) => {
-  await copyAndFlash(event.currentTarget, pushUrlValue.textContent || "", "复制推送链接");
+  await flashLabel(event.currentTarget, pushUrlValue.textContent || "", "复制推送链接");
 });
 tokenValue.addEventListener("click", () => selectContents(tokenValue));
 pushUrlValue.addEventListener("click", () => selectContents(pushUrlValue));
@@ -57,7 +68,7 @@ form.addEventListener("submit", async (event) => {
     form.reset();
     await loadDevices();
   } catch (error) {
-    if (error instanceof Error && error.message === "unauthorized") return;
+    if (isUnauthorized(error)) return;
     setError("创建失败");
   } finally {
     button.disabled = false;
@@ -65,11 +76,11 @@ form.addEventListener("submit", async (event) => {
 });
 
 loadDevices().catch((error) => {
-  if (error instanceof Error && error.message === "unauthorized") return;
+  if (isUnauthorized(error)) return;
   setError("加载设备失败");
 });
 loadNav().catch((error) => {
-  if (error instanceof Error && error.message === "unauthorized") return;
+  if (isUnauthorized(error)) return;
 });
 
 function fillShortcutStatus() {
@@ -98,6 +109,11 @@ async function loadDevices() {
   const sidebar = document.querySelector("#sidebar-devices");
   if (sidebar) sidebar.dataset.loaded = "1";
   const result = await api("/api/v1/devices");
+  if (!result.response.ok) {
+    setError(result.data.error || "加载设备失败");
+    return;
+  }
+  setError("");
   const rows = result.data.devices || [];
   renderSidebarDevices(rows);
   const latest = await loadLatest(rows);
@@ -118,10 +134,7 @@ async function loadLatest(rows) {
 function renderDeviceList(rows, latest) {
   devices.replaceChildren();
   if (rows.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "empty";
-    empty.textContent = "还没有设备。";
-    devices.append(empty);
+    devices.append(emptyParagraph("还没有设备。"));
     return;
   }
   for (const device of rows) {
@@ -209,7 +222,7 @@ function idLine(id) {
   button.className = "secondary";
   button.textContent = "复制 ID";
   button.addEventListener("click", (event) => {
-    copyAndFlash(event.currentTarget, id, "复制 ID");
+    flashLabel(event.currentTarget, id, "复制 ID");
   });
   line.append(code, button);
   return line;
@@ -238,19 +251,22 @@ function testButton(device) {
     try {
       const sent = await api(`/api/v1/devices/${device.id}/test`, { method: "POST", body: "{}" });
       if (!sent.response.ok) {
-        setStatus(sent.data.error || "测试失败");
+        setStatus("");
+        setError(sent.data.error || "测试失败");
         return;
       }
+      setError("");
       setStatus(`已写入收件箱，验证码 ${sent.data.code || ""}`);
       try {
         await loadDevices();
       } catch (error) {
-        if (error instanceof Error && error.message === "unauthorized") return;
+        if (isUnauthorized(error)) return;
         setError("加载设备失败");
       }
     } catch (error) {
-      if (error instanceof Error && error.message === "unauthorized") return;
-      setStatus("测试失败");
+      if (isUnauthorized(error)) return;
+      setStatus("");
+      setError("测试失败");
     } finally {
       test.disabled = false;
     }
@@ -265,13 +281,19 @@ function deleteButton(device) {
   remove.textContent = "删除";
   remove.addEventListener("click", async () => {
     if (!window.confirm(`删除「${device.name}」及其短信？`)) return;
-    const deleted = await api(`/api/v1/devices/${device.id}`, { method: "DELETE" });
-    if (!deleted.response.ok) {
-      setError(deleted.data.error || "删除失败");
-      return;
+    setError("");
+    try {
+      const deleted = await api(`/api/v1/devices/${device.id}`, { method: "DELETE" });
+      if (!deleted.response.ok) {
+        setError(deleted.data.error || "删除失败");
+        return;
+      }
+      if (shownDeviceId === device.id) showCredentials({ deviceId: "", token: "", pushUrl: "" });
+      await loadDevices();
+    } catch (error) {
+      if (isUnauthorized(error)) return;
+      setError("删除失败");
     }
-    if (shownDeviceId === device.id) showCredentials({ deviceId: "", token: "", pushUrl: "" });
-    await loadDevices();
   });
   return remove;
 }
@@ -304,7 +326,7 @@ function pushButton(device, action, label) {
       }
       await loadDevices();
     } catch (error) {
-      if (error instanceof Error && error.message === "unauthorized") return;
+      if (isUnauthorized(error)) return;
       setError("操作失败");
     } finally {
       button.disabled = false;
@@ -327,18 +349,6 @@ async function mapLimit(items, limit, fn) {
   await Promise.all(Array.from({ length: count }, () => worker()));
 }
 
-async function copyAndFlash(button, value, label) {
-  try {
-    await copyText(value);
-    button.textContent = "已复制";
-  } catch {
-    button.textContent = "复制失败";
-  }
-  window.setTimeout(() => {
-    button.textContent = label;
-  }, 1600);
-}
-
 function selectContents(node) {
   const selection = window.getSelection();
   if (!selection) return;
@@ -349,11 +359,9 @@ function selectContents(node) {
 }
 
 function setError(message) {
-  errorBox.hidden = !message;
-  errorBox.textContent = message;
+  showNotice(errorBox, message);
 }
 
 function setStatus(message) {
-  statusBox.hidden = !message;
-  statusBox.textContent = message;
+  showNotice(statusBox, message);
 }

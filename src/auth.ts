@@ -148,14 +148,14 @@ async function pbkdf2(password: string, salt: Uint8Array, iterations: number): P
     "deriveBits",
   ]);
   const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", hash: "SHA-256", salt: copyBuffer(salt), iterations },
+    { name: "PBKDF2", hash: "SHA-256", salt: copyBytes(salt), iterations },
     key,
     256,
   );
   return new Uint8Array(bits);
 }
 
-function copyBuffer(bytes: Uint8Array): ArrayBuffer {
+export function copyBytes(bytes: Uint8Array): ArrayBuffer {
   const copy = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(copy).set(bytes);
   return copy;

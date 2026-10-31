@@ -1,4 +1,4 @@
-import { base64UrlToBytes, bytesToBase64Url } from "./auth";
+import { base64UrlToBytes, bytesToBase64Url, copyBytes } from "./auth";
 
 export const ENCRYPTED_PREFIX = "enc1:";
 export const UNREADABLE_CONTENT = "无法解密这条短信。请确认 CONTENT_KEY 与写入时一致。";
@@ -79,10 +79,4 @@ async function importKey(raw: Uint8Array): Promise<CryptoKey> {
 function decodeKey(value: string): Uint8Array | null {
   const normalized = value.replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
   return base64UrlToBytes(normalized);
-}
-
-function copyBytes(bytes: Uint8Array): ArrayBuffer {
-  const copy = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(copy).set(bytes);
-  return copy;
 }

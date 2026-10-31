@@ -20,7 +20,10 @@ describe("password hashing", () => {
     expect(await verifyPassword("correct horse battery", stored)).toBe(true);
     expect(await verifyPassword("wrong password", stored)).toBe(false);
     expect(await verifyPassword("correct horse battery", "nope")).toBe(false);
-    const broken = `${stored.slice(0, -1)}${stored.endsWith("a") ? "b" : "a"}`;
+    const parts = stored.split("$");
+    const digest = parts[3] ?? "";
+    const flipped = digest.startsWith("A") ? "B" : "A";
+    const broken = `${parts.slice(0, 3).join("$")}$${flipped}${digest.slice(1)}`;
     expect(await verifyPassword("correct horse battery", broken)).toBe(false);
   });
 });
