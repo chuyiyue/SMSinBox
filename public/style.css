@@ -551,6 +551,8 @@ mark.code {
 
 .token-box { background: #fff7e8; border: 1px solid #efd39a; }
 
+.token-box .stack + .stack { margin-top: 1rem; }
+
 code {
   overflow-wrap: anywhere;
   word-break: break-word;
