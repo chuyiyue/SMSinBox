@@ -48,7 +48,7 @@ src/index.ts, src/routes/sms.ts, src/routes/api.ts, src/db.ts, src/auth.ts, src/
 设备 token 鉴权、POST 接收、D1 存储、去重、验证码提取、登录 + 列表页、wrangler 一键部署；Android SmsForwarder 能上报；网页能看到并复制验证码。
 
 ## 后续（v1，非本次）
-SSE 实时、Telegram/企业微信/Bark/邮件推送、AES-GCM 加密存储、完整 HMAC、iOS .shortcut 文件、多用户。
+SSE 实时、Telegram/企业微信/Bark/邮件推送、AES-GCM 加密存储、完整 HMAC、iOS .shortcut 文件。账号保持单管理员，不再做多用户。
 
 ## 已知限制（写进 README）
 iOS 只能转发匹配快捷指令触发条件的短信，需开机联网、重启后解锁一次、无 MMS、需关闭“运行前确认”。免费套餐 D1 写入约 10 万/天。

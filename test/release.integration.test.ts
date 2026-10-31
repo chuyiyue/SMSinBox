@@ -4,7 +4,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Miniflare } from "miniflare";
-import { bytesToBase64Url, sha256Hex, signHmacHex } from "../src/auth";
+import { bytesToBase64Url, hashPassword, sha256Hex, signHmacHex } from "../src/auth";
 import { ENCRYPTED_PREFIX } from "../src/crypto";
 import worker from "../src/index";
 
@@ -18,8 +18,9 @@ const EXPECTED_MIGRATIONS = [
   "0003_message_encryption.sql",
   "0004_users.sql",
   "0005_device_push.sql",
+  "0006_single_user.sql",
 ];
-const TABLES = ["notify_channels", "messages", "rate_limits", "sessions", "devices", "users"];
+const TABLES = ["schema_meta", "notify_channels", "messages", "rate_limits", "sessions", "devices", "users"];
 
 const LEGACY_USER = "11111111-1111-4111-8111-111111111111";
 const LEGACY_DEVICE = "22222222-2222-4222-8222-222222222222";
@@ -301,6 +302,50 @@ describe("release migrations", () => {
     );
     expect(viaBearer.ok).toBe(true);
   }, 30_000);
+
+  it("adds schema_meta without moving devices or deleting users", async () => {
+    await resetSchema("0005_device_push.sql");
+    const adminId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const elderId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    await runSql(
+      env.DB,
+      "INSERT INTO users (id, username, password_hash, role, created_at) VALUES (?, ?, ?, 'admin', ?)",
+      [elderId, "elder", "hash-elder", 1],
+    );
+    await runSql(
+      env.DB,
+      "INSERT INTO users (id, username, password_hash, role, created_at) VALUES (?, ?, ?, 'admin', ?)",
+      [adminId, ADMIN_USERNAME, "hash-admin", 2],
+    );
+    await runSql(
+      env.DB,
+      "INSERT INTO devices (id, user_id, name, token_hash, secret, created_at) VALUES (?, ?, ?, ?, NULL, ?)",
+      [LEGACY_DEVICE, elderId, "旧手机", "hash-elder-device", 1],
+    );
+    await runSql(
+      env.DB,
+      "INSERT INTO messages (id, device_id, from_number, to_number, content, content_hash, code, raw_payload, received_at, created_at) VALUES (?, ?, '10086', '', '保留短信', 'hash-keep', NULL, '{}', ?, ?)",
+      ["cccccccc-cccc-4ccc-8ccc-cccccccccccc", LEGACY_DEVICE, 1, 1],
+    );
+
+    const sql = readFileSync("migrations/0006_single_user.sql", "utf8");
+    expect(sql).toMatch(/CREATE TABLE schema_meta/);
+    expect(sql).not.toMatch(/DROP\s+TABLE/i);
+    expect(sql).not.toMatch(/DELETE\s+FROM/i);
+    expect(sql).not.toMatch(/UPDATE\s+/i);
+
+    await applyFiles(["0006_single_user.sql"]);
+    expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(2);
+    expect(await countOf("SELECT COUNT(*) AS total FROM messages")).toBe(1);
+    const device = await env.DB.prepare("SELECT user_id, token_hash FROM devices WHERE id = ?")
+      .bind(LEGACY_DEVICE)
+      .first<{ user_id: string; token_hash: string }>();
+    expect(device).toEqual({ user_id: elderId, token_hash: "hash-elder-device" });
+    const meta = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_meta'").first<{
+      name: string;
+    }>();
+    expect(meta?.name).toBe("schema_meta");
+  });
 });
 
 describe("release journey", () => {
@@ -314,9 +359,6 @@ describe("release journey", () => {
     hmacId: string;
     hmacToken: string;
     hmacPush: string;
-    memberId: string;
-    memberToken: string;
-    memberHash: string;
   } = {
     cookie: "",
     deviceId: "",
@@ -327,9 +369,6 @@ describe("release journey", () => {
     hmacId: "",
     hmacToken: "",
     hmacPush: "",
-    memberId: "",
-    memberToken: "",
-    memberHash: "",
   };
 
   beforeAll(async () => {
@@ -600,7 +639,7 @@ describe("release journey", () => {
     expect(await code.text()).toContain("/api/v1/sms");
   });
 
-  it("clears both rate keys when the device or the user goes away", async () => {
+  it("clears both rate keys when the device is deleted", async () => {
     const tokenHash = await sha256Hex(state.token);
     const pushHash = await sha256Hex(state.secret);
     expect(await countOf("SELECT COUNT(*) AS total FROM rate_limits WHERE token_hash = ? OR token_hash = ?", [tokenHash, pushHash])).toBeGreaterThan(0);
@@ -632,40 +671,120 @@ describe("release journey", () => {
         )
       ).error,
     ).toBe("推送链接无效");
+  });
+});
 
-    const member = await expectStatus(
-      await call("/api/v1/users", jsonInit({ username: "mina", password: "mina-pass-1" }), state.cookie),
-      200,
+describe("single user convergence", () => {
+  beforeAll(async () => {
+    await resetSchema();
+  });
+
+  it("keeps messages and credentials when the configured admin logs in", async () => {
+    const adminId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const elderId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const deviceId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const messageId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    const channelId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const token = "sms_elder_device_token_0001";
+    const tokenHash = await sha256Hex(token);
+    const pushHash = "elder-push-hash-kept";
+    const now = 1_700_000_000_000;
+    const elderPassword = await hashPassword("elder-pass-1");
+
+    await runSql(
+      env.DB,
+      "INSERT INTO users (id, username, password_hash, role, created_at) VALUES (?, ?, ?, 'admin', ?)",
+      [elderId, "elder", elderPassword, 1],
     );
-    state.memberId = String((member.user as { id: string }).id);
-    const memberLogin = await call("/api/v1/auth/login", jsonInit({ username: "mina", password: "mina-pass-1" }));
-    const memberCookie = sessionCookie(memberLogin);
-    await expectStatus(memberLogin, 200);
-    const device = await expectStatus(await call("/api/v1/devices", jsonInit({ name: "备用机" }), memberCookie), 200);
-    state.memberToken = String(device.token);
-    state.memberHash = await sha256Hex(state.memberToken);
-    await expectStatus(
+    await runSql(
+      env.DB,
+      "INSERT INTO users (id, username, password_hash, role, created_at) VALUES (?, ?, ?, 'admin', ?)",
+      [adminId, ADMIN_USERNAME, "not-a-password-hash", 2],
+    );
+    await runSql(
+      env.DB,
+      "INSERT INTO devices (id, user_id, name, token_hash, secret, created_at, push_token_hash, push_revoked_at) VALUES (?, ?, ?, ?, NULL, ?, ?, NULL)",
+      [deviceId, elderId, "旧手机", tokenHash, now, pushHash],
+    );
+    await runSql(
+      env.DB,
+      "INSERT INTO messages (id, device_id, from_number, to_number, content, content_hash, code, raw_payload, received_at, created_at) VALUES (?, ?, '10086', '', '旧成员短信 246810', 'hash-elder-message', '246810', '{}', ?, ?)",
+      [messageId, deviceId, now, now],
+    );
+    await runSql(
+      env.DB,
+      "INSERT INTO notify_channels (id, user_id, kind, config, enabled, created_at) VALUES (?, ?, 'bark', ?, 1, ?)",
+      [channelId, elderId, '{"device_key":"abcd1234"}', now],
+    );
+    await runSql(env.DB, "INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)", [
+      "elder-session",
+      elderId,
+      now + 60_000,
+      now,
+    ]);
+    await runSql(env.DB, "INSERT INTO rate_limits (token_hash, window_start, count) VALUES (?, ?, 1)", [tokenHash, now]);
+
+    expect((await call("/api/v1/users", jsonInit({ username: "mina", password: "mina-pass-1" }))).status).toBe(410);
+    expect((await call(`/api/v1/users/${elderId}`, { method: "DELETE" })).status).toBe(410);
+    expect(await countOf("SELECT COUNT(*) AS total FROM messages WHERE id = ?", [messageId])).toBe(1);
+    expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(2);
+
+    const elderLogin = await call("/api/v1/auth/login", jsonInit({ username: "elder", password: "elder-pass-1" }));
+    expect((await expectStatus(elderLogin, 401)).error).toBe("仅管理员可以登录");
+    expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(2);
+    expect(await countOf("SELECT COUNT(*) AS total FROM devices WHERE user_id = ?", [elderId])).toBe(1);
+
+    const login = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
+    const cookie = sessionCookie(login);
+    expect((await expectStatus(login, 200)).user).toMatchObject({ username: ADMIN_USERNAME, role: "admin" });
+
+    expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
+    expect(await countOf("SELECT COUNT(*) AS total FROM users WHERE id = ?", [adminId])).toBe(1);
+    expect(await countOf("SELECT COUNT(*) AS total FROM users WHERE id = ?", [elderId])).toBe(0);
+    expect(await countOf("SELECT COUNT(*) AS total FROM sessions WHERE id = ?", ["elder-session"])).toBe(0);
+    expect(await countOf("SELECT COUNT(*) AS total FROM messages WHERE id = ?", [messageId])).toBe(1);
+    expect(await countOf("SELECT COUNT(*) AS total FROM notify_channels WHERE id = ? AND user_id = ?", [channelId, adminId])).toBe(1);
+    expect(await countOf("SELECT COUNT(*) AS total FROM rate_limits WHERE token_hash = ?", [tokenHash])).toBe(1);
+    expect(await countOf("SELECT COUNT(*) AS total FROM schema_meta WHERE key = ?", ["single_user_merged_at"])).toBe(1);
+    const device = await env.DB.prepare("SELECT user_id, token_hash, push_token_hash FROM devices WHERE id = ?")
+      .bind(deviceId)
+      .first<{ user_id: string; token_hash: string; push_token_hash: string }>();
+    expect(device).toEqual({ user_id: adminId, token_hash: tokenHash, push_token_hash: pushHash });
+
+    const inbox = await expectStatus(await call("/api/v1/messages", {}, cookie), 200);
+    expect(JSON.stringify(inbox.messages)).toContain("旧成员短信 246810");
+    const stored = await expectStatus(
       await call("/api/v1/sms", {
         method: "POST",
-        headers: { authorization: `Bearer ${state.memberToken}`, "content-type": "application/json" },
-        body: JSON.stringify({ from: "10001", content: "你好", device: "备用机" }),
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ from: "10086", content: "验证码 135790", device: "Android" }),
       }),
       200,
     );
-    expect(await countOf("SELECT COUNT(*) AS total FROM rate_limits WHERE token_hash = ?", [state.memberHash])).toBe(1);
-    await expectStatus(await call(`/api/v1/users/${state.memberId}`, { method: "DELETE" }, state.cookie), 200);
-    expect(await countOf("SELECT COUNT(*) AS total FROM devices WHERE user_id = ?", [state.memberId])).toBe(0);
-    expect(await countOf("SELECT COUNT(*) AS total FROM rate_limits WHERE token_hash = ?", [state.memberHash])).toBe(0);
-    expect(
-      (
-        await call("/api/v1/sms", {
-          method: "POST",
-          headers: { authorization: `Bearer ${state.memberToken}`, "content-type": "application/json" },
-          body: JSON.stringify({ from: "10001", content: "你好", device: "备用机" }),
-        })
-      ).status,
-    ).toBe(401);
-  });
+    expect(stored).toMatchObject({ ok: true, code: "135790" });
+    const still = await env.DB.prepare("SELECT token_hash, push_token_hash FROM devices WHERE id = ?")
+      .bind(deviceId)
+      .first<{ token_hash: string; push_token_hash: string }>();
+    expect(still).toEqual({ token_hash: tokenHash, push_token_hash: pushHash });
+
+    const again = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
+    expect(again.status).toBe(200);
+    expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
+    expect(await countOf("SELECT COUNT(*) AS total FROM messages WHERE id = ?", [messageId])).toBe(1);
+
+    const previous = env.ADMIN_USERNAME;
+    try {
+      env.ADMIN_USERNAME = "second-admin";
+      const created = await call(
+        "/api/v1/auth/login",
+        jsonInit({ username: "second-admin", password: ADMIN_PASSWORD }),
+      );
+      expect((await expectStatus(created, 409)).error).toContain("不会再创建管理员");
+      expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
+    } finally {
+      env.ADMIN_USERNAME = previous;
+    }
+  }, 30_000);
 });
 
 describe("release storage edges", () => {
