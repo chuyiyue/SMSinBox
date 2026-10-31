@@ -66,6 +66,9 @@ drawer?.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeDrawer();
 });
+window.matchMedia("(max-width: 768px)").addEventListener("change", (event) => {
+  if (!event.matches) closeDrawer();
+});
 document.querySelector("#prev").addEventListener("click", () => {
   if (state.page > 1) {
     state.page -= 1;
