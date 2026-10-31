@@ -20,6 +20,10 @@ import { logInfo } from "../log";
 import { notifyStoredSms, scheduleNotify } from "../notify";
 import { buildRawPayload, parseSmsPayload } from "../parse";
 
+export function buildTestSms(nonce: string): string {
+  return `SMSinBox 测试短信。验证码 654321。序号 ${nonce}`;
+}
+
 export async function handleSms(
   request: Request,
   env: Env,

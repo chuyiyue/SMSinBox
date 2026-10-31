@@ -32,6 +32,7 @@
           <button type="submit">新建设备</button>
         </form>
         <p id="device-error" class="error" hidden></p>
+        <p id="device-status" class="subtle" hidden></p>
         <div id="token-box" class="token-box" hidden>
           <strong>设备 token，只显示这一次</strong>
           <code id="token-value"></code>
@@ -39,6 +40,59 @@
           <button id="copy-token" class="secondary" type="button">复制 token</button>
         </div>
         <div id="devices" class="devices"></div>
+      </section>
+      <section class="panel" id="ios-setup">
+        <h2>iOS 配置</h2>
+        <p class="lede">用快捷指令把短信 POST 到收件箱。这里下载的是未签名模板。Linux 上无法签名（<code>shortcuts sign</code> 只在 macOS 上提供），iOS 15 及更高版本经常拒绝未签名文件。被拒绝时，在 iPhone 上按手动步骤新建，或使用 iCloud 分享链接。链接还没发布时，文档会写「尚未发布」。</p>
+        <div class="actions">
+          <button id="copy-url" class="secondary" type="button">复制 URL</button>
+          <button id="copy-ios-token" class="secondary" type="button" disabled>复制 token</button>
+        </div>
+        <p id="ios-token-note" class="subtle">token 只在创建时显示一次。先在上面新建设备，再复制 token。</p>
+        <p class="subtle">Webhook URL：<code id="ios-url"></code></p>
+        <div class="actions">
+          <a class="button secondary" href="/api/v1/ios/shortcut?variant=all" download="SMSinBox-iOS.shortcut">下载全部短信模板</a>
+          <a class="button secondary" href="/api/v1/ios/shortcut?variant=code" download="SMSinBox-iOS-code.shortcut">下载验证码模板</a>
+        </div>
+        <p class="subtle">下载的文件会填入当前站点的 URL，不会写入设备 token。导入时再粘贴 token。全部短信模板请把自动化条件设为「信息包含一个空格」。验证码模板在正文不含「验证码」或 code 时会停止。</p>
+        <div class="ios-steps">
+          <details>
+            <summary>iOS 27 及以上</summary>
+            <ol>
+              <li>在上面新建设备，复制 Webhook URL 和 token。</li>
+              <li>下载模板后在 iPhone 上打开。若系统拒绝未签名文件，按下面的手动步骤新建，或等文档里的 iCloud 链接（尚未发布就先用手动步骤）。</li>
+              <li>导入时填写 Webhook URL 和设备 token。不要把 token 发给别人。</li>
+              <li>打开「快捷指令」→「自动化」，展开这条快捷指令的触发器。</li>
+              <li>打开自动化开关，关闭「运行前确认」，有「锁定时允许运行」就打开它。</li>
+              <li>全部短信选「信息包含一个空格」。没有空格的短码改用验证码模板，或额外加上「验证码」和 code。</li>
+              <li>保存。用另一台手机发一条含「验证码 123456」的短信，或点设备旁边的「发送测试消息」。</li>
+            </ol>
+          </details>
+          <details>
+            <summary>iOS 26 及以下</summary>
+            <ol>
+              <li>复制 URL 和 token。</li>
+              <li>打开「快捷指令」→「自动化」→ 点「+」→「信息」。</li>
+              <li>发件人可以选任何人。条件选「信息包含一个空格」，或「包含」验证码 / code。</li>
+              <li>选择「立即运行」，关闭「运行前询问」。</li>
+              <li>把下载的快捷指令加进这个自动化。系统拒绝未签名文件时，改用手动步骤。</li>
+              <li>保存。手机重启后要先解锁一次，自动化才会继续跑。</li>
+            </ol>
+          </details>
+          <details>
+            <summary>手动添加「获取 URL 内容」</summary>
+            <ol>
+              <li>按上面对应系统版本新建「信息」自动化，并设好触发条件。</li>
+              <li>添加「文本」，内容填 Webhook URL。再添加一个「文本」，内容填设备 token。</li>
+              <li>再添加「文本」，内容是 <code>Bearer </code> 加上 token 那个文本的输出。</li>
+              <li>添加「获取 URL 内容」。URL 选第一个文本，方法 POST，打开显示标头。</li>
+              <li>标头 <code>Authorization</code> 选 Bearer 文本，<code>Content-Type</code> 填 <code>application/json</code>。</li>
+              <li>请求体选 JSON：<code>from</code> 用快捷指令输入的发件人（Sender），空的话改成自动化的「发件人」；<code>content</code> 用快捷指令输入；<code>timestamp</code> 用当前日期；<code>device</code> 填 iOS。</li>
+              <li>可选「显示通知」，标题 SMSinBox，正文「已转发」。关闭运行前询问后保存。</li>
+            </ol>
+          </details>
+        </div>
+        <p class="subtle">共享来的自动化默认是关闭的。手机需要开机并联网，只转发文本，不支持彩信。分版本步骤、常见问题和限制写在仓库的 <code>docs/ios-setup.md</code>。</p>
       </section>
       <section class="panel">
         <h2>推送</h2>
@@ -72,17 +126,6 @@
           </ol>
           <pre id="android-template"></pre>
           <button id="copy-template" class="secondary" type="button">复制模板</button>
-        </details>
-        <details>
-          <summary>iOS · 快捷指令自动化</summary>
-          <ol>
-            <li>打开「快捷指令」→「自动化」→ 新建 →「信息」。</li>
-            <li>触发选短信到达。发件人可选任何人，或只填会发验证码的号码。</li>
-            <li>关闭「运行前询问」，打开「立即运行」。</li>
-            <li>添加「获取 URL 内容」：POST 到上面的地址，标头同上。</li>
-            <li>请求体用 JSON，把「发件人」和「快捷指令输入」插进 from 和 content。timestamp 可省略。</li>
-          </ol>
-          <p class="subtle">iOS 只转发符合触发条件的新短信，不支持彩信。手机重启后需要解锁一次，自动化才会继续跑。</p>
         </details>
         <details>
           <summary>可选 HMAC</summary>

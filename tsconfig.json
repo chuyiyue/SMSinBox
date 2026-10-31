@@ -15,5 +15,5 @@
     "noFallthroughCasesInSwitch": true,
     "verbatimModuleSyntax": false
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "test/**/*.ts", "worker-configuration.d.ts"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "test/**/*.ts", "test/**/*.d.ts", "worker-configuration.d.ts"]
 }

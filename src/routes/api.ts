@@ -9,6 +9,7 @@ import {
   sha256Hex,
   verifyPassword,
 } from "../auth";
+import { resolveContentKey, revealCode, sealMessage } from "../crypto";
 import {
   countDevices,
   countNotifyChannels,
@@ -17,11 +18,14 @@ import {
   deleteDevice,
   deleteNotifyChannel,
   deleteSession,
+  findDeviceForUser,
+  findMessageByHash,
   findNotifyChannel,
   findSessionUser,
   findUserByUsername,
   getMessage,
   insertDevice,
+  insertMessage,
   insertNotifyChannel,
   insertUser,
   isUniqueViolation,
@@ -31,20 +35,35 @@ import {
   listNotifyChannels,
   MAX_DEVICES,
   setNotifyChannelEnabled,
+  touchDevice,
   updatePasswordHash,
 } from "../db";
+import { dedupHash } from "../dedup";
+import { extractCode } from "../extract";
 import { isCrossSite, json, readCookie, readLimitedBytes } from "../http";
 import { logError, logInfo } from "../log";
+import {
+  channelFromRow,
+  deliverChannels,
+  MAX_NOTIFY_CHANNELS,
+  notifyStoredSms,
+  parseChannelInput,
+  redactConfig,
+  scheduleNotify,
+} from "../notify";
+import { buildRawPayload } from "../parse";
 import { compileLikeQuery } from "../search";
-import { resolveContentKey } from "../crypto";
-import { channelFromRow, deliverChannels, MAX_NOTIFY_CHANNELS, parseChannelInput, redactConfig } from "../notify";
+import { buildShortcut, shortcutFilename, type ShortcutVariant } from "../shortcut";
+import { buildTestSms } from "./sms";
 import { openSmtpSocket } from "../smtp";
 import { createInboxStream, resolveCursor, SSE_BATCH } from "../sse";
 import type { SessionUser } from "../types";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export async function handleApi(request: Request, env: Env): Promise<Response> {
+type WaitCtx = { waitUntil(promise: Promise<unknown>): void };
+
+export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { waitUntil() {} }): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
   const method = request.method.toUpperCase();
@@ -92,10 +111,19 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     if (method === "POST") return setNotificationEnabled(request, env, notifyItem[1]);
     return methodNotAllowed("POST, DELETE");
   }
+  if (path === "/api/v1/ios/shortcut") {
+    if (method !== "GET") return methodNotAllowed("GET");
+    return iosShortcut(request, env, url);
+  }
   if (path === "/api/v1/devices") {
     if (method === "GET") return devices(request, env);
     if (method === "POST") return createDevice(request, env);
     return methodNotAllowed("GET, POST");
+  }
+  const deviceTest = /^\/api\/v1\/devices\/([^/]+)\/test$/.exec(path);
+  if (deviceTest?.[1]) {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return testDevice(request, env, ctx, deviceTest[1]);
   }
   const deviceMatch = /^\/api\/v1\/devices\/([^/]+)$/.exec(path);
   if (deviceMatch?.[1]) {
@@ -399,6 +427,96 @@ function presentChannel(channel: {
     created_at: channel.createdAt,
     config: redactConfig(channel.kind, channel.config),
   };
+}
+
+async function iosShortcut(request: Request, env: Env, url: URL): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const raw = url.searchParams.get("variant") ?? "all";
+  if (raw !== "all" && raw !== "code") return json({ ok: false, error: "未知的快捷指令版本" }, 400);
+  const variant: ShortcutVariant = raw;
+  const filename = shortcutFilename(variant);
+  const body = buildShortcut(variant, `${url.origin}/api/v1/sms`);
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "cache-control": "no-store",
+      "content-disposition": `attachment; filename="${filename}"`,
+      "content-type": "application/octet-stream",
+      "x-content-type-options": "nosniff",
+    },
+  });
+}
+
+async function testDevice(request: Request, env: Env, ctx: WaitCtx, rawId: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const id = decodePart(rawId);
+  if (!id || !UUID_RE.test(id)) return json({ ok: false, error: "设备不存在" }, 404);
+  const device = await findDeviceForUser(env.DB, user.id, id);
+  if (!device) return json({ ok: false, error: "设备不存在" }, 404);
+
+  const contentKey = resolveContentKey(env.CONTENT_KEY);
+  if (contentKey.state === "invalid") return json({ ok: false, error: "内容加密密钥无效" }, 500);
+
+  const now = Date.now();
+  const nonce = crypto.randomUUID().slice(0, 8);
+  const content = buildTestSms(nonce);
+  const from = "SMSinBox";
+  const code = extractCode(content);
+  const contentHash = await dedupHash({ deviceId: device.id, from, content, receivedAt: now });
+  const sealed = await sealMessage(contentKey, {
+    content,
+    code,
+    rawPayload: buildRawPayload(content, {
+      from,
+      to: "",
+      content,
+      deviceName: device.name,
+      sim: "",
+      receivedAt: now,
+    }),
+  });
+  if ("error" in sealed) return json({ ok: false, error: "内容加密密钥无效" }, 500);
+
+  const messageId = crypto.randomUUID();
+  try {
+    await insertMessage(env.DB, {
+      id: messageId,
+      deviceId: device.id,
+      from,
+      to: "",
+      content: sealed.content,
+      contentHash,
+      code: sealed.code,
+      rawPayload: sealed.rawPayload,
+      receivedAt: now,
+      createdAt: now,
+      encrypted: sealed.encrypted,
+    });
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    const existing = await findMessageByHash(env.DB, contentHash);
+    if (!existing) throw error;
+    const revealed = await revealCode(contentKey, existing.code, existing.encrypted === 1);
+    await touchDevice(env.DB, device.id, now);
+    return json({ ok: true, id: existing.id, code: revealed, duplicate: true });
+  }
+
+  await touchDevice(env.DB, device.id, now);
+  logInfo({ message: "sms_test_stored", device_id: device.id, message_id: messageId, has_code: code !== null });
+  scheduleNotify(ctx, () =>
+    notifyStoredSms(env, user.id, {
+      from,
+      content,
+      code,
+      deviceName: device.name,
+      receivedAt: now,
+    }),
+  );
+  return json({ ok: true, id: messageId, code });
 }
 
 async function removeDevice(request: Request, env: Env, rawId: string): Promise<Response> {

@@ -16,7 +16,7 @@ export default {
             ? await handleSms(request, env, ctx)
             : json({ ok: false, error: "方法不允许" }, 405, { allow: "POST" });
       } else if (url.pathname.startsWith("/api/")) {
-        response = await handleApi(request, env);
+        response = await handleApi(request, env, ctx);
       } else {
         response = await env.ASSETS.fetch(request);
       }

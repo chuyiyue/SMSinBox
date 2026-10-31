@@ -148,6 +148,17 @@ export async function insertDevice(
     .run();
 }
 
+export async function findDeviceForUser(
+  db: D1Database,
+  userId: string,
+  deviceId: string,
+): Promise<{ id: string; name: string } | null> {
+  return db
+    .prepare("SELECT id, name FROM devices WHERE id = ? AND user_id = ?")
+    .bind(deviceId, userId)
+    .first<{ id: string; name: string }>();
+}
+
 export async function deleteDevice(db: D1Database, userId: string, deviceId: string): Promise<boolean> {
   const owned = await db
     .prepare("SELECT id FROM devices WHERE id = ? AND user_id = ?")

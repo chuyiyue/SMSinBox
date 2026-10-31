@@ -3,11 +3,15 @@ import { api, copyText, formatTime, logout } from "./common.js";
 const TEMPLATE = '{"from":"{{FROM}}","content":"{{SMS}}","timestamp":"{{RECEIVE_TIME}}","device":"{{DEVICE_NAME}}","sim":"{{CARD_SLOT}}"}';
 const form = document.querySelector("#device-form");
 const errorBox = document.querySelector("#device-error");
+const statusBox = document.querySelector("#device-status");
 const tokenBox = document.querySelector("#token-box");
 const tokenValue = document.querySelector("#token-value");
 const devices = document.querySelector("#devices");
+const copyIosToken = document.querySelector("#copy-ios-token");
+const webhookUrl = `${location.origin}/api/v1/sms`;
 
-document.querySelector("#sms-url").textContent = `${location.origin}/api/v1/sms`;
+document.querySelector("#sms-url").textContent = webhookUrl;
+document.querySelector("#ios-url").textContent = webhookUrl;
 document.querySelector("#android-template").textContent = TEMPLATE;
 document.querySelector("#logout").addEventListener("click", () => {
   logout().catch(() => setError("退出失败"));
@@ -15,7 +19,14 @@ document.querySelector("#logout").addEventListener("click", () => {
 document.querySelector("#copy-template").addEventListener("click", async (event) => {
   await copyAndFlash(event.currentTarget, TEMPLATE, "复制模板");
 });
+document.querySelector("#copy-url").addEventListener("click", async (event) => {
+  await copyAndFlash(event.currentTarget, webhookUrl, "复制 URL");
+});
 document.querySelector("#copy-token").addEventListener("click", async (event) => {
+  await copyAndFlash(event.currentTarget, tokenValue.textContent || "", "复制 token");
+});
+copyIosToken.addEventListener("click", async (event) => {
+  if (copyIosToken.disabled) return;
   await copyAndFlash(event.currentTarget, tokenValue.textContent || "", "复制 token");
 });
 
@@ -36,6 +47,7 @@ form.addEventListener("submit", async (event) => {
     }
     tokenValue.textContent = result.data.token;
     tokenBox.hidden = false;
+    copyIosToken.disabled = false;
     form.reset();
     await loadDevices();
   } catch (error) {
@@ -73,6 +85,29 @@ async function loadDevices() {
     const seen = device.last_seen_at ? `最近上报 ${formatTime(device.last_seen_at)}` : "还没有上报";
     meta.textContent = `${seen}${device.has_secret ? " · 已启用 HMAC" : ""}`;
     text.append(title, meta);
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    const test = document.createElement("button");
+    test.type = "button";
+    test.className = "secondary";
+    test.textContent = "发送测试消息";
+    test.addEventListener("click", async () => {
+      test.disabled = true;
+      setError("");
+      try {
+        const result = await api(`/api/v1/devices/${device.id}/test`, { method: "POST", body: "{}" });
+        if (!result.response.ok) {
+          setStatus(result.data.error || "测试失败");
+          return;
+        }
+        setStatus(`已写入收件箱，验证码 ${result.data.code || ""}`);
+      } catch (error) {
+        if (error instanceof Error && error.message === "unauthorized") return;
+        setStatus("测试失败");
+      } finally {
+        test.disabled = false;
+      }
+    });
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "danger";
@@ -86,7 +121,8 @@ async function loadDevices() {
       }
       await loadDevices();
     });
-    row.append(text, remove);
+    actions.append(test, remove);
+    row.append(text, actions);
     devices.append(row);
   }
 }
@@ -106,4 +142,9 @@ async function copyAndFlash(button, value, label) {
 function setError(message) {
   errorBox.hidden = !message;
   errorBox.textContent = message;
+}
+
+function setStatus(message) {
+  statusBox.hidden = !message;
+  statusBox.textContent = message;
 }

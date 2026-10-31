@@ -35,6 +35,8 @@ button, .button {
   cursor: pointer;
 }
 
+a.button { display: inline-block; text-decoration: none; }
+
 button.secondary, a.button.secondary {
   background: transparent;
   color: var(--ink);
@@ -213,14 +215,16 @@ mark.code {
 
 .guide { display: grid; gap: 0.7rem; margin-top: 1rem; }
 
-.guide details {
+.guide details, .ios-steps details {
   border: 1px solid var(--line);
   border-radius: 1rem;
   padding: 0.8rem 1rem;
   background: #fff;
 }
 
-.guide summary { cursor: pointer; font-weight: 700; }
+.ios-steps { display: grid; gap: 0.7rem; margin-top: 0.9rem; }
+
+.guide summary, .ios-steps summary { cursor: pointer; font-weight: 700; }
 
 .devices { display: grid; gap: 0.7rem; }
 

@@ -1,0 +1,239 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it, vi } from "vitest";
+import { bytesToBase64Url } from "../src/auth";
+import { ENCRYPTED_PREFIX } from "../src/crypto";
+import { extractCode } from "../src/extract";
+import { handleApi } from "../src/routes/api";
+import { buildTestSms } from "../src/routes/sms";
+import {
+  buildShortcut,
+  PLACEHOLDER_WEBHOOK,
+  shortcutFilename,
+} from "../src/shortcut";
+
+const DEVICE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const COOKIE = "smsinbox_session=sms_session_token_value";
+
+function sessionRow() {
+  return {
+    id: DEVICE_ID,
+    username: "admin",
+    expires_at: Date.now() + 60_000,
+    name: "iphone",
+  };
+}
+
+function scriptedDb(firsts: unknown[], failInsert = false) {
+  const state = { runs: 0, binds: [] as unknown[][] };
+  const db = {
+    prepare(sql: string) {
+      const statement = {
+        bind(...args: unknown[]) {
+          state.binds.push(args);
+          return statement;
+        },
+        async first() {
+          return firsts.shift() ?? null;
+        },
+        async all() {
+          return { results: [] };
+        },
+        async run() {
+          state.runs += 1;
+          if (failInsert && sql.includes("INSERT INTO messages")) {
+            throw new Error("UNIQUE constraint failed: messages.content_hash");
+          }
+          return { meta: { changes: 1 } };
+        },
+      };
+      return statement;
+    },
+  } as unknown as D1Database;
+  return { db, state };
+}
+
+function envFor(db: D1Database, contentKey = ""): Env {
+  return {
+    DB: db,
+    ASSETS: { fetch: async () => new Response("") },
+    RETENTION_DAYS: "90",
+    CONTENT_KEY: contentKey,
+    ADMIN_USERNAME: "admin",
+    ADMIN_PASSWORD: "secret",
+  } as unknown as Env;
+}
+
+describe("shortcut plist", () => {
+  it("builds a near-all template with import questions and a POST", () => {
+    const plist = buildShortcut("all");
+    expect(plist).toBe(buildShortcut("all"));
+    expect(plist.startsWith("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")).toBe(true);
+    expect(plist).toContain("WFWorkflowImportQuestions");
+    expect(plist).toContain("is.workflow.actions.downloadurl");
+    expect(plist).toContain("<string>POST</string>");
+    expect(plist).toContain("<string>Authorization</string>");
+    expect(plist).toContain("Bearer \uFFFC");
+    for (const field of ["from", "content", "timestamp", "device"]) {
+      expect(plist).toContain(`<string>${field}</string>`);
+    }
+    expect(plist).toContain("ExtensionInput");
+    expect(plist).toContain("Sender");
+    expect(plist).toContain("CurrentDate");
+    expect(plist).toContain(PLACEHOLDER_WEBHOOK);
+    expect(plist).not.toContain("is.workflow.actions.conditional");
+    expect(plist).not.toContain("is.workflow.actions.exit");
+    expect(plist).toContain("信息包含一个空格");
+    expect(plist).toContain("尚未发布");
+    expect(plist).not.toContain("icloud.com/shortcuts");
+    expect(shortcutFilename("all")).toBe("SMSinBox-iOS.shortcut");
+  });
+
+  it("stops the verification-code template unless the message matches", () => {
+    const plist = buildShortcut("code");
+    expect(plist).toContain("验证码");
+    expect(plist).toContain("<string>code</string>");
+    expect(plist).toContain("is.workflow.actions.conditional");
+    expect(plist).toContain("is.workflow.actions.exit");
+    expect(plist.indexOf("22222222-2222-4222-8222-222222222222")).toBeLessThan(
+      plist.indexOf("is.workflow.actions.conditional"),
+    );
+    expect(plist.indexOf("is.workflow.actions.conditional")).toBeLessThan(
+      plist.indexOf("is.workflow.actions.downloadurl"),
+    );
+    expect(plist).toContain("<key>ActionIndex</key>");
+    expect(plist).toContain("<integer>1</integer>");
+    expect(plist).toContain("<integer>2</integer>");
+    expect(shortcutFilename("code")).toBe("SMSinBox-iOS-code.shortcut");
+  });
+
+  it("matches the committed unsigned templates and refuses a non-http URL", () => {
+    expect(readFileSync("shortcuts/SMSinBox-iOS.shortcut", "utf8")).toBe(buildShortcut("all"));
+    expect(readFileSync("shortcuts/SMSinBox-iOS-code.shortcut", "utf8")).toBe(buildShortcut("code"));
+    const rejected = buildShortcut("all", "javascript:alert(1)");
+    expect(rejected).not.toContain("javascript");
+    expect(rejected).toContain(PLACEHOLDER_WEBHOOK);
+    expect(buildShortcut("all", "https://user:pass@example.com/hook")).toBe(buildShortcut("all"));
+    expect(buildShortcut("code", "https://sms.example/api/v1/sms")).toContain("https://sms.example/api/v1/sms");
+  });
+});
+
+describe("iOS shortcut download", () => {
+  it("requires a session and rejects an unknown variant", async () => {
+    const missing = await handleApi(
+      new Request("https://sms.example/api/v1/ios/shortcut"),
+      envFor(scriptedDb([]).db),
+    );
+    expect(missing.status).toBe(401);
+
+    const unknown = await handleApi(
+      new Request("https://sms.example/api/v1/ios/shortcut?variant=nope", { headers: { cookie: COOKIE } }),
+      envFor(scriptedDb([sessionRow()]).db),
+    );
+    expect(unknown.status).toBe(400);
+  });
+
+  it("downloads a template for this origin without a device token", async () => {
+    const response = await handleApi(
+      new Request("https://sms.example/api/v1/ios/shortcut", { headers: { cookie: COOKIE } }),
+      envFor(scriptedDb([sessionRow()]).db),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/octet-stream");
+    expect(response.headers.get("content-disposition")).toBe('attachment; filename="SMSinBox-iOS.shortcut"');
+    const body = await response.text();
+    expect(body).toBe(buildShortcut("all", "https://sms.example/api/v1/sms"));
+    expect(body).toContain("https://sms.example/api/v1/sms");
+    expect(body).not.toContain("sms_session_token_value");
+    expect(body).not.toMatch(/Bearer [A-Za-z0-9_-]{8,}/);
+  });
+});
+
+describe("device test message", () => {
+  it("extracts the fixed verification code", () => {
+    expect(extractCode(buildTestSms("ab12cd34"))).toBe("654321");
+  });
+
+  it("stores a test sms and does not log the body", async () => {
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((line) => {
+      logs.push(String(line));
+    });
+    const script = scriptedDb([sessionRow(), sessionRow()]);
+    const jobs: Promise<unknown>[] = [];
+    const response = await handleApi(
+      new Request(`https://sms.example/api/v1/devices/${DEVICE_ID}/test`, {
+        method: "POST",
+        headers: { cookie: COOKIE, "content-type": "application/json" },
+        body: "{}",
+      }),
+      envFor(script.db),
+      { waitUntil: (job) => jobs.push(job) },
+    );
+    await Promise.all(jobs);
+    spy.mockRestore();
+    expect(response.status).toBe(200);
+    const payload = await response.json() as { ok: boolean; id: string; code: string };
+    expect(payload.ok).toBe(true);
+    expect(payload.code).toBe("654321");
+    expect(JSON.stringify(payload)).not.toContain("序号");
+    const inserted = script.state.binds.find((args) => args.includes("SMSinBox"));
+    expect(inserted?.[10]).toBe(0);
+    expect(String(inserted?.[4])).toContain("654321");
+    expect(logs.join("")).not.toContain("654321");
+    expect(script.state.runs).toBeGreaterThanOrEqual(2);
+  });
+
+  it("encrypts the stored test sms when CONTENT_KEY is set", async () => {
+    const key = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+    const script = scriptedDb([sessionRow(), sessionRow()]);
+    const jobs: Promise<unknown>[] = [];
+    const response = await handleApi(
+      new Request(`https://sms.example/api/v1/devices/${DEVICE_ID}/test`, {
+        method: "POST",
+        headers: { cookie: COOKIE, "content-type": "application/json" },
+        body: "{}",
+      }),
+      envFor(script.db, key),
+      { waitUntil: (job) => jobs.push(job) },
+    );
+    await Promise.all(jobs);
+    expect(response.status).toBe(200);
+    const inserted = script.state.binds.find((args) => args[10] === 1);
+    expect(String(inserted?.[4]).startsWith(ENCRYPTED_PREFIX)).toBe(true);
+    expect(String(inserted?.[6]).startsWith(ENCRYPTED_PREFIX)).toBe(true);
+  });
+
+  it("refuses an invalid content key, a missing device, and an anonymous caller", async () => {
+    const invalid = scriptedDb([sessionRow(), sessionRow()]);
+    const rejected = await handleApi(
+      new Request(`https://sms.example/api/v1/devices/${DEVICE_ID}/test`, {
+        method: "POST",
+        headers: { cookie: COOKIE, "content-type": "application/json" },
+        body: "{}",
+      }),
+      envFor(invalid.db, "not-a-key"),
+    );
+    expect(rejected.status).toBe(500);
+    expect(invalid.state.runs).toBe(0);
+
+    const missingDevice = await handleApi(
+      new Request(`https://sms.example/api/v1/devices/${DEVICE_ID}/test`, {
+        method: "POST",
+        headers: { cookie: COOKIE, "content-type": "application/json" },
+        body: "{}",
+      }),
+      envFor(scriptedDb([sessionRow(), null]).db),
+    );
+    expect(missingDevice.status).toBe(404);
+
+    const anonymous = await handleApi(
+      new Request(`https://sms.example/api/v1/devices/${DEVICE_ID}/test`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+      envFor(scriptedDb([]).db),
+    );
+    expect(anonymous.status).toBe(401);
+  });
+});
