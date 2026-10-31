@@ -24,17 +24,16 @@ if (existing.response.ok) location.replace(next);
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
-  setBusy(true);
   error.hidden = true;
   const payload = new FormData(form);
+  const username = String(payload.get("username") || "").trim();
+  const password = String(payload.get("password") || "");
+  setBusy(true);
   try {
     const result = await api("/api/v1/auth/login", {
       method: "POST",
       allowUnauthorized: true,
-      body: JSON.stringify({
-        username: payload.get("username"),
-        password: payload.get("password"),
-      }),
+      body: JSON.stringify({ username, password }),
     });
     if (!result.response.ok) {
       showError(loginMessage(result.data.error));
