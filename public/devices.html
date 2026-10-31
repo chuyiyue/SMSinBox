@@ -4,137 +4,162 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex, nofollow" />
-    <title>设备 · SMSinBox</title>
+    <title>设备管理 · SMSinBox</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <header class="topbar">
-      <a class="brand" href="/">
-        <span class="mark" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 32 32"><path d="M5 10h22v14H5z" fill="none" stroke="#0e6b4f" stroke-width="2"/><path d="M5 12l11 8 11-8" fill="none" stroke="#0e6b4f" stroke-width="2"/></svg>
-        </span>
-        SMSinBox
-      </a>
-      <nav class="nav">
-        <a href="/">收件箱</a>
-        <a class="active" href="/devices.html">设备</a>
-        <a id="users-link" href="/users.html" hidden>用户</a>
-        <button id="logout" type="button">退出</button>
-      </nav>
-    </header>
-    <main class="wrap">
-      <section class="panel">
-        <h1>设备</h1>
-        <p class="lede">每个设备有自己的 token。token 只在创建时显示一次，丢失后请删除并新建。</p>
-        <form id="device-form" class="device-form">
-          <label>名称<input name="name" required maxlength="64" placeholder="例如：我的 Pixel" /></label>
-          <label>签名密钥（可选）<input name="secret" maxlength="256" placeholder="留空则只校验 Bearer token" autocomplete="off" /></label>
-          <button type="submit">新建设备</button>
-        </form>
-        <p id="device-error" class="error" hidden></p>
-        <p id="device-status" class="subtle" hidden></p>
-        <div id="token-box" class="token-box" hidden>
-          <strong>设备 token，只显示这一次</strong>
-          <code id="token-value"></code>
-          <p>请立刻保存。关闭或刷新页面后无法再查看。请求头使用 <code>Authorization: Bearer &lt;token&gt;</code>。</p>
-          <button id="copy-token" class="secondary" type="button">复制 token</button>
+    <div class="app-layout">
+      <aside class="sidebar" id="sidebar">
+        <a class="brand" href="/">
+          <span class="mark" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 32 32"><path d="M5 10h22v14H5z" fill="none" stroke="#0e6b4f" stroke-width="2"/><path d="M5 12l11 8 11-8" fill="none" stroke="#0e6b4f" stroke-width="2"/></svg>
+          </span>
+          SMSinBox
+        </a>
+        <a class="sidebar-compose" href="/devices.html#device-form">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          新建设备
+        </a>
+        <nav class="sidebar-nav" aria-label="主导航">
+          <a href="/">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg>
+            收件箱
+          </a>
+          <a class="active" href="/devices.html" aria-current="page">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>
+            设备管理
+          </a>
+          <a href="/notify.html">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>
+            推送设置
+          </a>
+          <a id="users-link" href="/users.html" hidden>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 19c0-3.3 3.1-5.5 7-5.5s7 2.2 7 5.5"/></svg>
+            用户管理
+          </a>
+        </nav>
+        <div class="sidebar-devices">
+          <p class="sidebar-label">设备</p>
+          <div id="sidebar-devices"></div>
         </div>
-        <div id="devices" class="devices"></div>
-      </section>
-      <section class="panel" id="ios-setup">
-        <h2>iOS 配置</h2>
-        <p class="lede">用快捷指令把短信 POST 到收件箱。这里下载的是未签名模板。Linux 上无法签名（<code>shortcuts sign</code> 只在 macOS 上提供），iOS 15 及更高版本经常拒绝未签名文件。被拒绝时，在 iPhone 上按手动步骤新建，或使用 iCloud 分享链接。链接还没发布时，文档会写「尚未发布」。</p>
-        <div class="actions">
-          <button id="copy-url" class="secondary" type="button">复制 URL</button>
-          <button id="copy-ios-token" class="secondary" type="button" disabled>复制 token</button>
+        <div class="sidebar-footer">
+          <div>
+            <div class="sidebar-user" id="who" data-who></div>
+            <div class="sidebar-note">已登录</div>
+          </div>
+          <button id="logout" class="sidebar-logout" type="button" data-logout>退出</button>
         </div>
-        <p id="ios-token-note" class="subtle">token 只在创建时显示一次。先在上面新建设备，再复制 token。</p>
-        <p class="subtle">Webhook URL：<code id="ios-url"></code></p>
-        <div class="actions">
-          <a class="button secondary" href="/api/v1/ios/shortcut?variant=all" download="SMSinBox-iOS.shortcut">下载全部短信模板</a>
-          <a class="button secondary" href="/api/v1/ios/shortcut?variant=code" download="SMSinBox-iOS-code.shortcut">下载验证码模板</a>
+      </aside>
+      <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
+      <div class="main">
+        <header class="topbar">
+          <button class="hamburger" id="menu-toggle" type="button" aria-label="打开菜单" aria-expanded="false" aria-controls="sidebar">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
+          <h1 class="topbar-title">设备管理</h1>
+          <form class="topbar-search-form" action="/" method="get" role="search">
+            <input class="topbar-search" type="search" name="q" maxlength="48" placeholder="搜索正文、号码或验证码" />
+          </form>
+          <div class="topbar-actions">
+            <button id="refresh" class="secondary" type="button">刷新</button>
+            <span class="topbar-user" data-who></span>
+            <button class="secondary" type="button" data-logout>退出</button>
+          </div>
+        </header>
+        <div class="page">
+          <section class="panel">
+            <p class="lede">每个设备有自己的 token。token 只在创建时显示一次，丢失后请删除并新建。</p>
+            <form id="device-form" class="device-form">
+              <label>名称<input name="name" required maxlength="64" placeholder="例如：我的 Pixel" /></label>
+              <label>签名密钥（可选）<input name="secret" maxlength="256" placeholder="留空则只校验 Bearer token" autocomplete="off" /></label>
+              <button type="submit">新建设备</button>
+            </form>
+            <p id="device-error" class="error" hidden></p>
+            <p id="device-status" class="subtle" hidden></p>
+            <div id="token-box" class="token-box" hidden>
+              <strong>设备 token，只显示这一次</strong>
+              <code id="token-value"></code>
+              <p>请立刻保存。关闭或刷新页面后无法再查看。请求头使用 <code>Authorization: Bearer &lt;token&gt;</code>。</p>
+              <button id="copy-token" class="secondary" type="button">复制 token</button>
+            </div>
+            <div id="devices" class="devices"></div>
+          </section>
+          <section class="panel" id="ios-setup">
+            <h2>iOS 配置</h2>
+            <p class="lede">用快捷指令把短信 POST 到收件箱。这里下载的是未签名模板。Linux 上无法签名（<code>shortcuts sign</code> 只在 macOS 上提供），iOS 15 及更高版本经常拒绝未签名文件。被拒绝时，在 iPhone 上按手动步骤新建，或使用 iCloud 分享链接。链接还没发布时，文档会写「尚未发布」。</p>
+            <div class="actions">
+              <button id="copy-url" class="secondary" type="button">复制 URL</button>
+              <button id="copy-ios-token" class="secondary" type="button" disabled>复制 token</button>
+            </div>
+            <p id="ios-token-note" class="subtle">token 只在创建时显示一次。先在上面新建设备，再复制 token。</p>
+            <p class="subtle">Webhook URL：<code id="ios-url"></code></p>
+            <div class="actions">
+              <a class="button secondary" href="/api/v1/ios/shortcut?variant=all" download="SMSinBox-iOS.shortcut">下载全部短信模板</a>
+              <a class="button secondary" href="/api/v1/ios/shortcut?variant=code" download="SMSinBox-iOS-code.shortcut">下载验证码模板</a>
+            </div>
+            <p class="subtle">下载的文件会填入当前站点的 URL，不会写入设备 token。导入时再粘贴 token。全部短信模板请把自动化条件设为「信息包含一个空格」。验证码模板在正文不含「验证码」或 code 时会停止。</p>
+            <div class="ios-steps">
+              <details>
+                <summary>iOS 27 及以上</summary>
+                <ol>
+                  <li>在上面新建设备，复制 Webhook URL 和 token。</li>
+                  <li>下载模板后在 iPhone 上打开。若系统拒绝未签名文件，按下面的手动步骤新建，或等文档里的 iCloud 链接（尚未发布就先用手动步骤）。</li>
+                  <li>导入时填写 Webhook URL 和设备 token。不要把 token 发给别人。</li>
+                  <li>打开「快捷指令」→「自动化」，展开这条快捷指令的触发器。</li>
+                  <li>打开自动化开关，关闭「运行前确认」，有「锁定时允许运行」就打开它。</li>
+                  <li>全部短信选「信息包含一个空格」。没有空格的短码改用验证码模板，或额外加上「验证码」和 code。</li>
+                  <li>保存。用另一台手机发一条含「验证码 123456」的短信，或点设备旁边的「发送测试消息」。</li>
+                </ol>
+              </details>
+              <details>
+                <summary>iOS 26 及以下</summary>
+                <ol>
+                  <li>复制 URL 和 token。</li>
+                  <li>打开「快捷指令」→「自动化」→ 点「+」→「信息」。</li>
+                  <li>发件人可以选任何人。条件选「信息包含一个空格」，或「包含」验证码 / code。</li>
+                  <li>选择「立即运行」，关闭「运行前询问」。</li>
+                  <li>把下载的快捷指令加进这个自动化。系统拒绝未签名文件时，改用手动步骤。</li>
+                  <li>保存。手机重启后要先解锁一次，自动化才会继续跑。</li>
+                </ol>
+              </details>
+              <details>
+                <summary>手动添加「获取 URL 内容」</summary>
+                <ol>
+                  <li>按上面对应系统版本新建「信息」自动化，并设好触发条件。</li>
+                  <li>添加「文本」，内容填 Webhook URL。再添加一个「文本」，内容填设备 token。</li>
+                  <li>再添加「文本」，内容是 <code>Bearer </code> 加上 token 那个文本的输出。</li>
+                  <li>添加「获取 URL 内容」。URL 选第一个文本，方法 POST，打开显示标头。</li>
+                  <li>标头 <code>Authorization</code> 选 Bearer 文本，<code>Content-Type</code> 填 <code>application/json</code>。</li>
+                  <li>请求体选 JSON：<code>from</code> 用快捷指令输入的发件人（Sender），空的话改成自动化的「发件人」；<code>content</code> 用快捷指令输入；<code>timestamp</code> 用当前日期；<code>device</code> 填 iOS。</li>
+                  <li>可选「显示通知」，标题 SMSinBox，正文「已转发」。关闭运行前询问后保存。</li>
+                </ol>
+              </details>
+            </div>
+            <p class="subtle">共享来的自动化默认是关闭的。手机需要开机并联网，只转发文本，不支持彩信。分版本步骤、常见问题和限制写在仓库的 <code>docs/ios-setup.md</code>。</p>
+          </section>
+          <section class="guide">
+            <h2>怎么把短信送进来</h2>
+            <details open>
+              <summary>Android · SmsForwarder</summary>
+              <ol>
+                <li>安装 <a href="https://github.com/pppscn/SmsForwarder">SmsForwarder</a>，授予短信和通知权限。</li>
+                <li>添加发送通道，类型选 Webhook，方法 POST。</li>
+                <li>URL 填 <code id="sms-url"></code></li>
+                <li>请求头添加 <code>Authorization: Bearer 设备token</code> 和 <code>Content-Type: application/json</code>。</li>
+                <li>请求体使用下面的模板，然后建一条「收到短信时转发到该通道」的规则。</li>
+              </ol>
+              <pre id="android-template"></pre>
+              <button id="copy-template" class="secondary" type="button">复制模板</button>
+            </details>
+            <details>
+              <summary>可选 HMAC</summary>
+              <p>创建设备时如果填写了签名密钥，之后每次上报都必须带 <code>X-Timestamp</code>（Unix 秒或毫秒）和 <code>X-Signature</code>。签名是 <code>HMAC-SHA256(X-Timestamp + 原始请求体, secret)</code> 的十六进制，时间窗口 ±5 分钟。SmsForwarder 和快捷指令的默认配置不会签名，密钥请留空。</p>
+            </details>
+          </section>
         </div>
-        <p class="subtle">下载的文件会填入当前站点的 URL，不会写入设备 token。导入时再粘贴 token。全部短信模板请把自动化条件设为「信息包含一个空格」。验证码模板在正文不含「验证码」或 code 时会停止。</p>
-        <div class="ios-steps">
-          <details>
-            <summary>iOS 27 及以上</summary>
-            <ol>
-              <li>在上面新建设备，复制 Webhook URL 和 token。</li>
-              <li>下载模板后在 iPhone 上打开。若系统拒绝未签名文件，按下面的手动步骤新建，或等文档里的 iCloud 链接（尚未发布就先用手动步骤）。</li>
-              <li>导入时填写 Webhook URL 和设备 token。不要把 token 发给别人。</li>
-              <li>打开「快捷指令」→「自动化」，展开这条快捷指令的触发器。</li>
-              <li>打开自动化开关，关闭「运行前确认」，有「锁定时允许运行」就打开它。</li>
-              <li>全部短信选「信息包含一个空格」。没有空格的短码改用验证码模板，或额外加上「验证码」和 code。</li>
-              <li>保存。用另一台手机发一条含「验证码 123456」的短信，或点设备旁边的「发送测试消息」。</li>
-            </ol>
-          </details>
-          <details>
-            <summary>iOS 26 及以下</summary>
-            <ol>
-              <li>复制 URL 和 token。</li>
-              <li>打开「快捷指令」→「自动化」→ 点「+」→「信息」。</li>
-              <li>发件人可以选任何人。条件选「信息包含一个空格」，或「包含」验证码 / code。</li>
-              <li>选择「立即运行」，关闭「运行前询问」。</li>
-              <li>把下载的快捷指令加进这个自动化。系统拒绝未签名文件时，改用手动步骤。</li>
-              <li>保存。手机重启后要先解锁一次，自动化才会继续跑。</li>
-            </ol>
-          </details>
-          <details>
-            <summary>手动添加「获取 URL 内容」</summary>
-            <ol>
-              <li>按上面对应系统版本新建「信息」自动化，并设好触发条件。</li>
-              <li>添加「文本」，内容填 Webhook URL。再添加一个「文本」，内容填设备 token。</li>
-              <li>再添加「文本」，内容是 <code>Bearer </code> 加上 token 那个文本的输出。</li>
-              <li>添加「获取 URL 内容」。URL 选第一个文本，方法 POST，打开显示标头。</li>
-              <li>标头 <code>Authorization</code> 选 Bearer 文本，<code>Content-Type</code> 填 <code>application/json</code>。</li>
-              <li>请求体选 JSON：<code>from</code> 用快捷指令输入的发件人（Sender），空的话改成自动化的「发件人」；<code>content</code> 用快捷指令输入；<code>timestamp</code> 用当前日期；<code>device</code> 填 iOS。</li>
-              <li>可选「显示通知」，标题 SMSinBox，正文「已转发」。关闭运行前询问后保存。</li>
-            </ol>
-          </details>
-        </div>
-        <p class="subtle">共享来的自动化默认是关闭的。手机需要开机并联网，只转发文本，不支持彩信。分版本步骤、常见问题和限制写在仓库的 <code>docs/ios-setup.md</code>。</p>
-      </section>
-      <section class="panel">
-        <h2>推送</h2>
-        <p class="lede">短信先写入收件箱，再推送到已启用的渠道。某个渠道失败不会丢掉短信。</p>
-        <form id="notify-form" class="stack">
-          <label>渠道
-            <select name="kind">
-              <option value="telegram">Telegram</option>
-              <option value="wecom">企业微信</option>
-              <option value="bark">Bark</option>
-              <option value="email">邮件</option>
-            </select>
-          </label>
-          <div id="notify-fields" class="stack"></div>
-          <button type="submit">添加渠道</button>
-        </form>
-        <p id="notify-error" class="error" hidden></p>
-        <p id="notify-status" class="subtle" hidden></p>
-        <div id="notify-list" class="devices"></div>
-      </section>
-      <section class="guide">
-        <h2>怎么把短信送进来</h2>
-        <details open>
-          <summary>Android · SmsForwarder</summary>
-          <ol>
-            <li>安装 <a href="https://github.com/pppscn/SmsForwarder">SmsForwarder</a>，授予短信和通知权限。</li>
-            <li>添加发送通道，类型选 Webhook，方法 POST。</li>
-            <li>URL 填 <code id="sms-url"></code></li>
-            <li>请求头添加 <code>Authorization: Bearer 设备token</code> 和 <code>Content-Type: application/json</code>。</li>
-            <li>请求体使用下面的模板，然后建一条「收到短信时转发到该通道」的规则。</li>
-          </ol>
-          <pre id="android-template"></pre>
-          <button id="copy-template" class="secondary" type="button">复制模板</button>
-        </details>
-        <details>
-          <summary>可选 HMAC</summary>
-          <p>创建设备时如果填写了签名密钥，之后每次上报都必须带 <code>X-Timestamp</code>（Unix 秒或毫秒）和 <code>X-Signature</code>。签名是 <code>HMAC-SHA256(X-Timestamp + 原始请求体, secret)</code> 的十六进制，时间窗口 ±5 分钟。SmsForwarder 和快捷指令的默认配置不会签名，密钥请留空。</p>
-        </details>
-      </section>
-    </main>
+      </div>
+    </div>
     <script type="module" src="/devices.js"></script>
-    <script type="module" src="/notify.js"></script>
   </body>
 </html>

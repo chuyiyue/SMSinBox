@@ -1,12 +1,13 @@
-import { api, formatTime, loadNav, logout } from "./common.js";
+import { api, formatTime, initShell, loadNav, logout } from "./common.js";
 
 const form = document.querySelector("#user-form");
 const errorBox = document.querySelector("#user-error");
 const statusBox = document.querySelector("#user-status");
 const list = document.querySelector("#users");
 
-document.querySelector("#logout").addEventListener("click", () => {
-  logout().catch(() => setError("退出失败"));
+initShell({
+  onLogout: () => logout().catch(() => setError("退出失败")),
+  onRefresh: () => loadUsers().catch(() => setError("加载用户失败")),
 });
 
 let me = null;

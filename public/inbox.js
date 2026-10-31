@@ -1,4 +1,14 @@
-import { api, copyText, formatTime, loadNav, logout, renderContent } from "./common.js";
+import {
+  api,
+  copyText,
+  formatTime,
+  initShell,
+  loadNav,
+  logout,
+  renderContent,
+  renderSidebarDevices,
+  setActiveDevice,
+} from "./common.js";
 
 const FALLBACK_MS = 30_000;
 const state = {
@@ -24,16 +34,24 @@ const pageLabel = document.querySelector("#page-label");
 const deviceSelect = document.querySelector("#device");
 const banner = document.querySelector("#live-banner");
 
-document.querySelector("#logout").addEventListener("click", () => {
-  stopRealtime();
-  logout().catch(() => {
-    errorBox.textContent = "退出失败";
-    errorBox.hidden = false;
-  });
-});
-document.querySelector("#refresh").addEventListener("click", () => {
-  banner.hidden = true;
-  loadMessages().catch(showError);
+initShell({
+  onLogout() {
+    stopRealtime();
+    return logout().catch(() => {
+      errorBox.textContent = "退出失败";
+      errorBox.hidden = false;
+    });
+  },
+  onRefresh() {
+    banner.hidden = true;
+    loadMessages().catch(showError);
+  },
+  onDeviceFilter(id) {
+    deviceSelect.value = id;
+    state.page = 1;
+    banner.hidden = true;
+    loadMessages().catch(showError);
+  },
 });
 document.querySelector("#prev").addEventListener("click", () => {
   if (state.page > 1) {
@@ -57,6 +75,7 @@ filters.addEventListener("submit", (event) => {
   event.preventDefault();
   state.page = 1;
   banner.hidden = true;
+  setActiveDevice(deviceSelect.value);
   loadMessages().catch(showError);
 });
 
@@ -158,12 +177,20 @@ function matchesFilters(message) {
 
 async function loadDevices() {
   const result = await api("/api/v1/devices");
-  const current = deviceSelect.value;
+  const params = new URLSearchParams(location.search);
+  const current = params.get("device_id") || deviceSelect.value;
   deviceSelect.replaceChildren(new Option("全部设备", ""));
   for (const device of result.data.devices || []) {
     deviceSelect.append(new Option(device.name, device.id));
   }
   if ([...deviceSelect.options].some((option) => option.value === current)) deviceSelect.value = current;
+  const q = params.get("q");
+  const qInput = document.querySelector("input[name=q]");
+  if (q && qInput && !qInput.value) qInput.value = q;
+  const from = params.get("from");
+  if (from && !filters.elements.from.value) filters.elements.from.value = from;
+  renderSidebarDevices(result.data.devices || []);
+  setActiveDevice(deviceSelect.value);
   await loadNav();
 }
 

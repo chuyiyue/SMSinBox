@@ -1,4 +1,4 @@
-import { api } from "./common.js";
+import { api, initShell, loadNav, logout } from "./common.js";
 
 const KINDS = {
   telegram: "Telegram",
@@ -42,7 +42,14 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
+initShell({
+  onLogout: () => logout().catch(() => setError("退出失败")),
+  onRefresh: () => loadChannels().catch(() => setError("加载推送渠道失败")),
+});
 renderFields();
+loadNav().catch((error) => {
+  if (error instanceof Error && error.message === "unauthorized") return;
+});
 loadChannels().catch((error) => {
   if (error instanceof Error && error.message === "unauthorized") return;
   setError("加载推送渠道失败");

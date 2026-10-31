@@ -1,4 +1,4 @@
-import { api, copyText, formatTime, loadNav, logout } from "./common.js";
+import { api, copyText, formatTime, initShell, loadNav, logout } from "./common.js";
 
 const TEMPLATE = '{"from":"{{FROM}}","content":"{{SMS}}","timestamp":"{{RECEIVE_TIME}}","device":"{{DEVICE_NAME}}","sim":"{{CARD_SLOT}}"}';
 const form = document.querySelector("#device-form");
@@ -13,8 +13,9 @@ const webhookUrl = `${location.origin}/api/v1/sms`;
 document.querySelector("#sms-url").textContent = webhookUrl;
 document.querySelector("#ios-url").textContent = webhookUrl;
 document.querySelector("#android-template").textContent = TEMPLATE;
-document.querySelector("#logout").addEventListener("click", () => {
-  logout().catch(() => setError("退出失败"));
+initShell({
+  onLogout: () => logout().catch(() => setError("退出失败")),
+  onRefresh: () => loadDevices().catch(() => setError("加载设备失败")),
 });
 document.querySelector("#copy-template").addEventListener("click", async (event) => {
   await copyAndFlash(event.currentTarget, TEMPLATE, "复制模板");
