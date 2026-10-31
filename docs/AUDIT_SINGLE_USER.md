@@ -136,7 +136,7 @@ Cookie：`HttpOnly`、`Path=/`、`SameSite=Lax`、HTTPS 下 `Secure`；会话 TT
   - `POST /api/v1/auth/totp/verify`：用密码步骤发出的 `tot_` ticket 换会话 Cookie
 - 登录：密码通过后若已启用 TOTP，返回 `{ totp_required: true, ticket, expires_in }`，不发 Cookie；ticket 5 分钟过期、单次使用、5 次错误作废。`consumeRateLimit` / `consumeRateLimitWindow` 同时限制每个 ticket 的尝试和每个账号 5 分钟内的第二步失败次数，换 ticket 不能绕过。密码失败计数是 §7 的 15 分钟窗口，不是这个 5 分钟窗口。
 - 算法：HMAC-SHA1 / 6 位 / 30 秒，允许 ±1 时间步；`totp_last_counter` 拒绝重放。
-- 前端最小挂钩：`login.html` / `login.js` 增加第二步验证码表单；`users.html` 底部加「两步验证」面板（`public/totp-settings.js`），未重做 users 页。四区系统管理仍留批次 5。
+- 前端最小挂钩：`login.html` / `login.js` 增加第二步验证码表单；批次 4 时只在 `users.html` 底部加「两步验证」面板（`public/totp-settings.js`）。批次 5 已把 `users.html` 改成四区系统管理页，继续复用同一面板，见 §8。
 - 测试：`test/totp.test.ts`（RFC 6238 向量、base32、恢复码、封存）与 `test/release.integration.test.ts` 的真实 D1 旅程（绑定、启用、第二步、重放、限流、恢复码、关闭、重新生成）。
 
 ---
@@ -213,6 +213,8 @@ Cookie：`HttpOnly`、`Path=/`、`SameSite=Lax`、HTTPS 下 `Secure`；会话 TT
 
 `users.html` / `users.js` → 系统管理四区：管理员账号、安全（2FA/会话）、系统配置、关于。导航文案对齐产品；响应式与现有后台一致。
 
+**已完成**：四区落地为「管理员账号 / 会话管理 / 两步验证 / 系统信息」，多用户 UI 已删除，导航文案改为「系统管理」。细节见 §8。
+
 ### 批次 6 — 全站回归（P3）
 
 唯一管理员登录；未登录不可进管理页；注册不可用；改名改密；2FA 开关与恢复码；会话撤销；侧栏稳定；短信/设备/通知/iOS/推送链接；`npm test` + `tsc`；禁止删测试或放宽断言混过。
@@ -256,4 +258,16 @@ Cookie 保持 `HttpOnly`、`Path=/`、无 `Domain`、`SameSite=Lax`，HTTPS 加 
 
 ---
 
-*批次 0 的源码结论在 `452e255` 核对。侧栏根因（MPA 整页重建 + 空容器后填）在后来的持久壳落地后再以批次 1 为准。§7 只补批次 3 的账号行为。*
+## 8. 批次 5 + 6 落地（系统管理页与回归）
+
+- `public/users.html` 改为四区：**管理员账号**（改用户名、改密码表单，均需当前密码）、**会话管理**（未过期会话列表、当前标记、撤销单条、撤销其它）、**两步验证**（继续复用 `public/totp-settings.js` 的 setup/enable/disable/recovery）、**系统信息**（静态版本、当前用户、设备数、会话数）。
+- 删除 `#add-user`、用户表、`#user-dialog`、`#user-form`，以及 `users.js` 里的创建、改角色、停用、删除逻辑；`/api/v1/users` 仍返回 410。
+- 四个管理页侧栏第 4 项和移动端「更多」的文案改为「系统管理」；`href` 仍是 `/users.html`，持久壳的 `VIEWS` 键不变。
+- `public/device-store.js` 新增 `noteMe()`：改名成功后侧栏、页面账号区和 `sessionStorage` 立即用新用户名，不必再请求一次 `/auth/me`。
+- 样式：`public/css/pages.css` 移除不再使用的 `user-table`，新增 `.system-facts` / `.session-list`；窄屏下事实列表与会话行改为单列。
+- 测试：`test/site-consistency.test.ts` 增两例（导航文案、四区结构与多用户残留/接口检查）；`test/account.test.ts` 增跨站与未登录下的会话撤销断言；`test/sidebar-store.test.ts` 增 `noteMe` 内存与缓存断言。`npm test` 149 通过，`npx tsc --noEmit` 通过。
+- 没有改后端 API、migration、Cookie 或 TOTP 算法；未推送、未部署。
+
+---
+
+*批次 0 的源码结论在 `452e255` 核对。侧栏根因（MPA 整页重建 + 空容器后填）在后来的持久壳落地后再以批次 1 为准。§7 补批次 3 的账号行为，§8 补批次 5/6 的系统管理页与回归。*

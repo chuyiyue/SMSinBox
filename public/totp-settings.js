@@ -179,7 +179,7 @@ export function initTotpSettings() {
     const body = mode === "enable" ? { code } : { password: passwordValue, code };
     setBusy(true);
     try {
-      const result = await api(path, { method: "POST", body: JSON.stringify(body) });
+      const result = await api(path, { method: "POST", body: JSON.stringify(body), allowUnauthorized: true });
       if (disposed || !dialog?.open) return;
       if (!result.response.ok) {
         showDialogError(elements, result.data.error || "操作失败");

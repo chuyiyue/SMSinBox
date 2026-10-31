@@ -32,6 +32,17 @@ export function getMe() {
   return state.me;
 }
 
+// Called after the system page renames the only admin. It keeps the sidebar,
+// the cached shell state, and the next page load on the new name without a
+// second /auth/me round trip.
+export function noteMe(user) {
+  if (!user) return;
+  state.me = { ...(state.me || {}), ...user };
+  meFetched = true;
+  persist();
+  emit({ type: "me" });
+}
+
 export function getActiveId() {
   return state.activeId;
 }

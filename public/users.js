@@ -2,93 +2,144 @@ import {
   absoluteTime,
   api,
   formatTime,
+  generatePassword,
   initShell,
   isUnauthorized,
   loadNav,
   logout,
-  openMenu,
   openModal,
   passwordScore,
-  generatePassword,
+  paintMe,
   showNotice,
   toast,
 } from "./common.js";
-import { ensureMe } from "./device-store.js";
+import {
+  ensureDevices,
+  ensureMe,
+  getDevices,
+  noteMe,
+  refreshDevices,
+} from "./device-store.js";
 import { go, registerView } from "./shell.js";
 import { initTotpSettings } from "./totp-settings.js";
 import { rememberFlash } from "./ui.js";
 
 const USERNAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-let form;
-let errorBox;
-let statusBox;
-let list;
-let table;
-let empty;
-let dialog;
-let usernameInput;
-let passwordInput;
-let usernameError;
-let passwordError;
-let formError;
-let strength;
-let me = null;
-let users = [];
+
 let viewToken = 0;
+let me = null;
+let sessions = [];
+
+let accountName;
+let accountError;
+let accountStatus;
+let usernameForm;
+let usernameInput;
+let usernamePassword;
+let usernameError;
+let usernameSubmit;
+let passwordForm;
+let passwordCurrent;
+let passwordInput;
+let passwordError;
+let passwordSubmit;
+let passwordStrength;
+let sessionList;
+let sessionsError;
+let sessionsStatus;
+let revokeOthers;
+let factUser;
+let factDevices;
+let factSessions;
+let pageError;
+let pageRetry;
+let pageRetryButton;
 
 function startView() {
   viewToken += 1;
   const token = viewToken;
   me = null;
-  users = [];
-  form = document.querySelector("#user-form");
-  errorBox = document.querySelector("#user-error");
-  statusBox = document.querySelector("#user-status");
-  list = document.querySelector("#users");
-  table = document.querySelector("#user-table");
-  empty = document.querySelector("#user-empty");
-  dialog = document.querySelector("#user-dialog");
-  usernameInput = document.querySelector("#new-username");
-  passwordInput = document.querySelector("#new-password");
+  sessions = [];
+
+  accountName = document.querySelector("#account-name");
+  accountError = document.querySelector("#account-error");
+  accountStatus = document.querySelector("#account-status");
+  usernameForm = document.querySelector("#username-form");
+  usernameInput = document.querySelector("#username");
+  usernamePassword = document.querySelector("#username-password");
   usernameError = document.querySelector("#username-error");
+  usernameSubmit = document.querySelector("#username-submit");
+  passwordForm = document.querySelector("#password-form");
+  passwordCurrent = document.querySelector("#password-current");
+  passwordInput = document.querySelector("#password");
   passwordError = document.querySelector("#password-error");
-  formError = document.querySelector("#user-form-error");
-  strength = document.querySelector("#password-strength");
+  passwordSubmit = document.querySelector("#password-submit");
+  passwordStrength = document.querySelector("#password-strength");
+  sessionList = document.querySelector("#session-list");
+  sessionsError = document.querySelector("#sessions-error");
+  sessionsStatus = document.querySelector("#sessions-status");
+  revokeOthers = document.querySelector("#revoke-others");
+  factUser = document.querySelector("#fact-user");
+  factDevices = document.querySelector("#fact-devices");
+  factSessions = document.querySelector("#fact-sessions");
+  pageError = document.querySelector("#page-error");
+  pageRetry = document.querySelector("#page-retry");
+  pageRetryButton = document.querySelector("#page-retry-button");
+
   initShell({
-    onLogout: () => logout().catch(() => setError("退出失败")),
-    onRefresh: () => loadUsers().catch((error) => {
-      if (isUnauthorized(error)) return;
-      setError("加载用户失败");
-    }),
+    onLogout: () => logout().catch(() => setAccountError("退出失败")),
+    onRefresh: () => refreshPage(),
   });
   const cleanupTotp = initTotpSettings();
-  document.querySelector("#add-user").addEventListener("click", openCreate);
-  document.querySelector("#user-cancel").addEventListener("click", () => dialog.close());
-  dialog.addEventListener("click", (event) => {
-    if (event.target === dialog) dialog.close();
+
+  usernameForm.addEventListener("submit", submitUsername);
+  usernameInput.addEventListener("input", () => paintUsername(true));
+  usernamePassword.addEventListener("input", () => {
+    usernamePassword.setAttribute("aria-invalid", "false");
   });
-  dialog.addEventListener("close", () => document.body.classList.remove("modal-open"));
-  usernameInput.addEventListener("input", () => paintUsername());
-  passwordInput.addEventListener("input", () => paintPassword());
+  passwordForm.addEventListener("submit", submitPassword);
+  passwordInput.addEventListener("input", () => paintPassword(true));
   document.querySelector("#generate-password").addEventListener("click", () => {
     passwordInput.value = generatePassword();
     passwordInput.type = "text";
-    paintPassword();
+    paintPassword(true);
     passwordInput.focus();
   });
-  form.addEventListener("submit", submitUser);
+  document.querySelector("#sessions-refresh").addEventListener("click", () => {
+    Promise.resolve(loadSessions()).catch((error) => {
+      if (isUnauthorized(error)) return;
+      setSessionsError("加载会话失败");
+    });
+  });
+  revokeOthers.addEventListener("click", revokeOtherSessions);
+  sessionList.addEventListener("click", (event) => {
+    const button = event.target instanceof Element ? event.target.closest("[data-session-id]") : null;
+    if (!button) return;
+    const id = button.getAttribute("data-session-id") || "";
+    const session = sessions.find((item) => item.id === id);
+    if (session) void revokeSession(session);
+  });
+  pageRetryButton.addEventListener("click", () => {
+    Promise.resolve(boot(viewToken)).catch((error) => {
+      if (isUnauthorized(error)) return;
+      showRetry("加载系统管理信息失败");
+    });
+  });
+
   boot(token).catch((error) => {
     if (token !== viewToken || isUnauthorized(error)) return;
-    setError("加载用户失败");
+    showRetry("加载系统管理信息失败");
   });
+
   return () => {
     if (viewToken === token) viewToken += 1;
-    if (dialog?.open) dialog.close();
     cleanupTotp();
   };
 }
 
 async function boot(token) {
+  showNotice(pageError, "");
+  showNotice(pageRetry, "");
   const meResult = await ensureMe();
   if (token !== viewToken || meResult?.stale) return;
   const user = meResult.user || null;
@@ -99,32 +150,72 @@ async function boot(token) {
     return;
   }
   if (!meResult.ok) {
-    setError("");
-    showUserRetry(meResult.error || "加载用户失败", () => boot(viewToken));
+    showRetry(meResult.error || "加载账号失败");
     return;
   }
   me = await loadNav();
   if (token !== viewToken) return;
-  await loadUsers();
+  paintAccount();
+  await Promise.all([loadSessions(), loadDeviceCount()]);
 }
 
-function openCreate() {
-  form.reset();
-  passwordInput.type = "password";
-  paintUsername(true);
-  paintPassword(true);
-  showFormError("");
-  strength.dataset.score = "0";
-  if (!dialog.open) dialog.showModal();
-  document.body.classList.add("modal-open");
-  usernameInput.focus();
+async function refreshPage() {
+  const token = viewToken;
+  showNotice(pageError, "");
+  await Promise.all([
+    loadSessions().catch((error) => {
+      if (isUnauthorized(error)) return;
+      setSessionsError("加载会话失败");
+    }),
+    refreshDeviceCount(token),
+  ]);
+}
+
+function paintAccount() {
+  const name = me?.username || "管理员";
+  accountName.textContent = name;
+  factUser.textContent = name;
+  usernameInput.value = name;
+}
+
+async function loadDeviceCount() {
+  try {
+    const result = await ensureDevices();
+    if (!result?.ok) {
+      factDevices.textContent = "读取失败";
+      return;
+    }
+    factDevices.textContent = String(getDevices().length);
+  } catch (error) {
+    if (isUnauthorized(error)) return;
+    factDevices.textContent = "读取失败";
+  }
+}
+
+async function refreshDeviceCount(token) {
+  try {
+    const result = await refreshDevices();
+    if (token !== viewToken) return;
+    if (!result?.ok) {
+      factDevices.textContent = "读取失败";
+      return;
+    }
+    factDevices.textContent = String(getDevices().length);
+  } catch (error) {
+    if (isUnauthorized(error)) return;
+    factDevices.textContent = "读取失败";
+  }
 }
 
 function paintUsername(silent) {
   const value = usernameInput.value.trim();
   const ok = USERNAME_RE.test(value);
   usernameError.hidden = Boolean(silent) || ok;
-  usernameError.textContent = ok ? "" : value ? "用户名需以字母或数字开头，只能包含字母、数字、. _ -，最长 64。" : "请填写用户名";
+  usernameError.textContent = ok
+    ? ""
+    : value
+      ? "用户名需以字母或数字开头，只能包含字母、数字、. _ -，最长 64。"
+      : "请填写用户名";
   usernameInput.setAttribute("aria-invalid", !silent && !ok ? "true" : "false");
   return ok;
 }
@@ -132,339 +223,264 @@ function paintUsername(silent) {
 function paintPassword(silent) {
   const value = passwordInput.value;
   const ok = value.length >= 8 && value.length <= 256;
-  strength.dataset.score = String(passwordScore(value));
+  passwordStrength.dataset.score = String(passwordScore(value));
   passwordError.hidden = Boolean(silent) || ok;
   passwordError.textContent = ok ? "" : "密码长度需在 8 到 256 之间";
   passwordInput.setAttribute("aria-invalid", !silent && !ok ? "true" : "false");
   return ok;
 }
 
-async function submitUser(event) {
+async function submitUsername(event) {
   event.preventDefault();
-  showFormError("");
+  setAccountError("");
+  setAccountStatus("");
   const usernameOk = paintUsername(false);
-  const passwordOk = paintPassword(false);
-  if (!usernameOk || !passwordOk) return;
-  const payload = new FormData(form);
-  const button = document.querySelector("#user-submit");
-  button.disabled = true;
-  const previous = button.textContent;
-  button.textContent = "添加中…";
-  try {
-    const result = await api("/api/v1/users", {
-      method: "POST",
-      body: JSON.stringify({
-        username: String(payload.get("username") || "").trim(),
-        password: String(payload.get("password") || ""),
-        role: String(payload.get("role") || "member"),
-      }),
-    });
-    if (!result.response.ok) {
-      const message = result.data.error || "添加失败";
-      showFormError(message);
-      toast(message, { tone: "danger" });
-      return;
-    }
-    dialog.close();
-    const name = result.data.user?.username || "";
-    setStatus(`已添加 ${name}`);
-    toast(`已添加 ${name}`);
-    await loadUsers();
-  } catch (error) {
-    if (isUnauthorized(error)) return;
-    showFormError("添加失败");
-    toast("添加失败", { tone: "danger" });
-  } finally {
-    button.disabled = false;
-    button.textContent = previous;
-  }
-}
-
-async function loadUsers() {
-  const token = viewToken;
-  const result = await api("/api/v1/users");
-  if (token !== viewToken) return;
-  if (!result.response.ok) {
-    if (result.response.status === 403) {
-      rememberFlash("需要管理员权限");
-      go("/", { replace: true });
-      return;
-    }
-    const message = result.data.error || "加载用户失败";
-    if (!list.children.length) {
-      setError("");
-      showUserRetry(message, () => loadUsers());
-      return;
-    }
-    setError(message);
+  const currentPassword = usernamePassword.value;
+  if (!usernameOk) return;
+  if (!currentPassword) {
+    setAccountError("请填写当前密码");
+    usernamePassword.focus();
     return;
   }
-  setError("");
-  users = result.data.users || [];
-  list.replaceChildren();
-  const none = users.length === 0;
-  table.hidden = none;
-  empty.hidden = !none;
-  if (none) fillEmptyUsers();
-  for (const user of users) list.append(renderUser(user));
+  const username = usernameInput.value.trim();
+  usernameSubmit.disabled = true;
+  const previous = usernameSubmit.textContent;
+  usernameSubmit.textContent = "保存中…";
+  try {
+    const result = await api("/api/v1/auth/username", {
+      method: "POST",
+      body: JSON.stringify({ current_password: currentPassword, username }),
+      allowUnauthorized: true,
+    });
+    if (!result.response.ok) {
+      setAccountError(result.data.error || "改用户名失败");
+      return;
+    }
+    usernamePassword.value = "";
+    usernamePassword.setAttribute("aria-invalid", "false");
+    const updated = result.data.user || { ...me, username };
+    me = { ...(me || {}), ...updated };
+    noteMe(me);
+    paintMe(me);
+    paintAccount();
+    setAccountStatus(`用户名已改为 ${me.username}`);
+    toast(`用户名已改为 ${me.username}`);
+  } catch (error) {
+    if (isUnauthorized(error)) return;
+    setAccountError("改用户名失败，请重试");
+  } finally {
+    usernameSubmit.disabled = false;
+    usernameSubmit.textContent = previous;
+  }
 }
 
-function fillEmptyUsers() {
-  empty.replaceChildren();
-  const title = document.createElement("h2");
-  title.className = "empty-title";
-  title.textContent = "还没有用户";
-  const text = document.createElement("p");
-  text.textContent = "管理员可以在这里添加能登录的账号。";
-  empty.append(title, text);
+async function submitPassword(event) {
+  event.preventDefault();
+  setAccountError("");
+  setAccountStatus("");
+  const passwordOk = paintPassword(false);
+  const currentPassword = passwordCurrent.value;
+  if (!passwordOk) return;
+  if (!currentPassword) {
+    setAccountError("请填写当前密码");
+    passwordCurrent.focus();
+    return;
+  }
+  if (currentPassword === passwordInput.value) {
+    setAccountError("新密码不能与当前密码相同");
+    return;
+  }
+  passwordSubmit.disabled = true;
+  const previous = passwordSubmit.textContent;
+  passwordSubmit.textContent = "保存中…";
+  try {
+    const result = await api("/api/v1/auth/password", {
+      method: "POST",
+      body: JSON.stringify({ current_password: currentPassword, password: passwordInput.value }),
+      allowUnauthorized: true,
+    });
+    if (!result.response.ok) {
+      setAccountError(result.data.error || "改密码失败");
+      return;
+    }
+    passwordCurrent.value = "";
+    passwordInput.value = "";
+    passwordInput.type = "password";
+    passwordStrength.dataset.score = "0";
+    rememberFlash("密码已更新，请用新密码重新登录");
+    location.assign("/login.html");
+  } catch (error) {
+    if (isUnauthorized(error)) return;
+    setAccountError("改密码失败，请重试");
+  } finally {
+    passwordSubmit.disabled = false;
+    passwordSubmit.textContent = previous;
+  }
 }
 
-function renderUser(user) {
-  const limits = access(user);
-  const row = document.createElement("tr");
-  const name = document.createElement("td");
-  name.dataset.label = "用户名";
-  name.textContent = user.username;
-  if (limits.self) {
-    const you = document.createElement("span");
-    you.className = "badge you";
-    you.textContent = "你";
-    name.append(you);
+async function loadSessions() {
+  const token = viewToken;
+  const result = await api("/api/v1/auth/sessions");
+  if (token !== viewToken) return;
+  if (!result.response.ok) {
+    const message = result.data.error || "加载会话失败";
+    setSessionsError(message);
+    return;
   }
-  const role = document.createElement("td");
-  role.dataset.label = "角色";
-  const roleBadge = document.createElement("span");
-  roleBadge.className = user.role === "admin" ? "badge admin" : "badge";
-  roleBadge.textContent = user.role === "admin" ? "管理员" : "普通用户";
-  role.append(roleBadge);
-  const state = document.createElement("td");
-  state.dataset.label = "状态";
-  state.textContent = user.disabled_at ? "已停用" : "正常";
-  const created = document.createElement("td");
-  created.dataset.label = "创建时间";
-  const time = document.createElement("time");
-  const createdAt = Number(user.created_at);
-  time.textContent = formatTime(createdAt);
-  if (Number.isFinite(createdAt)) {
-    time.dateTime = new Date(createdAt).toISOString();
-    time.title = absoluteTime(createdAt);
+  setSessionsError("");
+  sessions = Array.isArray(result.data.sessions) ? result.data.sessions : [];
+  renderSessions();
+}
+
+function renderSessions() {
+  sessionList.replaceChildren();
+  factSessions.textContent = String(sessions.length);
+  if (sessions.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "session-empty";
+    empty.textContent = "没有有效的登录会话。";
+    sessionList.append(empty);
+    revokeOthers.disabled = true;
+    return;
   }
-  created.append(time);
-  const action = document.createElement("td");
-  action.dataset.label = "操作";
-  const menu = document.createElement("button");
-  menu.type = "button";
-  menu.className = "ghost icon-btn";
-  menu.setAttribute("aria-label", `${user.username} 的操作`);
-  menu.textContent = "⋯";
-  menu.addEventListener("click", () => openMenu(menu, menuItems(user, limits)));
-  action.append(menu);
-  row.append(name, role, state, created, action);
+  for (const session of sessions) sessionList.append(renderSession(session));
+  revokeOthers.disabled = !sessions.some((session) => !session.current);
+}
+
+function renderSession(session) {
+  const row = document.createElement("li");
+  row.className = session.current ? "session-row is-current" : "session-row";
+
+  const main = document.createElement("div");
+  main.className = "session-main";
+  const title = document.createElement("div");
+  title.className = "session-title";
+  const label = document.createElement("strong");
+  label.textContent = session.current ? "当前会话" : "登录会话";
+  title.append(label);
+  if (session.current) {
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = "当前";
+    title.append(badge);
+  }
+
+  const meta = document.createElement("p");
+  meta.className = "subtle";
+  const createdAt = Number(session.created_at);
+  const expiresAt = Number(session.expires_at);
+  const parts = [];
+  if (Number.isFinite(createdAt) && createdAt > 0) {
+    parts.push(`登录于 ${formatTime(createdAt)}`);
+  }
+  if (Number.isFinite(expiresAt) && expiresAt > 0) {
+    parts.push(`有效期至 ${formatTime(expiresAt)}`);
+  }
+  if (!parts.length) parts.push("会话时间未知");
+  meta.textContent = parts.join(" · ");
+  const detail = [];
+  if (Number.isFinite(createdAt) && createdAt > 0) detail.push(`登录：${absoluteTime(createdAt)}`);
+  if (Number.isFinite(expiresAt) && expiresAt > 0) detail.push(`过期：${absoluteTime(expiresAt)}`);
+  if (detail.length) meta.title = detail.join("\n");
+  main.append(title, meta);
+
+  const action = document.createElement("button");
+  action.type = "button";
+  action.className = session.current ? "secondary" : "ghost";
+  action.dataset.sessionId = session.id;
+  action.textContent = session.current ? "退出此会话" : "撤销";
+  action.setAttribute("aria-label", session.current ? "退出当前会话" : "撤销这个会话");
+
+  row.append(main, action);
   return row;
 }
 
-function menuItems(user, limits) {
-  const items = [];
-  if (user.role === "admin") {
-    items.push({
-      label: "取消管理员",
-      disabled: limits.demote.disabled,
-      reason: limits.demote.reason,
-      onSelect: () => patchUser(user, { role: "member" }, "取消管理员"),
-    });
-  } else {
-    items.push({ label: "设为管理员", onSelect: () => patchUser(user, { role: "admin" }, "设为管理员") });
-  }
-  items.push({ label: "重置密码", onSelect: () => resetPassword(user) });
-  if (user.disabled_at) {
-    items.push({ label: "启用", onSelect: () => patchUser(user, { disabled: false }, "启用") });
-  } else {
-    items.push({
-      label: "停用",
-      disabled: limits.disable.disabled,
-      reason: limits.disable.reason,
-      onSelect: () => disableUser(user),
-    });
-  }
-  items.push({
-    label: "删除",
-    danger: true,
-    disabled: limits.remove.disabled,
-    reason: limits.remove.reason,
-    onSelect: () => deleteUser(user),
-  });
-  return items;
-}
-
-function access(user) {
-  const self = Boolean(me && user.id === me.id);
-  const enabledAdmins = users.filter((item) => item.role === "admin" && !item.disabled_at).length;
-  const adminRoles = users.filter((item) => item.role === "admin").length;
-  const lastEnabled = user.role === "admin" && !user.disabled_at && enabledAdmins <= 1;
-  const soleAdmin = user.role === "admin" && adminRoles <= 1;
-  return {
-    self,
-    disable: self
-      ? { disabled: true, reason: "不能停用自己" }
-      : lastEnabled
-        ? { disabled: true, reason: "不能停用最后一位管理员" }
-        : { disabled: false, reason: "" },
-    demote: lastEnabled
-      ? { disabled: true, reason: "不能取消最后一位管理员" }
-      : { disabled: false, reason: "" },
-    remove: self
-      ? { disabled: true, reason: "不能删除自己" }
-      : lastEnabled || soleAdmin
-        ? { disabled: true, reason: "不能删除最后一位管理员" }
-        : { disabled: false, reason: "" },
-  };
-}
-
-async function disableUser(user) {
+async function revokeSession(session) {
   const confirmed = await openModal({
-    title: `停用「${user.username}」？`,
-    text: "该用户的会话将立即失效。",
-    confirmLabel: "停用",
+    title: session.current ? "退出当前会话？" : "撤销这个会话？",
+    text: session.current
+      ? "撤销后这个浏览器需要重新登录。"
+      : "撤销后，对应浏览器需要重新登录。",
+    confirmLabel: session.current ? "退出" : "撤销",
   });
   if (!confirmed) return;
-  await patchUser(user, { disabled: true }, "停用");
-}
-
-async function deleteUser(user) {
-  const confirmed = await openModal({
-    title: `删除用户「${user.username}」？`,
-    text: "将同时删除该用户的所有设备、短信和推送渠道，无法恢复。",
-    confirmLabel: "删除",
-    danger: true,
-    dismissible: false,
-    requireText: user.username,
-  });
-  if (!confirmed) return;
-  setError("");
+  setSessionsError("");
+  setSessionsStatus("");
   try {
-    const deleted = await api(`/api/v1/users/${user.id}`, { method: "DELETE" });
-    if (!deleted.response.ok) {
-      const message = deleted.data.error || "删除失败";
-      setError(message);
-      toast(message, { tone: "danger" });
-      return;
-    }
-    setStatus(`已删除 ${user.username}`);
-    toast(`已删除 ${user.username}`);
-    await loadUsers();
-  } catch (error) {
-    if (isUnauthorized(error)) return;
-    setError("删除失败");
-    toast("删除失败", { tone: "danger" });
-  }
-}
-
-async function resetPassword(user) {
-  const body = document.createElement("div");
-  body.className = "stack";
-  const label = document.createElement("label");
-  label.append("新密码");
-  const input = document.createElement("input");
-  input.type = "password";
-  input.autocomplete = "new-password";
-  input.maxLength = 256;
-  label.append(input);
-  const meter = document.createElement("div");
-  meter.className = "strength";
-  meter.dataset.score = "0";
-  meter.setAttribute("aria-hidden", "true");
-  for (let index = 0; index < 4; index += 1) meter.append(document.createElement("i"));
-  const generate = document.createElement("button");
-  generate.type = "button";
-  generate.className = "ghost";
-  generate.textContent = "生成强密码";
-  const paint = () => {
-    meter.dataset.score = String(passwordScore(input.value));
-  };
-  input.addEventListener("input", paint);
-  generate.addEventListener("click", () => {
-    input.value = generatePassword();
-    input.type = "text";
-    paint();
-    input.focus();
-  });
-  body.append(label, meter, generate);
-  const confirmed = await openModal({
-    title: `重置「${user.username}」的密码`,
-    text: "8 到 256 位。保存后，该用户需要用新密码登录。",
-    body,
-    confirmLabel: "保存",
-    beforeClose: () => {
-      if (input.value.length < 8 || input.value.length > 256) return "密码长度需在 8 到 256 之间";
-      return "";
-    },
-  });
-  if (!confirmed) return;
-  await patchUser(user, { password: input.value }, "重置密码");
-}
-
-async function patchUser(user, body, label) {
-  setError("");
-  try {
-    const result = await api(`/api/v1/users/${user.id}`, { method: "POST", body: JSON.stringify(body) });
+    const result = await api(`/api/v1/auth/sessions/${session.id}`, { method: "DELETE" });
     if (!result.response.ok) {
-      const message = result.data.error || `${label}失败`;
-      setError(message);
+      const message = result.data.error || "撤销会话失败";
+      setSessionsError(message);
       toast(message, { tone: "danger" });
       return;
     }
-    if (body.password) {
-      const message = "该用户需使用新密码登录。";
-      if (me && user.id === me.id) {
-        rememberFlash(message);
-        location.assign("/login.html");
-        return;
-      }
-      setStatus(message);
-      toast(message);
-    } else {
-      const message = `已更新 ${user.username}`;
-      setStatus(message);
-      toast(message);
+    if (session.current) {
+      rememberFlash("当前会话已撤销，请重新登录");
+      location.assign("/login.html");
+      return;
     }
-    await loadUsers();
+    setSessionsStatus("已撤销这个会话");
+    toast("已撤销这个会话");
+    await loadSessions();
   } catch (error) {
     if (isUnauthorized(error)) return;
-    setError(`${label}失败`);
-    toast(`${label}失败`, { tone: "danger" });
+    setSessionsError("撤销会话失败，请重试");
   }
 }
 
-function showUserRetry(message, again) {
-  empty.hidden = false;
-  table.hidden = true;
-  empty.replaceChildren();
-  const title = document.createElement("p");
-  title.textContent = message;
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "secondary";
-  button.textContent = "重试";
-  button.addEventListener("click", () => {
-    Promise.resolve(again()).catch((error) => {
-      if (isUnauthorized(error)) return;
-      setError("加载用户失败");
-    });
+async function revokeOtherSessions() {
+  const confirmed = await openModal({
+    title: "撤销其它会话？",
+    text: "当前会话会保留，其它浏览器需要重新登录。",
+    confirmLabel: "撤销其它会话",
   });
-  empty.append(title, button);
+  if (!confirmed) return;
+  revokeOthers.disabled = true;
+  setSessionsError("");
+  setSessionsStatus("");
+  try {
+    const result = await api("/api/v1/auth/sessions/revoke-others", {
+      method: "POST",
+      body: "{}",
+    });
+    if (!result.response.ok) {
+      const message = result.data.error || "撤销其它会话失败";
+      setSessionsError(message);
+      toast(message, { tone: "danger" });
+      return;
+    }
+    setSessionsStatus("已撤销其它会话");
+    toast("已撤销其它会话");
+    await loadSessions();
+  } catch (error) {
+    if (isUnauthorized(error)) return;
+    setSessionsError("撤销其它会话失败，请重试");
+  } finally {
+    revokeOthers.disabled = !sessions.some((session) => !session.current);
+  }
 }
 
-function showFormError(message) {
-  formError.hidden = !message;
-  formError.textContent = message || "";
+function showRetry(message) {
+  showNotice(pageError, "");
+  pageRetry.hidden = false;
+  const span = pageRetry.querySelector("span");
+  if (span) span.textContent = message;
 }
 
-function setError(message) {
-  showNotice(errorBox, message);
+function setAccountError(message) {
+  showNotice(accountError, message);
 }
 
-function setStatus(message) {
-  showNotice(statusBox, message);
+function setAccountStatus(message) {
+  showNotice(accountStatus, message);
+}
+
+function setSessionsError(message) {
+  showNotice(sessionsError, message);
+}
+
+function setSessionsStatus(message) {
+  showNotice(sessionsStatus, message);
 }
 
 registerView("/users.html", startView);

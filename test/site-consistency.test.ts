@@ -73,6 +73,48 @@ describe("site consistency", () => {
     expect(readFileSync("public/devices.js", "utf8")).toContain("refreshDevices");
   });
 
+  it("labels the admin entry as system management on every page", () => {
+    for (const file of pages) {
+      const html = readFileSync(file, "utf8");
+      const nav = html.match(/<nav class="sidebar-nav"[\s\S]*?<\/nav>/)?.[0] ?? "";
+      expect(nav).toContain('<span class="nav-label">系统管理</span>');
+      expect(nav).not.toContain('<span class="nav-label">用户</span>');
+      expect(html).toContain('<a id="users-tab" href="/users.html" hidden>系统管理</a>');
+    }
+  });
+
+  it("renders the four-zone system page and drops the multi-user UI", () => {
+    const html = readFileSync("public/users.html", "utf8");
+    const js = readFileSync("public/users.js", "utf8");
+    for (const id of ["account-panel", "sessions-panel", "totp-panel", "system-panel"]) {
+      expect(html).toContain(`id="${id}"`);
+    }
+    for (const heading of ["管理员账号", "会话管理", "两步验证", "系统信息"]) {
+      expect(html).toContain(heading);
+    }
+    expect(html).toContain("<title>系统管理 · SMSinBox</title>");
+    expect(html).toContain('<h1 class="topbar-title">系统管理</h1>');
+    expect(html).toContain('id="username-form"');
+    expect(html).toContain('id="password-form"');
+    expect(html).toContain('name="current_password"');
+    expect(html).toContain('id="session-list"');
+    expect(html).toContain('id="revoke-others"');
+    expect(html).toContain('id="fact-version"');
+    expect(html).toContain('id="fact-devices"');
+
+    for (const gone of ['id="add-user"', 'id="user-table"', 'id="user-dialog"', 'id="user-form"']) {
+      expect(html).not.toContain(gone);
+    }
+    expect(js).not.toContain("/api/v1/users");
+    expect(js).toContain("/api/v1/auth/username");
+    expect(js).toContain("/api/v1/auth/password");
+    expect(js).toContain("current_password");
+    expect(js).toContain("/api/v1/auth/sessions");
+    expect(js).toContain("/api/v1/auth/sessions/revoke-others");
+    expect(js).toContain("initTotpSettings");
+    expect(js).toContain("if (!result.response.ok)");
+  });
+
   it("wires the login second step and the two-factor panel", () => {
     const login = readFileSync("public/login.html", "utf8");
     const loginJs = readFileSync("public/login.js", "utf8");

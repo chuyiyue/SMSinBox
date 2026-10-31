@@ -44,7 +44,7 @@ globalThis.fetch = (url) => {
 };
 
 const store = await import("./public/device-store.js");
-const { STORAGE_KEY, presenceOf, refreshDevices, ensureDevices, noteDeviceSeen, getDevices, hydrateShell, clearShellCache, getActiveId } = store;
+const { STORAGE_KEY, presenceOf, refreshDevices, ensureDevices, noteDeviceSeen, noteMe, getDevices, getMe, hydrateShell, clearShellCache, getActiveId } = store;
 
 if (presenceOf({ last_seen_at: Date.now() }) !== "online") throw new Error("online");
 if (presenceOf({ last_seen_at: Date.now() - 600001 }) !== "idle") throw new Error("idle");
@@ -96,6 +96,9 @@ sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
 }));
 hydrateShell();
 if (getDevices()[0]?.name !== "D" || getActiveId() !== "d") throw new Error("hydrate");
+noteMe({ username: "owner", role: "admin" });
+if (getMe()?.username !== "owner") throw new Error("noteMe memory");
+if (JSON.parse(sessionStorage.getItem(STORAGE_KEY)).me?.username !== "owner") throw new Error("noteMe cache");
 console.log("ok");
 
 function json(body, status = 200) {

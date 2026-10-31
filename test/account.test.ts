@@ -441,6 +441,44 @@ describe("sessions", () => {
     expect(script.sessions.some((item) => item.id === FOREIGN_SESSION)).toBe(true);
   });
 
+  it("rejects cross-site session revocation and leaves every session alone", async () => {
+    const script = makeDb();
+    const cases: Array<Record<string, string>> = [
+      { origin: "https://evil.test" },
+      { origin: "https://sms.example", "sec-fetch-site": "same-site" },
+      { origin: "null", "sec-fetch-site": "same-origin" },
+    ];
+    for (const headers of cases) {
+      const others = await handleApi(
+        authed("/api/v1/auth/sessions/revoke-others", "POST", {}, headers),
+        envFor(script.db),
+      );
+      expect(others.status).toBe(403);
+      expect(await others.json()).toMatchObject({ error: "跨站请求被拒绝" });
+
+      const one = await handleApi(
+        authed(`/api/v1/auth/sessions/${OTHER_SESSION}`, "DELETE", undefined, headers),
+        envFor(script.db),
+      );
+      expect(one.status).toBe(403);
+      expect(await one.json()).toMatchObject({ error: "跨站请求被拒绝" });
+    }
+    expect(script.sessions).toHaveLength(4);
+    expect(script.calls.some((call) => call.sql.startsWith("DELETE FROM sessions"))).toBe(false);
+
+    const anonymous = await handleApi(
+      new Request("https://sms.example/api/v1/auth/sessions/revoke-others", { method: "POST" }),
+      envFor(script.db),
+    );
+    expect(anonymous.status).toBe(401);
+    const anonymousDelete = await handleApi(
+      new Request(`https://sms.example/api/v1/auth/sessions/${OTHER_SESSION}`, { method: "DELETE" }),
+      envFor(script.db),
+    );
+    expect(anonymousDelete.status).toBe(401);
+    expect(script.sessions).toHaveLength(4);
+  });
+
   it("keeps logout to the current session", async () => {
     const script = makeDb();
     const response = await handleApi(authed("/api/v1/auth/logout", "POST"), envFor(script.db));

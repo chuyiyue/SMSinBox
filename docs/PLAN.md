@@ -34,6 +34,7 @@ messages(id, device_id, from_number, to_number, content, content_hash, code, raw
 - 收件箱：最新在前、分页、按设备/号码筛选、关键词搜索（LIKE）。
 - 验证码：后端正则提取 4–8 位验证码（中英文提示词），前端高亮 + 一键复制。
 - 设备管理页：新建设备并显示一次 token，附 iOS/Android 配置说明。
+- 系统管理页：唯一管理员账号（改用户名/密码）、会话管理、两步验证、系统信息。
 - 刷新：MVP 用 5–10 秒短轮询。
 - 前端轻量：纯 HTML + Alpine.js 或原生 JS，无需复杂构建。
 

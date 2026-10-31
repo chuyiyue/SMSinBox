@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="robots" content="noindex, nofollow" />
-    <title>用户 · SMSinBox</title>
+    <title>系统管理 · SMSinBox</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <script src="/theme-boot.js"></script>
     <link rel="stylesheet" href="/style.css" />
@@ -31,7 +31,7 @@
           </a>
           <a id="users-link" class="active" href="/users.html" aria-current="page" hidden>
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 19c1.5-3 4-4.5 7-4.5s5.5 1.5 7 4.5"/></svg>
-            <span class="nav-label">用户</span>
+            <span class="nav-label">系统管理</span>
           </a>
         </nav>
         <div class="sidebar-devices">
@@ -57,7 +57,7 @@
       </aside>
       <div class="main">
         <header class="topbar">
-          <h1 class="topbar-title">用户</h1>
+          <h1 class="topbar-title">系统管理</h1>
           <form class="search-wrap" action="/" method="get" role="search">
             <input class="topbar-search" type="search" name="q" maxlength="80" placeholder="搜索正文、号码或验证码" aria-label="搜索短信" />
           </form>
@@ -65,32 +65,72 @@
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
           </button>
           <div class="topbar-actions">
-            <button id="add-user" class="primary" type="button">添加用户</button>
             <button id="refresh" class="ghost icon-btn" type="button" aria-label="刷新">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.2-5.5M20 4v6h-6"/></svg>
             </button>
           </div>
         </header>
         <div class="page">
-          <p class="lede">不能停用或删除自己，也不能停用、删除或降级最后一位管理员。</p>
-          <p id="user-error" class="callout danger" hidden></p>
-          <p id="user-status" class="callout ok" hidden></p>
-          <div id="user-empty" class="empty-state" hidden>
-            <h2 class="empty-title">还没有用户</h2>
-            <p>管理员可以在这里添加能登录的账号。</p>
-          </div>
-          <table class="user-table" id="user-table" hidden>
-            <thead>
-              <tr>
-                <th>用户名</th>
-                <th>角色</th>
-                <th>状态</th>
-                <th>创建时间</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody id="users"></tbody>
-          </table>
+          <p id="page-error" class="callout danger" hidden></p>
+          <p id="page-retry" class="callout warn" hidden>
+            <span>页面数据没有加载成功。</span>
+            <button id="page-retry-button" class="secondary" type="button">重试</button>
+          </p>
+
+          <section id="account-panel" class="panel stack" aria-labelledby="account-title">
+            <h2 id="account-title">管理员账号</h2>
+            <p class="lede">只有这一位管理员，不能创建第二个账号。改用户名和改密码都要先填当前密码。</p>
+            <p class="subtle">当前账号：<strong id="account-name">读取中…</strong><span id="account-role" class="badge admin" hidden>管理员</span></p>
+            <p id="account-error" class="callout danger" hidden></p>
+            <p id="account-status" class="callout ok" hidden></p>
+
+            <form id="username-form" class="stack" novalidate>
+              <h3>改用户名</h3>
+              <label>新用户名
+                <input id="username" name="username" required maxlength="64" autocomplete="username" placeholder="以字母或数字开头" />
+              </label>
+              <p class="subtle">字母或数字开头，可含 . _ -，最长 64。改名不会撤销现有会话。</p>
+              <p id="username-error" class="field-error" hidden></p>
+              <label>当前密码
+                <input id="username-password" name="current_password" type="password" required maxlength="256" autocomplete="current-password" />
+              </label>
+              <div class="actions">
+                <button id="username-submit" type="submit">保存用户名</button>
+              </div>
+            </form>
+
+            <form id="password-form" class="stack" novalidate>
+              <h3>改密码</h3>
+              <label>当前密码
+                <input id="password-current" name="current_password" type="password" required maxlength="256" autocomplete="current-password" />
+              </label>
+              <label>新密码
+                <input id="password" name="password" type="password" required maxlength="256" autocomplete="new-password" />
+              </label>
+              <div id="password-strength" class="strength" data-score="0" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+              <div class="actions">
+                <button id="generate-password" class="ghost" type="button">生成强密码</button>
+              </div>
+              <p class="subtle">8 到 256 位。保存后会撤销全部会话，需要用新密码重新登录。</p>
+              <p id="password-error" class="field-error" hidden></p>
+              <div class="actions">
+                <button id="password-submit" type="submit">保存密码</button>
+              </div>
+            </form>
+          </section>
+
+          <section id="sessions-panel" class="panel stack" aria-labelledby="sessions-title">
+            <h2 id="sessions-title">会话管理</h2>
+            <p class="lede">列出还没过期的登录会话。撤销后，对应浏览器需要重新登录。</p>
+            <p id="sessions-error" class="callout danger" hidden></p>
+            <p id="sessions-status" class="callout ok" hidden></p>
+            <ul id="session-list" class="session-list" aria-live="polite"></ul>
+            <div class="actions">
+              <button id="revoke-others" class="secondary" type="button" disabled>撤销其它会话</button>
+              <button id="sessions-refresh" class="ghost" type="button">刷新列表</button>
+            </div>
+          </section>
+
           <section id="totp-panel" class="panel stack" aria-labelledby="totp-title">
             <h2 id="totp-title">两步验证</h2>
             <p id="totp-state" class="subtle">正在读取两步验证状态…</p>
@@ -98,6 +138,37 @@
             <p id="totp-error" class="callout danger" hidden></p>
             <p id="totp-ok" class="callout ok" hidden></p>
             <div id="totp-actions" class="actions"></div>
+          </section>
+
+          <section id="system-panel" class="panel stack" aria-labelledby="system-title">
+            <h2 id="system-title">系统信息</h2>
+            <dl class="system-facts">
+              <div>
+                <dt>版本</dt>
+                <dd id="fact-version">0.1.0</dd>
+              </div>
+              <div>
+                <dt>当前用户</dt>
+                <dd id="fact-user">读取中…</dd>
+              </div>
+              <div>
+                <dt>角色</dt>
+                <dd id="fact-role">管理员</dd>
+              </div>
+              <div>
+                <dt>设备数</dt>
+                <dd id="fact-devices">读取中…</dd>
+              </div>
+              <div>
+                <dt>登录会话</dt>
+                <dd id="fact-sessions">读取中…</dd>
+              </div>
+              <div>
+                <dt>运行环境</dt>
+                <dd>Cloudflare Workers + D1</dd>
+              </div>
+            </dl>
+            <p class="subtle">版本是页面内置的静态信息；设备数和会话数来自当前账号的接口。</p>
           </section>
         </div>
       </div>
@@ -123,39 +194,13 @@
     <div id="more-sheet" class="sheet" hidden>
       <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="more-title">
         <h2 id="more-title">更多</h2>
-        <a id="users-tab" href="/users.html" hidden>用户</a>
+        <a id="users-tab" href="/users.html" hidden>系统管理</a>
         <button class="ghost" type="button" data-theme-toggle><span class="btn-label">主题：跟随系统</span></button>
         <button class="ghost" type="button" data-help>快捷键</button>
         <button class="ghost" type="button" data-logout>退出登录</button>
         <button id="more-close" class="secondary" type="button">关闭</button>
       </div>
     </div>
-    <dialog id="user-dialog" class="modal">
-      <form id="user-form" class="modal-card stack">
-        <h2 id="user-dialog-title">添加用户</h2>
-        <label>用户名
-          <input id="new-username" name="username" required maxlength="64" autocomplete="off" placeholder="例如：alice" />
-        </label>
-        <p class="subtle">字母或数字开头，可含 . _ -，最长 64。</p>
-        <p id="username-error" class="field-error" hidden></p>
-        <label>初始密码
-          <input id="new-password" name="password" type="password" required maxlength="256" autocomplete="new-password" />
-        </label>
-        <div id="password-strength" class="strength" data-score="0" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-        <button id="generate-password" class="ghost" type="button">生成强密码</button>
-        <p id="password-error" class="field-error" hidden></p>
-        <fieldset>
-          <legend>角色</legend>
-          <label><input type="radio" name="role" value="member" checked /> 普通用户</label>
-          <label><input type="radio" name="role" value="admin" /> 管理员</label>
-        </fieldset>
-        <p id="user-form-error" class="field-error" hidden></p>
-        <div class="modal-actions">
-          <button id="user-cancel" class="secondary" type="button">取消</button>
-          <button id="user-submit" type="submit">添加用户</button>
-        </div>
-      </form>
-    </dialog>
     <script type="module" src="/users.js"></script>
   </body>
 </html>

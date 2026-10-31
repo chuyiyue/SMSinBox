@@ -18,7 +18,7 @@ const VIEWS = {
   "/users.html": "/users.js",
 };
 
-const PORTALS = ["#message-drawer", "#device-dialog", "#notify-dialog", "#user-dialog"];
+const PORTALS = ["#message-drawer", "#device-dialog", "#notify-dialog"];
 
 const views = new Map();
 let shellReady = false;
