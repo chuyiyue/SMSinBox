@@ -315,7 +315,7 @@ function workerEntry() {
 }
 
 async function seedSession(state: State): Promise<void> {
-  state.users.push({ id: USER_ID, username: "ada", role: "member", disabled_at: null });
+  state.users.push({ id: USER_ID, username: "ada", role: "admin", disabled_at: null });
   state.sessions.push({ id: await sha256Hex(SESSION), user_id: USER_ID, expires_at: NOW + 60_000 });
 }
 

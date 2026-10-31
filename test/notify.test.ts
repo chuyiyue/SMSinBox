@@ -84,7 +84,7 @@ function authedEnv(db: D1Database): Env {
 }
 
 function sessionUser(extra: Record<string, unknown> = {}) {
-  return { id: "user-1", username: "admin", expires_at: Date.now() + 60_000, ...extra };
+  return { id: "user-1", username: "admin", role: "admin", expires_at: Date.now() + 60_000, ...extra };
 }
 
 describe("notification text and config", () => {

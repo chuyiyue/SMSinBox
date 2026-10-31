@@ -13,8 +13,11 @@
 - `0003_message_encryption.sql`
 - `0004_users.sql`
 - `0005_device_push.sql`
+- `0006_single_user.sql`
 
 `0005_device_push.sql` 只追加 `push_token_hash`、`push_revoked_at` 和唯一索引。它不改已有 `token_hash`，不改短信，不删行。SQLite 的唯一索引允许多个 NULL，还没签发推送链接的旧设备可以共存。
+
+`0006_single_user.sql` 只新增 `schema_meta`。它不改推送列，不删短信，也不在 SQL 里挑选管理员。单用户归并在配置的管理员下一次登录时由程序完成：先把其他用户的设备和通知渠道改挂过来，再删除他们的会话和用户行。设备 token、推送链接和历史短信保留。
 
 新 Worker 会读取这两列。数据库还没跑过 `0005` 时不要部署这份 Worker。旧 Worker 不读这两列，所以先迁移再部署是安全的。
 

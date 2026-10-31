@@ -91,6 +91,51 @@ export async function ensureAdmin(db: D1Database, userId: string): Promise<void>
   await db.prepare("UPDATE users SET role = 'admin', disabled_at = NULL WHERE id = ?").bind(userId).run();
 }
 
+export const SINGLE_USER_MERGED_KEY = "single_user_merged_at";
+
+export type SingleUserMergeResult = "merged" | "already" | "skipped" | "aborted";
+
+function isMissingSchemaMeta(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /no such table:?\s*schema_meta/i.test(message);
+}
+
+// Move other people's devices and notify channels onto the configured admin,
+// then drop their sessions and user rows. Never call deleteUserCascade: that
+// path deletes messages. Tokens and push hashes are left unchanged.
+export async function mergeIntoAdmin(
+  db: D1Database,
+  target: { id: string; role: string },
+): Promise<SingleUserMergeResult> {
+  if (target.role !== "admin" || target.id.length === 0) return "aborted";
+  let marker: { value: string } | null;
+  try {
+    marker = await db
+      .prepare("SELECT value FROM schema_meta WHERE key = ?")
+      .bind(SINGLE_USER_MERGED_KEY)
+      .first<{ value: string }>();
+  } catch (error) {
+    if (isMissingSchemaMeta(error)) return "skipped";
+    throw error;
+  }
+  if (marker?.value) return "already";
+  try {
+    await db.batch([
+      db.prepare("UPDATE devices SET user_id = ? WHERE user_id <> ?").bind(target.id, target.id),
+      db.prepare("UPDATE notify_channels SET user_id = ? WHERE user_id <> ?").bind(target.id, target.id),
+      db.prepare("DELETE FROM sessions WHERE user_id <> ?").bind(target.id),
+      db.prepare("DELETE FROM users WHERE id <> ?").bind(target.id),
+      db.prepare("INSERT INTO schema_meta (key, value) VALUES (?, ?)").bind(SINGLE_USER_MERGED_KEY, String(Date.now())),
+    ]);
+  } catch (error) {
+    if (isMissingSchemaMeta(error)) return "skipped";
+    if (isUniqueViolation(error)) return "already";
+    throw error;
+  }
+  logInfo({ message: "single_user_merged", user_id: target.id });
+  return "merged";
+}
+
 export async function setUserRole(db: D1Database, userId: string, role: "admin" | "member"): Promise<void> {
   await db.prepare("UPDATE users SET role = ? WHERE id = ?").bind(role, userId).run();
 }
@@ -103,6 +148,7 @@ export async function deleteUserSessions(db: D1Database, userId: string): Promis
   await db.prepare("DELETE FROM sessions WHERE user_id = ?").bind(userId).run();
 }
 
+// Removes this user's messages and devices. The single-user merge must not call it.
 export async function deleteUserCascade(db: D1Database, userId: string): Promise<void> {
   await db.batch([
     db.prepare("DELETE FROM rate_limits WHERE token_hash IN (SELECT token_hash FROM devices WHERE user_id = ?)").bind(userId),

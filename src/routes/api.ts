@@ -12,24 +12,19 @@ import {
 } from "../auth";
 import { resolveContentKey, revealCode, sealMessage } from "../crypto";
 import {
-  countAdmins,
   countDevices,
-  countEnabledAdmins,
   countNotifyChannels,
   countUsers,
   createSession,
   deleteDevice,
   deleteNotifyChannel,
   deleteSession,
-  deleteUserCascade,
-  deleteUserSessions,
   ensureAdmin,
   findDeviceForUser,
   findMessageByHash,
   findNotifyChannel,
   findOwnedDevice,
   findSessionUser,
-  findUserById,
   findUserByUsername,
   getMessage,
   insertDevice,
@@ -41,14 +36,12 @@ import {
   listMessages,
   listMessagesSince,
   listNotifyChannels,
-  listUsers as listUserRows,
   MAX_DEVICES,
+  mergeIntoAdmin,
   pushState,
   replaceDevicePushToken,
   revokeDevicePush,
   setNotifyChannelEnabled,
-  setUserDisabledAt,
-  setUserRole,
   touchDevice,
   updatePasswordHash,
 } from "../db";
@@ -71,7 +64,7 @@ import { buildShortcut, shortcutFilename, type ShortcutVariant } from "../shortc
 import { buildTestSms } from "./sms";
 import { openSmtpSocket } from "../smtp";
 import { createInboxStream, resolveCursor, SSE_BATCH } from "../sse";
-import type { SessionUser, UserAccount } from "../types";
+import type { SessionUser } from "../types";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -149,16 +142,8 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
     if (method !== "DELETE") return methodNotAllowed("DELETE");
     return removeDevice(request, env, deviceMatch[1]);
   }
-  if (path === "/api/v1/users") {
-    if (method === "GET") return listUsers(request, env);
-    if (method === "POST") return createUser(request, env);
-    return methodNotAllowed("GET, POST");
-  }
-  const userMatch = /^\/api\/v1\/users\/([^/]+)$/.exec(path);
-  if (userMatch?.[1]) {
-    if (method === "DELETE") return removeUser(request, env, userMatch[1]);
-    if (method === "POST") return updateUser(request, env, userMatch[1]);
-    return methodNotAllowed("POST, DELETE");
+  if (path === "/api/v1/users" || /^\/api\/v1\/users\/[^/]+$/.test(path)) {
+    return json({ ok: false, error: "用户管理已关闭" }, 410);
   }
   return json({ ok: false, error: "未找到" }, 404);
 }
@@ -192,6 +177,12 @@ async function login(request: Request, env: Env): Promise<Response> {
 
   let user = existing;
   if (adminOk && !user) {
+    if ((await countUsers(env.DB)) > 0) {
+      return json(
+        { ok: false, error: "已有账号，不会再创建管理员。请把 ADMIN_USERNAME 设成现有管理员的用户名。" },
+        409,
+      );
+    }
     const createdAt = Date.now();
     const id = crypto.randomUUID();
     try {
@@ -215,6 +206,13 @@ async function login(request: Request, env: Env): Promise<Response> {
   }
   if (!user) return json({ ok: false, error: "用户名或密码错误" }, 401);
   if (user.disabled_at != null) return json({ ok: false, error: "账号已停用" }, 401);
+  if (user.role !== "admin") return json({ ok: false, error: "仅管理员可以登录" }, 401);
+  if (adminUsername && user.username !== adminUsername) {
+    const designated = await findUserByUsername(env.DB, adminUsername);
+    if (designated) return json({ ok: false, error: "仅管理员可以登录" }, 401);
+  } else if (adminUsername && user.username === adminUsername) {
+    await mergeIntoAdmin(env.DB, user);
+  }
 
   const token = randomToken();
   const now = Date.now();
@@ -628,120 +626,6 @@ async function removeDevice(request: Request, env: Env, rawId: string): Promise<
   return json({ ok: true });
 }
 
-const USERNAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-
-async function listUsers(request: Request, env: Env): Promise<Response> {
-  const user = await requireAdmin(request, env);
-  if (user instanceof Response) return user;
-  const users = [];
-  for (const row of await listUserRows(env.DB)) users.push(presentAccount(row));
-  return json({ ok: true, users });
-}
-
-async function createUser(request: Request, env: Env): Promise<Response> {
-  const user = await requireAdmin(request, env);
-  if (user instanceof Response) return user;
-  const body = await readJson(request);
-  if (!body.ok) return body.response;
-  const parsed = readNewUser(body.value);
-  if ("error" in parsed) return json({ ok: false, error: parsed.error }, 400);
-  const id = crypto.randomUUID();
-  const createdAt = Date.now();
-  try {
-    await insertUser(env.DB, {
-      id,
-      username: parsed.username,
-      passwordHash: await hashPassword(parsed.password),
-      role: parsed.role,
-      createdAt,
-    });
-  } catch (error) {
-    if (isUniqueViolation(error)) return json({ ok: false, error: "用户名已存在" }, 409);
-    throw error;
-  }
-  logInfo({ message: "user_created", user_id: id, actor_id: user.id, role: parsed.role });
-  return json({
-    ok: true,
-    user: presentAccount({
-      id,
-      username: parsed.username,
-      role: parsed.role,
-      disabled_at: null,
-      created_at: createdAt,
-    }),
-  });
-}
-
-async function updateUser(request: Request, env: Env, rawId: string): Promise<Response> {
-  const actor = await requireAdmin(request, env);
-  if (actor instanceof Response) return actor;
-  const id = decodePart(rawId);
-  if (!id || !UUID_RE.test(id)) return json({ ok: false, error: "用户不存在" }, 404);
-  const body = await readJson(request);
-  if (!body.ok) return body.response;
-  const patch = readUserPatch(body.value);
-  if ("error" in patch) return json({ ok: false, error: patch.error }, 400);
-  const target = await findUserById(env.DB, id);
-  if (!target) return json({ ok: false, error: "用户不存在" }, 404);
-  if (patch.disabled === true && target.id === actor.id) return json({ ok: false, error: "不能停用自己" }, 400);
-  if (await leavesNoAdmin(env, target, patch)) {
-    return json({ ok: false, error: patch.disabled ? "不能停用最后一位管理员" : "不能取消最后一位管理员" }, 400);
-  }
-  if (patch.password) await updatePasswordHash(env.DB, target.id, await hashPassword(patch.password));
-  if (patch.role) await setUserRole(env.DB, target.id, patch.role);
-  if (patch.disabled === true) {
-    await setUserDisabledAt(env.DB, target.id, Date.now());
-    await deleteUserSessions(env.DB, target.id);
-  } else if (patch.disabled === false) {
-    await setUserDisabledAt(env.DB, target.id, null);
-  }
-  if (patch.password) await deleteUserSessions(env.DB, target.id);
-  logInfo({ message: "user_updated", user_id: target.id, actor_id: actor.id });
-  const next = await findUserById(env.DB, target.id);
-  return json({ ok: true, user: presentAccount(next ?? target) });
-}
-
-async function removeUser(request: Request, env: Env, rawId: string): Promise<Response> {
-  const actor = await requireAdmin(request, env);
-  if (actor instanceof Response) return actor;
-  const id = decodePart(rawId);
-  if (!id || !UUID_RE.test(id)) return json({ ok: false, error: "用户不存在" }, 404);
-  if (id === actor.id) return json({ ok: false, error: "不能删除自己" }, 400);
-  const target = await findUserById(env.DB, id);
-  if (!target) return json({ ok: false, error: "用户不存在" }, 404);
-  if (await leavesNoAdmin(env, target, { remove: true })) {
-    return json({ ok: false, error: "不能删除最后一位管理员" }, 400);
-  }
-  await deleteUserCascade(env.DB, target.id);
-  logInfo({ message: "user_deleted", user_id: target.id, actor_id: actor.id });
-  return json({ ok: true });
-}
-
-async function leavesNoAdmin(
-  env: Env,
-  target: UserAccount,
-  change: { role?: "admin" | "member"; disabled?: boolean; remove?: boolean },
-): Promise<boolean> {
-  const enabled = target.role === "admin" && target.disabled_at == null;
-  if (!enabled) {
-    return change.remove === true && target.role === "admin" && (await countAdmins(env.DB)) <= 1;
-  }
-  const nextRole = change.role ?? "admin";
-  const disabling = change.disabled === true || change.remove === true;
-  if (!disabling && nextRole === "admin") return false;
-  return (await countEnabledAdmins(env.DB)) <= 1;
-}
-
-function presentAccount(user: UserAccount) {
-  return {
-    id: user.id,
-    username: user.username,
-    role: user.role === "admin" ? "admin" : "member",
-    disabled_at: user.disabled_at,
-    created_at: user.created_at,
-  };
-}
-
 function publicUser(user: { id: string; username: string; role?: string }) {
   return {
     id: user.id,
@@ -750,61 +634,16 @@ function publicUser(user: { id: string; username: string; role?: string }) {
   };
 }
 
-function readNewUser(value: unknown): { username: string; password: string; role: "admin" | "member" } | { error: string } {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return { error: "请求体无效" };
-  const record = value as Record<string, unknown>;
-  if (typeof record.username !== "string" || !USERNAME_RE.test(record.username)) return { error: "用户名无效" };
-  if (typeof record.password !== "string" || record.password.length < 8 || record.password.length > 256) {
-    return { error: "密码长度需在 8 到 256 之间" };
-  }
-  const role = record.role === undefined ? "member" : record.role;
-  if (role !== "admin" && role !== "member") return { error: "角色无效" };
-  return { username: record.username, password: record.password, role };
-}
-
-function readUserPatch(
-  value: unknown,
-): { password?: string; disabled?: boolean; role?: "admin" | "member" } | { error: string } {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return { error: "请求体无效" };
-  const record = value as Record<string, unknown>;
-  const patch: { password?: string; disabled?: boolean; role?: "admin" | "member" } = {};
-  if ("password" in record) {
-    if (typeof record.password !== "string" || record.password.length < 8 || record.password.length > 256) {
-      return { error: "密码长度需在 8 到 256 之间" };
-    }
-    patch.password = record.password;
-  }
-  if ("disabled" in record) {
-    if (typeof record.disabled !== "boolean") return { error: "请指定是否停用" };
-    patch.disabled = record.disabled;
-  }
-  if ("role" in record) {
-    if (record.role !== "admin" && record.role !== "member") return { error: "角色无效" };
-    patch.role = record.role;
-  }
-  if (patch.password === undefined && patch.disabled === undefined && patch.role === undefined) {
-    return { error: "请指定要修改的内容" };
-  }
-  return patch;
-}
-
 async function requireUser(request: Request, env: Env): Promise<SessionUser | Response> {
   if (isCrossSite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const token = readCookie(request.headers.get("cookie"), SESSION_COOKIE);
   if (!token) return json({ ok: false, error: "未登录" }, 401);
   const sessionHash = await sha256Hex(token);
   const user = await findSessionUser(env.DB, sessionHash);
-  if (!user || user.expires_at <= Date.now() || user.disabled_at != null) {
+  if (!user || user.expires_at <= Date.now() || user.disabled_at != null || user.role !== "admin") {
     if (user) await deleteSession(env.DB, sessionHash);
     return json({ ok: false, error: "未登录" }, 401);
   }
-  return user;
-}
-
-async function requireAdmin(request: Request, env: Env): Promise<SessionUser | Response> {
-  const user = await requireUser(request, env);
-  if (user instanceof Response) return user;
-  if (user.role !== "admin") return json({ ok: false, error: "需要管理员权限" }, 403);
   return user;
 }
 

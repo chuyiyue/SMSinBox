@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hashPassword } from "../src/auth";
+import { SINGLE_USER_MERGED_KEY } from "../src/db";
 import { handleApi } from "../src/routes/api";
 
 const ADMIN_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -39,6 +40,9 @@ function makeDb() {
     usernameUserAfter: null as Record<string, unknown> | null,
     enabledAdmins: 1,
     admins: 1,
+    userTotal: 0,
+    schemaMarker: null as string | null,
+    schemaMissing: false,
     users: [] as Array<Record<string, unknown>>,
     failInsert: false,
   };
@@ -56,9 +60,14 @@ function makeDb() {
         },
         async first() {
           calls.push({ sql, args });
+          if (sql.includes("schema_meta")) {
+            if (state.schemaMissing) throw new Error("D1_ERROR: no such table: schema_meta: SQLITE_ERROR");
+            return state.schemaMarker ? { value: state.schemaMarker } : null;
+          }
           if (sql.includes("FROM sessions")) return state.session;
           if (sql.includes("disabled_at IS NULL")) return { total: state.enabledAdmins };
           if (sql.includes("COUNT(*)") && sql.includes("role = 'admin'")) return { total: state.admins };
+          if (sql.includes("COUNT(*)") && sql.includes("FROM users")) return { total: state.userTotal };
           if (sql.includes("WHERE username")) {
             usernameReads += 1;
             if (usernameReads > 1 && state.usernameUserAfter) return state.usernameUserAfter;
@@ -110,139 +119,73 @@ function authed(path: string, method = "GET", body?: unknown) {
   });
 }
 
-describe("user administration", () => {
-  it("hides the user list from anonymous callers and ordinary users", async () => {
+function loginRequest(username: string, password: string) {
+  return new Request("https://sms.example/api/v1/auth/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+describe("single admin", () => {
+  it("closes user list, create, role, and delete routes", async () => {
     const anonymous = await handleApi(new Request("https://sms.example/api/v1/users"), envFor(makeDb().db));
-    expect(anonymous.status).toBe(401);
+    expect(anonymous.status).toBe(410);
+    expect(await anonymous.json()).toMatchObject({ error: "用户管理已关闭" });
 
-    const member = makeDb();
-    member.state.session = session({ role: "member" });
-    const response = await handleApi(authed("/api/v1/users"), envFor(member.db));
-    expect(response.status).toBe(403);
-  });
-
-  it("lists accounts without password hashes", async () => {
     const script = makeDb();
-    script.state.users = [account(), account({ id: ADMIN_ID, username: "root", role: "admin" })];
-    const response = await handleApi(authed("/api/v1/users"), envFor(script.db));
-    expect(response.status).toBe(200);
-    const body = await response.json() as { users: Array<{ username: string; role: string }> };
-    expect(body.users.map((user) => user.username)).toEqual(["alice", "root"]);
-    expect(body.users[1]?.role).toBe("admin");
-    expect(JSON.stringify(body)).not.toContain("should-not-leak");
-  });
-
-  it("creates a member and rejects a short password, a bad username, and a duplicate", async () => {
-    const script = makeDb();
+    const listed = await handleApi(authed("/api/v1/users"), envFor(script.db));
     const created = await handleApi(
-      authed("/api/v1/users", "POST", { username: "alice", password: "s3cret-pass" }),
+      authed("/api/v1/users", "POST", { username: "alice", password: "s3cret-pass", role: "member" }),
       envFor(script.db),
     );
-    expect(created.status).toBe(200);
-    const body = await created.json() as { user: { role: string; username: string } };
-    expect(body.user).toMatchObject({ username: "alice", role: "member", disabled_at: null });
-    expect(JSON.stringify(body)).not.toContain("s3cret-pass");
-    const inserted = script.calls.find((call) => call.sql.includes("INSERT INTO users"));
-    expect(inserted?.args[1]).toBe("alice");
-    expect(inserted?.args[3]).toBe("member");
-    expect(String(inserted?.args[2]).startsWith("pbkdf2-sha256$")).toBe(true);
-    expect(String(inserted?.args[2])).not.toContain("s3cret-pass");
-
-    const invalid = await handleApi(
-      authed("/api/v1/users", "POST", { username: ".bob", password: "s3cret-pass" }),
-      envFor(makeDb().db),
+    const patched = await handleApi(
+      authed(`/api/v1/users/${MEMBER_ID}`, "POST", { role: "admin", disabled: true, password: "replacement-pass" }),
+      envFor(script.db),
     );
-    expect(invalid.status).toBe(400);
-
-    const short = await handleApi(
-      authed("/api/v1/users", "POST", { username: "bob", password: "short" }),
-      envFor(makeDb().db),
-    );
-    expect(short.status).toBe(400);
-
-    const duplicate = makeDb();
-    duplicate.state.failInsert = true;
-    const conflict = await handleApi(
-      authed("/api/v1/users", "POST", { username: "alice", password: "s3cret-pass" }),
-      envFor(duplicate.db),
-    );
-    expect(conflict.status).toBe(409);
+    const removed = await handleApi(authed(`/api/v1/users/${MEMBER_ID}`, "DELETE"), envFor(script.db));
+    for (const response of [listed, created, patched, removed]) {
+      expect(response.status).toBe(410);
+      const body = await response.text();
+      expect(body).toContain("用户管理已关闭");
+      expect(body).not.toContain("should-not-leak");
+      expect(body).not.toContain("s3cret-pass");
+      expect(body).not.toContain("replacement-pass");
+    }
+    expect(script.calls.some((call) => call.sql.includes("DELETE FROM messages"))).toBe(false);
+    expect(script.calls.some((call) => call.sql.includes("INSERT INTO users"))).toBe(false);
+    expect(script.calls).toHaveLength(0);
   });
 
-  it("refuses to disable or delete yourself, or to demote the last admin", async () => {
-    const self = makeDb();
-    self.state.byId.set(ADMIN_ID, account({ id: ADMIN_ID, username: "root", role: "admin" }));
-    const disabled = await handleApi(
-      authed(`/api/v1/users/${ADMIN_ID}`, "POST", { disabled: true }),
-      envFor(self.db),
-    );
-    expect(disabled.status).toBe(400);
-    expect(self.calls.some((call) => call.sql.startsWith("UPDATE"))).toBe(false);
-
-    const removed = await handleApi(authed(`/api/v1/users/${ADMIN_ID}`, "DELETE"), envFor(self.db));
-    expect(removed.status).toBe(400);
-
-    const demoted = await handleApi(
-      authed(`/api/v1/users/${ADMIN_ID}`, "POST", { role: "member" }),
-      envFor(self.db),
-    );
-    expect(demoted.status).toBe(400);
-    expect(await demoted.json()).toMatchObject({ error: "不能取消最后一位管理员" });
-  });
-
-  it("disables another user immediately and deletes their devices and messages", async () => {
+  it("does not create a second admin when the configured username is new", async () => {
     const script = makeDb();
-    script.state.byId.set(MEMBER_ID, account());
-    const disabled = await handleApi(
-      authed(`/api/v1/users/${MEMBER_ID}`, "POST", { disabled: true }),
-      envFor(script.db),
-    );
-    expect(disabled.status).toBe(200);
-    expect(script.calls.some((call) => call.sql.includes("SET disabled_at"))).toBe(true);
-    expect(script.calls.some((call) => call.sql.includes("DELETE FROM sessions WHERE user_id"))).toBe(true);
-
-    const deleted = await handleApi(authed(`/api/v1/users/${MEMBER_ID}`, "DELETE"), envFor(script.db));
-    expect(deleted.status).toBe(200);
-    const sql = script.calls.map((call) => call.sql).join("\n");
-    expect(sql).toContain("DELETE FROM messages");
-    expect(sql).toContain("DELETE FROM devices");
-    expect(sql).toContain("DELETE FROM notify_channels");
-    expect(sql).toContain("DELETE FROM users");
-
-    const reset = makeDb();
-    reset.state.byId.set(MEMBER_ID, account());
-    const response = await handleApi(
-      authed(`/api/v1/users/${MEMBER_ID}`, "POST", { password: "replacement-pass" }),
-      envFor(reset.db),
-    );
-    expect(response.status).toBe(200);
-    expect(JSON.stringify(await response.json())).not.toContain("replacement-pass");
-    const updated = reset.calls.find((call) => call.sql.includes("password_hash"));
-    expect(String(updated?.args[0]).startsWith("pbkdf2-sha256$")).toBe(true);
-    expect(String(updated?.args[0])).not.toContain("replacement-pass");
-    expect(reset.calls.some((call) => call.sql.includes("DELETE FROM sessions WHERE user_id"))).toBe(true);
+    script.state.userTotal = 2;
+    const response = await handleApi(loginRequest("root", "secret"), envFor(script.db));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: "已有账号，不会再创建管理员。请把 ADMIN_USERNAME 设成现有管理员的用户名。" });
+    expect(script.calls.some((call) => call.sql.includes("INSERT INTO users"))).toBe(false);
+    expect(script.calls.some((call) => call.sql.includes("INSERT INTO sessions"))).toBe(false);
   });
 
-  it("rejects a disabled password login and lets the configured admin back in", async () => {
+  it("rejects a member password and a disabled account", async () => {
     const hash = await hashPassword("s3cret-pass");
-    const blocked = makeDb();
-    blocked.state.usernameUser = {
-      ...account(),
-      password_hash: hash,
-      disabled_at: 50,
-    };
-    const denied = await handleApi(
-      new Request("https://sms.example/api/v1/auth/login", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ username: "alice", password: "s3cret-pass" }),
-      }),
-      envFor(blocked.db),
-    );
+    const member = makeDb();
+    member.state.usernameUser = { ...account(), password_hash: hash };
+    const denied = await handleApi(loginRequest("alice", "s3cret-pass"), envFor(member.db));
     expect(denied.status).toBe(401);
-    expect(await denied.json()).toMatchObject({ error: "账号已停用" });
-    expect(blocked.calls.some((call) => call.sql.includes("INSERT INTO sessions"))).toBe(false);
+    expect(await denied.json()).toMatchObject({ error: "仅管理员可以登录" });
+    expect(member.calls.some((call) => call.sql.includes("INSERT INTO sessions"))).toBe(false);
+    expect(member.calls.some((call) => call.sql.includes("DELETE FROM users"))).toBe(false);
 
+    const blocked = makeDb();
+    blocked.state.usernameUser = { ...account(), password_hash: hash, disabled_at: 50 };
+    const disabled = await handleApi(loginRequest("alice", "s3cret-pass"), envFor(blocked.db));
+    expect(disabled.status).toBe(401);
+    expect(await disabled.json()).toMatchObject({ error: "账号已停用" });
+    expect(blocked.calls.some((call) => call.sql.includes("INSERT INTO sessions"))).toBe(false);
+  });
+
+  it("promotes the configured admin and merges other rows without deleting messages", async () => {
     const recovery = makeDb();
     recovery.state.usernameUser = {
       id: ADMIN_ID,
@@ -257,28 +200,77 @@ describe("user administration", () => {
       role: "admin",
       disabled_at: null,
     };
-    const restored = await handleApi(
-      new Request("https://sms.example/api/v1/auth/login", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ username: "root", password: "secret" }),
-      }),
-      envFor(recovery.db),
-    );
+    const restored = await handleApi(loginRequest("root", "secret"), envFor(recovery.db));
     expect(restored.status).toBe(200);
     expect(await restored.json()).toMatchObject({ user: { role: "admin", username: "root" } });
     expect(recovery.calls.some((call) => call.sql.includes("role = 'admin'"))).toBe(true);
+
+    const mergeSql = recovery.calls
+      .map((call) => call.sql)
+      .filter(
+        (sql) =>
+          sql.startsWith("UPDATE devices") ||
+          sql.startsWith("UPDATE notify_channels") ||
+          sql.startsWith("DELETE FROM sessions WHERE user_id") ||
+          sql.startsWith("DELETE FROM users WHERE id") ||
+          sql.startsWith("INSERT INTO schema_meta"),
+      );
+    expect(mergeSql).toEqual([
+      "UPDATE devices SET user_id = ? WHERE user_id <> ?",
+      "UPDATE notify_channels SET user_id = ? WHERE user_id <> ?",
+      "DELETE FROM sessions WHERE user_id <> ?",
+      "DELETE FROM users WHERE id <> ?",
+      "INSERT INTO schema_meta (key, value) VALUES (?, ?)",
+    ]);
+    const deviceUpdate = recovery.calls.find((call) => call.sql.startsWith("UPDATE devices"));
+    expect(deviceUpdate?.args).toEqual([ADMIN_ID, ADMIN_ID]);
+    expect(recovery.calls.some((call) => call.sql.includes("DELETE FROM messages"))).toBe(false);
+    expect(recovery.calls.some((call) => call.sql.includes("token_hash"))).toBe(false);
+    expect(recovery.calls.some((call) => call.sql.includes("push_token_hash"))).toBe(false);
+    const marker = recovery.calls.find((call) => call.sql.includes("schema_meta"));
+    expect(marker?.args[0]).toBe(SINGLE_USER_MERGED_KEY);
   });
 
-  it("drops an existing session when the account is disabled", async () => {
+  it("does not merge again after the marker is set, and still logs in if the table is missing", async () => {
+    const marked = makeDb();
+    marked.state.schemaMarker = "1";
+    marked.state.usernameUser = {
+      id: ADMIN_ID,
+      username: "root",
+      password_hash: "nope",
+      role: "admin",
+      disabled_at: null,
+      created_at: 1,
+    };
+    const again = await handleApi(loginRequest("root", "secret"), envFor(marked.db));
+    expect(again.status).toBe(200);
+    expect(marked.calls.some((call) => call.sql.startsWith("UPDATE devices"))).toBe(false);
+    expect(marked.calls.some((call) => call.sql.startsWith("DELETE FROM users"))).toBe(false);
+
+    const legacy = makeDb();
+    legacy.state.schemaMissing = true;
+    legacy.state.usernameUser = marked.state.usernameUser;
+    const loggedIn = await handleApi(loginRequest("root", "secret"), envFor(legacy.db));
+    expect(loggedIn.status).toBe(200);
+    expect(legacy.calls.some((call) => call.sql.startsWith("DELETE FROM users"))).toBe(false);
+  });
+
+  it("drops a non-admin session and keeps the admin session", async () => {
     const script = makeDb();
-    script.state.session = session({ role: "member", disabled_at: 80 });
+    script.state.session = session({ role: "member", disabled_at: null });
     const response = await handleApi(authed("/api/v1/auth/me"), envFor(script.db));
     expect(response.status).toBe(401);
     expect(script.calls.some((call) => call.sql.includes("DELETE FROM sessions WHERE id"))).toBe(true);
 
+    const disabled = makeDb();
+    disabled.state.session = session({ role: "member", disabled_at: 80 });
+    const blocked = await handleApi(authed("/api/v1/auth/me"), envFor(disabled.db));
+    expect(blocked.status).toBe(401);
+    expect(disabled.calls.some((call) => call.sql.includes("DELETE FROM sessions WHERE id"))).toBe(true);
+
     const active = makeDb();
     const me = await handleApi(authed("/api/v1/auth/me"), envFor(active.db));
     expect(await me.json()).toMatchObject({ user: { role: "admin" } });
+    expect(active.calls.some((call) => call.sql.includes("DELETE FROM sessions WHERE id"))).toBe(false);
   });
 });

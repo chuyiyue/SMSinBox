@@ -18,6 +18,7 @@ function sessionRow() {
   return {
     id: DEVICE_ID,
     username: "admin",
+    role: "admin",
     expires_at: Date.now() + 60_000,
     name: "iphone",
   };

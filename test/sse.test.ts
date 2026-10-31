@@ -218,6 +218,7 @@ describe("GET /api/v1/events", () => {
         fakeDb({
           id: "user-1",
           username: "admin",
+          role: "admin",
           expires_at: Date.now() + 60_000,
         }),
       ),

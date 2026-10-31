@@ -2,7 +2,7 @@
 
 自部署的短信收件箱。手机把短信 POST 到 Cloudflare Worker，内容写入 D1，你在网页里查看、搜索，并复制验证码。
 
-管理员登录后可以添加其他用户。每个人只看到自己的设备和短信，没有公开注册页。Worker 同时提供 API 和静态页面。
+只有一个管理员。没有公开注册，也不能再添加别的用户。Worker 同时提供 API 和静态页面。
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/chuyiyue/SMSinBox)
 
@@ -43,9 +43,11 @@ npx wrangler deploy
 openssl rand -base64 32 | npx wrangler secret put CONTENT_KEY
 ```
 
-更换或清空这个密钥之后，之前加密的短信无法再解密，收件箱会显示无法解密。部署含 `0003_message_encryption.sql`、`0004_users.sql` 或 `0005_device_push.sql` 的版本后，同样需要再执行一次数据库迁移。读取推送链接列的 Worker 必须在 `0005` 应用之后部署。顺序、冒烟和回滚见 [docs/RELEASE_IOS_V2.md](docs/RELEASE_IOS_V2.md)。
+更换或清空这个密钥之后，之前加密的短信无法再解密，收件箱会显示无法解密。部署含 `0003_message_encryption.sql`、`0004_users.sql`、`0005_device_push.sql` 或 `0006_single_user.sql` 的版本后，同样需要再执行一次数据库迁移。读取推送链接列的 Worker 必须在 `0005` 应用之后部署。顺序、冒烟和回滚见 [docs/RELEASE_IOS_V2.md](docs/RELEASE_IOS_V2.md)。
 
-之后如果改了 `ADMIN_PASSWORD`，用新密码再登录一次即可。程序会在用户名与密钥一致时更新保存的口令哈希，并把这个账号设为管理员、取消停用。只改密钥、还没用新密码登录之前，旧密码仍然有效。升级到多用户之后，已有账号的角色默认是普通用户，需要用这对密钥再登录一次才会变成管理员。
+之后如果改了 `ADMIN_PASSWORD`，用新密码再登录一次即可。程序会在用户名与密钥一致时更新保存的口令哈希，并把这个账号设为管理员、取消停用。只改密钥、还没用新密码登录之前，旧密码仍然有效。改 `ADMIN_USERNAME` 不会再创建第二个管理员。密钥里的用户名必须就是要留下的那个账号；对不上时登录会停下，不会按创建时间挑一个管理员。
+
+库里如果还有其他用户，用这对密钥成功登录一次即可归并。顺序是：先把他们的设备和通知渠道改挂到这个管理员，再删掉他们的会话和用户行。短信、设备 token、推送链接和 `CONTENT_KEY` 都保留。归并不走删除用户的级联，避免把短信一起删掉。旧的成员 Cookie 不会改挂到管理员身上。请先执行含 `0006_single_user.sql` 的迁移再登录。`0006` 只增加 `schema_meta`，用来记下已经归并过；它自己不猜管理员，也不删数据。合并之后如果设备超过 50 台，或通知渠道超过 10 个，已有记录都留着，只是暂时不能再新建，直到删到上限以内。
 
 自定义域名可以在 Cloudflare 控制台里给这个 Worker 加路由，接口和页面都在同一个域名下。
 
@@ -130,7 +132,7 @@ iOS 27 及以上从导入的快捷指令展开触发器，打开自动化开关�
 - Bark：device key。服务器留空时用 `https://api.day.app`，也可以换成你自己的公网 Bark 地址。
 - 邮件：二选一。Webhook 收到 JSON `{ "to", "from", "subject", "text" }`；或者 SMTP，只支持 465 端口的隐式 TLS。
 
-渠道配置写在你自己的 D1 里。列表接口只返回掩码。日志不记录短信正文、bot token、Webhook key 或邮箱密码。每个用户最多 10 个渠道。部署新版本后执行一次 `npx wrangler d1 migrations apply smsinbox --remote`（本地用 `--local`），把 `0002_notify.sql` 应用到数据库。
+渠道配置写在你自己的 D1 里。列表接口只返回掩码。日志不记录短信正文、bot token、Webhook key 或邮箱密码。最多 10 个渠道。部署新版本后执行一次 `npx wrangler d1 migrations apply smsinbox --remote`（本地用 `--local`），把 `0002_notify.sql` 应用到数据库。
 
 ## 网页
 
@@ -138,7 +140,7 @@ iOS 27 及以上从导入的快捷指令展开触发器，打开自动化开关�
 - `/`：收件箱。左侧固定深色侧边栏，右侧浅色内容区。新短信在前，可按设备、号码和关键词筛选；侧边栏设备列表和顶部搜索也会筛选。页面通过 `GET /api/v1/events` 的 SSE 接收新短信：服务端按 `created_at` 和短信 id 记住游标，大约每 2 秒查一次 D1，连接大约保持 25 秒后主动结束，浏览器会带上 `Last-Event-ID` 自动重连。标签页切到后台时断开。另外每 30 秒补拉一次第一页，避免重连间隙漏消息。列表是行式的，验证码 chip 可一键复制，点击行在桌面展开详情、在窄屏打开抽屉。
 - `/devices.html`：设备卡片显示名称、平台（来自最近一条短信的 `device` 字段）、推送状态、设备 ID、最近一次短信接收时间，以及快捷指令配置状态。创建或轮换后，黄框里的 Bearer token 和推送链接可以一键复制；刷新后不再显示。数据库只存哈希，没有再显示明文的入口，丢掉推送链接就轮换。生成、轮换和撤销都会先确认。页面保留 iOS 安装说明，并写明统一模板未签名、iCloud 尚未发布。每个设备可以「发送测试消息」，把一条带验证码 `654321` 的短信写入收件箱。删除设备会同时删除该设备的短信。
 - `/notify.html`：给当前用户添加 Telegram、企业微信群机器人、Bark 和邮件推送渠道。
-- `/users.html`：仅管理员可见。添加用户、改角色、重置密码、停用或删除。停用会立刻作废该用户的会话。删除会一并去掉该用户的设备、短信和推送渠道。不能停用或删除自己，也不能动最后一位管理员。
+- `/users.html`：用户列表、创建、改角色、停用和删除的接口已关闭，调用会返回 410。页面文件还在，系统管理改版不在这一步。改密码仍用上面的 `ADMIN_PASSWORD` 再登录一次。
 
 关键词搜索用 SQL `LIKE`。D1 的 LIKE 模式最长 50 字节，超出会返回错误。
 
@@ -156,7 +158,7 @@ iOS 27 及以上从导入的快捷指令展开触发器，打开自动化开关�
 - 管理员口令使用 PBKDF2-SHA256，迭代 10000 次。免费套餐每次调用大约只有 10 毫秒 CPU，迭代再高登录会因超出 CPU 被平台掐断。付费套餐可以提高 `src/auth.ts` 里的 `PBKDF2_ITERATIONS`。
 - Workers 免费套餐大约每天 10 万次请求。收件箱的 SSE 大约每 25 秒重新连接一次，页面一直开着时一天大约 3500 次请求。每次连接里大约每 2 秒读一次 D1，单页大约每天 4 万次读取。D1 免费套餐的读取额度大约是每天 500 万行。
 - D1 免费套餐大约每天写入 10 万行、读取 500 万行，单个数据库大约 500 MB。每条新短信大约写入 3 行（限流计数、短信、设备最后上报时间），所以实际能接收的条数明显少于 10 万。超出后查询会失败，直到 UTC 零点重置。
-- 没有公开注册。`ADMIN_USERNAME` / `ADMIN_PASSWORD` 只引导第一个管理员，之后在用户页添加别人。用户名以字母或数字开头，后面可以有点、下划线和连字符，最长 64 个字符。新用户的密码为 8 到 256 位。
+- 没有公开注册，也没有第二个管理员。`ADMIN_USERNAME` / `ADMIN_PASSWORD` 只引导或认领唯一管理员。业务查询仍按 `user_id` 过滤，归并之后这些行都属于这个管理员。
 
 ## 开发
 
@@ -165,4 +167,4 @@ npm test
 npx tsc --noEmit
 ```
 
-测试覆盖验证码提取、上报内容解析、去重哈希、登录口令 / token / HMAC，以及推送、加密、快捷指令和用户管理。`test/release.integration.test.ts` 再用本地 D1 跑迁移和整条上报链路，不连接生产。改了 `wrangler.jsonc` 的绑定后，运行 `npm run cf-typegen` 重新生成 `worker-configuration.d.ts`。
+测试覆盖验证码提取、上报内容解析、去重哈希、登录口令 / token / HMAC，以及推送、加密、快捷指令和单用户归并。`test/release.integration.test.ts` 再用本地 D1 跑迁移和整条上报链路，不连接生产。改了 `wrangler.jsonc` 的绑定后，运行 `npm run cf-typegen` 重新生成 `worker-configuration.d.ts`。
