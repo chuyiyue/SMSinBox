@@ -9,26 +9,29 @@ import {
   logout,
   openMenu,
   openModal,
-  renderSidebarDevices,
   showNotice,
   toast,
 } from "./common.js";
+import { ensureDevices, getDevices, noteDeviceSeen, refreshDevices } from "./device-store.js";
+import { registerView } from "./shell.js";
 import { credentialBoxes, describeDevice, pushConfirm, shortcutStatusLines } from "./device-panel.js";
 
 const TEMPLATE = '{"from":"{{FROM}}","content":"{{SMS}}","timestamp":"{{RECEIVE_TIME}}","device":"{{DEVICE_NAME}}","sim":"{{CARD_SLOT}}"}';
 const WEEK = 7 * 24 * 60 * 60 * 1000;
-const form = document.querySelector("#device-form");
-const errorBox = document.querySelector("#device-error");
-const statusBox = document.querySelector("#device-status");
-const tokenBox = document.querySelector("#token-box");
-const bearerWrap = document.querySelector("#bearer-wrap");
-const tokenValue = document.querySelector("#token-value");
-const pushWrap = document.querySelector("#push-wrap");
-const pushUrlValue = document.querySelector("#push-url-value");
-const devices = document.querySelector("#devices");
-const dialog = document.querySelector("#device-dialog");
-const savedBox = document.querySelector("#token-saved");
-const doneButton = document.querySelector("#token-done");
+let form;
+let errorBox;
+let statusBox;
+let tokenBox;
+let bearerWrap;
+let tokenValue;
+let pushWrap;
+let pushUrlValue;
+let devices;
+let dialog;
+let savedBox;
+let doneButton;
+let formError;
+let viewToken = 0;
 const webhookUrl = `${location.origin}/api/v1/sms`;
 const curlSample = [
   `curl -X POST '${webhookUrl}' \\`,
@@ -39,70 +42,98 @@ const curlSample = [
 let shownDeviceId = "";
 let generation = 0;
 
-const formError = document.createElement("p");
-formError.className = "field-error";
-formError.hidden = true;
-form.querySelector(".modal-actions")?.before(formError);
-
-document.querySelector("#sms-url").textContent = webhookUrl;
-document.querySelector("#android-template").textContent = TEMPLATE;
-document.querySelector("#curl-sample").textContent = curlSample;
-fillShortcutStatus();
-bindTabs();
-initShell({
-  onLogout: () => logout().catch(() => setError("退出失败")),
-  onRefresh: () => loadDevices().catch((error) => {
-    if (isUnauthorized(error)) return;
+function startView() {
+  viewToken += 1;
+  const token = viewToken;
+  form = document.querySelector("#device-form");
+  errorBox = document.querySelector("#device-error");
+  statusBox = document.querySelector("#device-status");
+  tokenBox = document.querySelector("#token-box");
+  bearerWrap = document.querySelector("#bearer-wrap");
+  tokenValue = document.querySelector("#token-value");
+  pushWrap = document.querySelector("#push-wrap");
+  pushUrlValue = document.querySelector("#push-url-value");
+  devices = document.querySelector("#devices");
+  dialog = document.querySelector("#device-dialog");
+  savedBox = document.querySelector("#token-saved");
+  doneButton = document.querySelector("#token-done");
+  formError = form.querySelector(".field-error") || document.createElement("p");
+  formError.className = "field-error";
+  formError.hidden = true;
+  form.querySelector(".modal-actions")?.before(formError);
+  document.querySelector("#sms-url").textContent = webhookUrl;
+  document.querySelector("#android-template").textContent = TEMPLATE;
+  document.querySelector("#curl-sample").textContent = curlSample;
+  fillShortcutStatus();
+  bindTabs();
+  initShell({
+    onLogout: () => logout().catch(() => setError("退出失败")),
+    onRefresh: () => loadDevices({ refresh: true }).catch((error) => {
+      if (isUnauthorized(error)) return;
+      setError("加载设备失败");
+    }),
+  });
+  document.querySelector("#add-device").addEventListener("click", openCreate);
+  document.querySelector("#copy-sms-url").addEventListener("click", (event) => {
+    flashLabel(event.currentTarget, webhookUrl, "复制");
+  });
+  document.querySelector("#copy-template").addEventListener("click", (event) => {
+    flashLabel(event.currentTarget, TEMPLATE, "复制模板");
+  });
+  document.querySelector("#copy-curl").addEventListener("click", (event) => {
+    flashLabel(event.currentTarget, curlSample, "复制");
+  });
+  document.querySelector("#copy-token").addEventListener("click", async (event) => {
+    const copied = await flashLabel(event.currentTarget, tokenValue.textContent || "", "复制 token");
+    if (copied) toast("已复制");
+  });
+  document.querySelector("#copy-push-url").addEventListener("click", async (event) => {
+    const copied = await flashLabel(event.currentTarget, pushUrlValue.textContent || "", "复制推送链接");
+    if (copied) toast("已复制");
+  });
+  tokenValue.addEventListener("click", () => selectContents(tokenValue));
+  pushUrlValue.addEventListener("click", () => selectContents(pushUrlValue));
+  savedBox.addEventListener("change", () => {
+    doneButton.disabled = !savedBox.checked;
+  });
+  doneButton.addEventListener("click", () => {
+    if (!savedBox.checked) return;
+    dialog.close();
+  });
+  document.querySelector("#device-cancel").addEventListener("click", () => {
+    if (!tokenBox.hidden) return;
+    dialog.close();
+  });
+  dialog.addEventListener("cancel", (event) => {
+    if (!tokenBox.hidden) event.preventDefault();
+  });
+  dialog.addEventListener("click", (event) => {
+    if (event.target !== dialog) return;
+    if (!tokenBox.hidden) return;
+    dialog.close();
+  });
+  dialog.addEventListener("close", () => {
+    document.body.classList.remove("modal-open");
+    clearSecrets();
+  });
+  form.addEventListener("submit", submitDevice);
+  loadDevices().catch((error) => {
+    if (token !== viewToken || isUnauthorized(error)) return;
     setError("加载设备失败");
-  }),
-});
+  });
+  loadNav().catch((error) => {
+    if (isUnauthorized(error)) return;
+  });
+  return () => {
+    if (viewToken === token) viewToken += 1;
+    generation += 1;
+    if (dialog?.open) dialog.close();
+  };
+}
 
-document.querySelector("#add-device").addEventListener("click", openCreate);
-document.querySelector("#copy-sms-url").addEventListener("click", (event) => {
-  flashLabel(event.currentTarget, webhookUrl, "复制");
-});
-document.querySelector("#copy-template").addEventListener("click", (event) => {
-  flashLabel(event.currentTarget, TEMPLATE, "复制模板");
-});
-document.querySelector("#copy-curl").addEventListener("click", (event) => {
-  flashLabel(event.currentTarget, curlSample, "复制");
-});
-document.querySelector("#copy-token").addEventListener("click", async (event) => {
-  const copied = await flashLabel(event.currentTarget, tokenValue.textContent || "", "复制 token");
-  if (copied) toast("已复制");
-});
-document.querySelector("#copy-push-url").addEventListener("click", async (event) => {
-  const copied = await flashLabel(event.currentTarget, pushUrlValue.textContent || "", "复制推送链接");
-  if (copied) toast("已复制");
-});
-tokenValue.addEventListener("click", () => selectContents(tokenValue));
-pushUrlValue.addEventListener("click", () => selectContents(pushUrlValue));
-savedBox.addEventListener("change", () => {
-  doneButton.disabled = !savedBox.checked;
-});
-doneButton.addEventListener("click", () => {
-  if (!savedBox.checked) return;
-  dialog.close();
-});
-document.querySelector("#device-cancel").addEventListener("click", () => {
-  if (!tokenBox.hidden) return;
-  dialog.close();
-});
-dialog.addEventListener("cancel", (event) => {
-  if (!tokenBox.hidden) event.preventDefault();
-});
-dialog.addEventListener("click", (event) => {
-  if (event.target !== dialog) return;
-  if (!tokenBox.hidden) return;
-  dialog.close();
-});
-dialog.addEventListener("close", () => {
-  document.body.classList.remove("modal-open");
-  clearSecrets();
-});
-
-form.addEventListener("submit", async (event) => {
+async function submitDevice(event) {
   event.preventDefault();
+  const token = viewToken;
   setError("");
   showFormError("");
   const payload = new FormData(form);
@@ -124,6 +155,7 @@ form.addEventListener("submit", async (event) => {
   button.textContent = "添加中…";
   try {
     const result = await api("/api/v1/devices", { method: "POST", body: JSON.stringify(body) });
+    if (token !== viewToken) return;
     if (!result.response.ok) {
       const message = result.data.error || "创建失败";
       showFormError(message);
@@ -137,24 +169,18 @@ form.addEventListener("submit", async (event) => {
     });
     setStatus("请立刻复制黄框里的内容。刷新后不能再查看。");
     form.reset();
-    await loadDevices();
+    await loadDevices({ refresh: true });
   } catch (error) {
-    if (isUnauthorized(error)) return;
+    if (token !== viewToken || isUnauthorized(error)) return;
     showFormError("创建失败");
     toast("创建失败", { tone: "danger" });
   } finally {
-    button.disabled = false;
-    button.textContent = previous;
+    if (button.isConnected) {
+      button.disabled = false;
+      button.textContent = previous;
+    }
   }
-});
-
-loadDevices().catch((error) => {
-  if (isUnauthorized(error)) return;
-  setError("加载设备失败");
-});
-loadNav().catch((error) => {
-  if (isUnauthorized(error)) return;
-});
+}
 
 function openCreate() {
   clearSecrets();
@@ -229,26 +255,30 @@ function clearSecrets() {
   doneButton.disabled = true;
 }
 
-async function loadDevices() {
+async function loadDevices(options = {}) {
+  const token = viewToken;
   const ticket = ++generation;
-  const sidebar = document.querySelector("#sidebar-devices");
-  if (sidebar) sidebar.dataset.loaded = "1";
-  if (!devices.querySelector(".device")) showSkeletons();
+  if (!devices.querySelector(".device") && getDevices().length === 0) showSkeletons();
   try {
-    const result = await api("/api/v1/devices");
-    if (ticket !== generation) return;
-    if (!result.response.ok) {
-      showLoadError(result.data.error || "加载设备失败");
+    const listResult = options.refresh ? await refreshDevices() : await ensureDevices();
+    if (ticket !== generation || token !== viewToken || listResult.stale) return;
+    const rows = getDevices();
+    if (!listResult.ok && rows.length === 0) {
+      showLoadError(listResult.error || "加载设备失败");
       return;
     }
-    setError("");
-    const rows = result.data.devices || [];
-    renderSidebarDevices(rows);
+    if (!listResult.ok) setError(listResult.error || "加载设备失败");
+    else setError("");
+    if (rows.length === 0) {
+      renderDeviceList(rows, new Map());
+      return;
+    }
+    if (!devices.querySelector(".device:not(.skeleton)")) renderDeviceList(rows, new Map());
     const latest = await loadLatest(rows);
-    if (ticket !== generation) return;
+    if (ticket !== generation || token !== viewToken) return;
     renderDeviceList(rows, latest);
   } catch (error) {
-    if (ticket !== generation) return;
+    if (ticket !== generation || token !== viewToken) return;
     if (isUnauthorized(error)) throw error;
     showLoadError("加载设备失败");
   }
@@ -436,6 +466,7 @@ function testButton(device) {
       setError("");
       setStatus(message);
       toast(message, { href: "/", linkLabel: "去收件箱查看" });
+      noteDeviceSeen(device.id, Date.now());
       try {
         await loadDevices();
       } catch (error) {
@@ -480,7 +511,7 @@ async function removeDevice(device, row) {
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     await new Promise((resolve) => window.setTimeout(resolve, reduce ? 0 : 180));
     toast(`已删除「${name}」`);
-    await loadDevices();
+    await loadDevices({ refresh: true });
   } catch (error) {
     if (isUnauthorized(error)) return;
     setError("删除失败");
@@ -510,7 +541,7 @@ async function runPush(device, action) {
       if (shownDeviceId === device.id) shownDeviceId = "";
       if (action === "revoke") setStatus("推送链接已撤销。短信仍保留，旧链接不会再显示。");
     }
-    await loadDevices();
+    await loadDevices({ refresh: true });
   } catch (error) {
     if (isUnauthorized(error)) return;
     setError("操作失败");
@@ -586,3 +617,5 @@ function setError(message) {
 function setStatus(message) {
   showNotice(statusBox, message);
 }
+
+registerView("/devices.html", startView);

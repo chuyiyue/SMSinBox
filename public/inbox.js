@@ -8,10 +8,10 @@ import {
   loadNav,
   logout,
   renderContent,
-  renderSidebarDevices,
-  setActiveDevice,
   toast,
 } from "./common.js";
+import { ensureDevices, getDevices, noteDeviceSeen, setActiveId } from "./device-store.js";
+import { registerView, syncShellHistory } from "./shell.js";
 import { isTyping } from "./ui.js";
 
 const PAGE_SIZE = 30;
@@ -37,119 +37,184 @@ const state = {
   selectedId: "",
 };
 
-const filters = document.querySelector("#filters");
-const list = document.querySelector("#list");
-const summary = document.querySelector("#summary");
-const errorBox = document.querySelector("#inbox-error");
-const deviceSelect = document.querySelector("#device");
-const banner = document.querySelector("#live-banner");
-const drawer = document.querySelector("#message-drawer");
-const drawerSender = document.querySelector("#drawer-sender");
-const drawerTime = document.querySelector("#drawer-time");
-const drawerMeta = document.querySelector("#drawer-meta");
-const drawerBody = document.querySelector("#drawer-body");
-const qInput = document.querySelector("input[name=q]");
-const qCount = document.querySelector("#q-count");
-const queryError = document.querySelector("#query-error");
-const searchNote = document.querySelector("#search-note");
-const endNote = document.querySelector("#list-end");
-const sentinel = document.querySelector("#list-sentinel");
-const announcer = document.querySelector("#live-announcer");
-const clearButton = document.querySelector("#clear-filters");
-const chips = document.querySelector("#filter-chips");
+let filters;
+let list;
+let summary;
+let errorBox;
+let deviceSelect;
+let banner;
+let drawer;
+let drawerSender;
+let drawerTime;
+let drawerMeta;
+let drawerBody;
+let qInput;
+let qCount;
+let queryError;
+let searchNote;
+let endNote;
+let sentinel;
+let announcer;
+let clearButton;
+let chips;
+let observer = null;
+let media = null;
 const messages = new Map();
+let viewToken = 0;
 
-initShell({
-  onLogout() {
-    stopRealtime();
-    return logout().catch(() => toast("退出失败", { tone: "danger" }));
-  },
-  onRefresh() {
-    banner.hidden = true;
-    loadMessages().catch(showError);
-  },
-  onDeviceFilter(id) {
-    deviceSelect.value = id;
+function startView() {
+  viewToken += 1;
+  const token = viewToken;
+  resetInbox();
+  filters = document.querySelector("#filters");
+  list = document.querySelector("#list");
+  summary = document.querySelector("#summary");
+  errorBox = document.querySelector("#inbox-error");
+  deviceSelect = document.querySelector("#device");
+  banner = document.querySelector("#live-banner");
+  drawer = document.querySelector("#message-drawer");
+  drawerSender = document.querySelector("#drawer-sender");
+  drawerTime = document.querySelector("#drawer-time");
+  drawerMeta = document.querySelector("#drawer-meta");
+  drawerBody = document.querySelector("#drawer-body");
+  qInput = document.querySelector("input[name=q]");
+  qCount = document.querySelector("#q-count");
+  queryError = document.querySelector("#query-error");
+  searchNote = document.querySelector("#search-note");
+  endNote = document.querySelector("#list-end");
+  sentinel = document.querySelector("#list-sentinel");
+  announcer = document.querySelector("#live-announcer");
+  clearButton = document.querySelector("#clear-filters");
+  chips = document.querySelector("#filter-chips");
+  initShell({
+    onLogout() {
+      stopRealtime();
+      return logout().catch(() => toast("退出失败", { tone: "danger" }));
+    },
+    onRefresh() {
+      banner.hidden = true;
+      loadMessages().catch(showError);
+    },
+    onDeviceFilter(id) {
+      deviceSelect.value = id;
+      state.page = 1;
+      banner.hidden = true;
+      loadMessages().catch(showError);
+    },
+    onEscape() {
+      closeDrawer();
+    },
+  });
+  document.querySelector("#drawer-close")?.addEventListener("click", closeDrawer);
+  drawer?.addEventListener("click", (event) => {
+    if (event.target === drawer) closeDrawer();
+  });
+  media = window.matchMedia("(max-width: 639px)");
+  media.addEventListener("change", onMedia);
+  banner.addEventListener("click", flushPending);
+  clearButton.addEventListener("click", () => {
+    deviceSelect.value = "";
+    setActiveId("");
+    filters.elements.from.value = "";
+    qInput.value = "";
     state.page = 1;
-    banner.hidden = true;
     loadMessages().catch(showError);
-  },
-  onEscape() {
+  });
+  document.querySelector("#search-note-close")?.addEventListener("click", () => {
+    state.dismissedQuery = qInput.value.trim();
+    searchNote.hidden = true;
+  });
+  filters.addEventListener("submit", (event) => {
+    event.preventDefault();
+    state.page = 1;
+    loadMessages().catch(showError);
+  });
+  deviceSelect.addEventListener("change", () => {
+    state.page = 1;
+    setActiveId(deviceSelect.value);
+    loadMessages().catch(showError);
+  });
+  const queueSearch = debounce(() => {
+    state.page = 1;
+    loadMessages().catch(showError);
+  }, 300);
+  filters.elements.from.addEventListener("input", queueSearch);
+  qInput.addEventListener("input", () => {
+    paintQueryGuard();
+    queueSearch();
+  });
+  document.addEventListener("keydown", onInboxKey, true);
+  observer = new IntersectionObserver((entries) => {
+    if (entries.some((entry) => entry.isIntersecting)) loadMore().catch(showError);
+  });
+  observer.observe(sentinel);
+  showSkeleton();
+  boot(token).catch((error) => {
+    if (token !== viewToken || isUnauthorized(error)) return;
+    showError(error);
+  });
+  return () => {
+    if (viewToken === token) viewToken += 1;
+    state.listGen += 1;
+    stopRealtime();
+    observer?.disconnect();
+    observer = null;
+    document.removeEventListener("keydown", onInboxKey, true);
+    document.removeEventListener("visibilitychange", onVisibility);
+    media?.removeEventListener("change", onMedia);
     closeDrawer();
-  },
-});
+  };
+}
 
-document.querySelector("#drawer-close")?.addEventListener("click", closeDrawer);
-drawer?.addEventListener("click", (event) => {
-  if (event.target === drawer) closeDrawer();
-});
-window.matchMedia("(max-width: 639px)").addEventListener("change", (event) => {
+function resetInbox() {
+  stopRealtime();
+  state.page = 1;
+  state.total = 0;
+  state.loading = false;
+  state.hasMore = false;
+  state.cursor = "";
+  state.liveMode = "connecting";
+  state.failures = 0;
+  state.expectReconnect = false;
+  state.paused = false;
+  state.devices = [];
+  state.pending = [];
+  state.seen.clear();
+  state.dismissedQuery = null;
+  state.listGen += 1;
+  state.selectedId = "";
+  messages.clear();
+}
+
+function onMedia(event) {
   if (!event.matches) closeDrawer();
-});
-banner.addEventListener("click", flushPending);
-clearButton.addEventListener("click", () => {
-  deviceSelect.value = "";
-  filters.elements.from.value = "";
-  qInput.value = "";
-  state.page = 1;
-  loadMessages().catch(showError);
-});
-document.querySelector("#search-note-close")?.addEventListener("click", () => {
-  state.dismissedQuery = qInput.value.trim();
-  searchNote.hidden = true;
-});
-filters.addEventListener("submit", (event) => {
-  event.preventDefault();
-  state.page = 1;
-  loadMessages().catch(showError);
-});
-deviceSelect.addEventListener("change", () => {
-  state.page = 1;
-  setActiveDevice(deviceSelect.value);
-  loadMessages().catch(showError);
-});
-const queueSearch = debounce(() => {
-  state.page = 1;
-  loadMessages().catch(showError);
-}, 300);
-filters.elements.from.addEventListener("input", queueSearch);
-qInput.addEventListener("input", () => {
-  paintQueryGuard();
-  queueSearch();
-});
-document.addEventListener("keydown", onInboxKey, true);
+}
 
-const observer = new IntersectionObserver((entries) => {
-  if (entries.some((entry) => entry.isIntersecting)) loadMore().catch(showError);
-});
-observer.observe(sentinel);
+function onVisibility() {
+  if (document.hidden) {
+    state.paused = true;
+    stopRealtime();
+    setLive("已暂停", "paused");
+    return;
+  }
+  state.paused = false;
+  loadMessages({ silent: true })
+    .then(() => startRealtime())
+    .catch(showError);
+}
 
-showSkeleton();
-boot().catch((error) => {
-  if (isUnauthorized(error)) return;
-  showError(error);
-});
-
-async function boot() {
+async function boot(token) {
   const params = new URLSearchParams(location.search);
   if (params.get("q") && !qInput.value) qInput.value = params.get("q");
   if (params.get("from") && !filters.elements.from.value) filters.elements.from.value = params.get("from");
-  await loadDevices();
-  if (params.get("device_id")) deviceSelect.value = params.get("device_id");
+  const preferred = params.get("device_id") || "";
+  await loadDevices(preferred);
+  if (token !== viewToken) return;
   await loadMessages();
+  if (token !== viewToken) return;
   startRealtime();
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) {
-      state.paused = true;
-      stopRealtime();
-      setLive("已暂停", "paused");
-      return;
-    }
-    state.paused = false;
-    loadMessages({ silent: true })
-      .then(() => startRealtime())
-      .catch(showError);
-  });
+  document.addEventListener("visibilitychange", onVisibility);
+  await loadNav();
 }
 
 function startRealtime() {
@@ -200,6 +265,7 @@ function stopRealtime() {
 }
 
 function onLiveMessage(message) {
+  if (message?.device_id) noteDeviceSeen(message.device_id, message.created_at || message.received_at || Date.now());
   if (!message?.id || state.seen.has(message.id)) return;
   remember(message);
   const next = `${message.created_at}:${message.id}`;
@@ -218,23 +284,17 @@ function onLiveMessage(message) {
   paintSummary();
 }
 
-async function loadDevices() {
-  const box = document.querySelector("#sidebar-devices");
-  if (box) box.dataset.loaded = "1";
-  const result = await api("/api/v1/devices");
-  if (!result.response.ok) {
-    showError(result.data.error || "加载设备失败");
-    await loadNav();
-    return;
-  }
-  state.devices = result.data.devices || [];
-  const current = deviceSelect.value;
+async function loadDevices(preferred = "") {
+  const token = viewToken;
+  const result = await ensureDevices();
+  if (token !== viewToken || result?.stale) return;
+  state.devices = getDevices();
+  const current = preferred || deviceSelect.value;
   deviceSelect.replaceChildren(new Option("全部设备", ""));
   for (const device of state.devices) deviceSelect.append(new Option(device.name, device.id));
   if ([...deviceSelect.options].some((option) => option.value === current)) deviceSelect.value = current;
-  renderSidebarDevices(state.devices);
-  setActiveDevice(deviceSelect.value);
-  await loadNav();
+  setActiveId(deviceSelect.value);
+  if (!result.ok && state.devices.length === 0) showError(result.error || "加载设备失败");
 }
 
 async function loadMessages(options = {}) {
@@ -276,13 +336,14 @@ async function loadMessages(options = {}) {
     paintSummary();
     syncUrl();
     paintChips();
-    setActiveDevice(deviceSelect.value);
+    setActiveId(deviceSelect.value);
   } catch (error) {
+    if (state.listGen !== mine) return;
     if (isUnauthorized(error)) throw error;
     if (append) state.page = Math.max(1, state.page - 1);
     showError(error);
   } finally {
-    if (!silent) state.loading = false;
+    if (!silent && state.listGen === mine) state.loading = false;
   }
 }
 
@@ -614,7 +675,8 @@ function syncUrl() {
   params.delete("page_size");
   const next = params.toString();
   const url = next ? `/?${next}` : "/";
-  if (`${location.pathname}${location.search}` !== url) history.replaceState(null, "", url);
+  if (`${location.pathname}${location.search}` !== url) history.replaceState({ shell: 1 }, "", url);
+  syncShellHistory();
 }
 
 function paintChips() {
@@ -853,3 +915,5 @@ function debounce(fn, wait) {
     timer = window.setTimeout(fn, wait);
   };
 }
+
+registerView("/", startView);

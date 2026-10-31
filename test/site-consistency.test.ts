@@ -19,6 +19,8 @@ describe("site consistency", () => {
       expect(navHrefs(html)).toEqual(hrefs[0]);
       expect(html).toContain('class="app-layout"');
       expect(html).toContain('class="sidebar"');
+      expect(html).toContain('id="sidebar-devices"');
+      expect(html).toContain('src="/sidebar-boot.js"');
       expect(html).toContain('class="topbar"');
       expect(html).toContain('placeholder="搜索正文、号码或验证码"');
       expect(html).toContain('src="/mark.svg"');
@@ -53,6 +55,22 @@ describe("site consistency", () => {
     expect(devices).toContain("flashLabel");
     expect(readFileSync("public/inbox.js", "utf8")).toContain("flashLabel");
     expect(readFileSync("public/common.js", "utf8")).toContain("还没有设备。");
+    const shell = readFileSync("public/shell.js", "utf8");
+    const store = readFileSync("public/device-store.js", "utf8");
+    const common = readFileSync("public/common.js", "utf8");
+    expect(shell).toContain("history.pushState");
+    expect(shell).toContain('.app-layout > .main');
+    expect(shell).not.toContain('querySelector("#sidebar")?.replaceWith');
+    expect(shell).toContain("registerView");
+    expect(store).toContain("noteDeviceSeen");
+    expect(store).toContain("generation");
+    expect(store).toContain("smsinbox.shell");
+    expect(common).toContain("data-key");
+    expect(common).toContain("insertBefore");
+    expect(common).not.toContain("box.replaceChildren");
+    expect(readFileSync("public/sidebar-boot.js", "utf8")).toContain("smsinbox.shell");
+    expect(readFileSync("public/inbox.js", "utf8")).toContain("noteDeviceSeen");
+    expect(readFileSync("public/devices.js", "utf8")).toContain("refreshDevices");
   });
 
   it("shortens log errors the same way everywhere", () => {

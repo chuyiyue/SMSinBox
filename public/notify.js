@@ -1,4 +1,5 @@
 import { api, initShell, isUnauthorized, loadNav, logout, openModal, showNotice, toast } from "./common.js";
+import { registerView } from "./shell.js";
 
 const MAX_CHANNELS = 10;
 const KINDS = [
@@ -28,43 +29,63 @@ const KINDS = [
   },
 ];
 
-const form = document.querySelector("#notify-form");
-const fields = document.querySelector("#notify-fields");
-const formError = document.querySelector("#notify-form-error");
-const errorBox = document.querySelector("#notify-error");
-const statusBox = document.querySelector("#notify-status");
-const list = document.querySelector("#notify-list");
-const dialog = document.querySelector("#notify-dialog");
-const kindStep = document.querySelector("#kind-step");
-const addButton = document.querySelector("#add-channel");
-const count = document.querySelector("#channel-count");
+let form;
+let fields;
+let formError;
+let errorBox;
+let statusBox;
+let list;
+let dialog;
+let kindStep;
+let addButton;
+let count;
 let selectedKind = "telegram";
 let emailMode = "webhook";
+let viewToken = 0;
 
-renderKindGrid();
-initShell({
-  onLogout: () => logout().catch(() => setError("退出失败")),
-  onRefresh: () => loadChannels().catch((error) => {
+function startView() {
+  viewToken += 1;
+  const token = viewToken;
+  selectedKind = "telegram";
+  emailMode = "webhook";
+  form = document.querySelector("#notify-form");
+  fields = document.querySelector("#notify-fields");
+  formError = document.querySelector("#notify-form-error");
+  errorBox = document.querySelector("#notify-error");
+  statusBox = document.querySelector("#notify-status");
+  list = document.querySelector("#notify-list");
+  dialog = document.querySelector("#notify-dialog");
+  kindStep = document.querySelector("#kind-step");
+  addButton = document.querySelector("#add-channel");
+  count = document.querySelector("#channel-count");
+  renderKindGrid();
+  initShell({
+    onLogout: () => logout().catch(() => setError("退出失败")),
+    onRefresh: () => loadChannels().catch((error) => {
+      if (isUnauthorized(error)) return;
+      setError("加载推送渠道失败");
+    }),
+  });
+  addButton.addEventListener("click", openCreate);
+  document.querySelector("#notify-close").addEventListener("click", () => dialog.close());
+  document.querySelector("#notify-back").addEventListener("click", () => showKindStep());
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+  dialog.addEventListener("close", () => document.body.classList.remove("modal-open"));
+  form.addEventListener("submit", submitChannel);
+  loadNav().catch((error) => {
     if (isUnauthorized(error)) return;
+  });
+  loadChannels().catch((error) => {
+    if (token !== viewToken || isUnauthorized(error)) return;
     setError("加载推送渠道失败");
-  }),
-});
-addButton.addEventListener("click", openCreate);
-document.querySelector("#notify-close").addEventListener("click", () => dialog.close());
-document.querySelector("#notify-back").addEventListener("click", () => showKindStep());
-dialog.addEventListener("click", (event) => {
-  if (event.target === dialog) dialog.close();
-});
-dialog.addEventListener("close", () => document.body.classList.remove("modal-open"));
-form.addEventListener("submit", submitChannel);
-
-loadNav().catch((error) => {
-  if (isUnauthorized(error)) return;
-});
-loadChannels().catch((error) => {
-  if (isUnauthorized(error)) return;
-  setError("加载推送渠道失败");
-});
+  });
+  return () => {
+    if (viewToken === token) viewToken += 1;
+    if (dialog?.open) dialog.close();
+  };
+}
 
 function renderKindGrid() {
   const grid = document.querySelector("#notify-kinds");
@@ -179,6 +200,7 @@ function renderFields() {
 
 async function submitChannel(event) {
   event.preventDefault();
+  const token = viewToken;
   showFormError("");
   setStatus("");
   const body = readForm();
@@ -192,6 +214,7 @@ async function submitChannel(event) {
   button.textContent = "添加中…";
   try {
     const created = await api("/api/v1/notifications", { method: "POST", body: JSON.stringify(body) });
+    if (token !== viewToken) return;
     if (!created.response.ok) {
       const message = created.data.error || "添加失败";
       showFormError(message);
@@ -231,7 +254,9 @@ function readForm() {
 }
 
 async function loadChannels() {
+  const token = viewToken;
   const result = await api("/api/v1/notifications");
+  if (token !== viewToken) return;
   if (!result.response.ok) {
     const message = result.data.error || "加载推送渠道失败";
     if (list.querySelector(".channel-card")) {
@@ -517,3 +542,5 @@ function setError(message) {
 function setStatus(message) {
   showNotice(statusBox, message);
 }
+
+registerView("/notify.html", startView);

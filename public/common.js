@@ -1,4 +1,12 @@
 import {
+  clearShellCache,
+  ensureMe,
+  getActiveId,
+  getDevices,
+  presenceOf,
+  setActiveId,
+} from "./device-store.js";
+import {
   applyTheme,
   closeMenu,
   currentTheme,
@@ -28,6 +36,7 @@ export async function api(path, options = {}) {
     }
   }
   if (response.status === 401 && !options.allowUnauthorized) {
+    clearShellCache();
     rememberFlash("登录已过期");
     const next = encodeURIComponent(`${location.pathname}${location.search}`);
     location.assign(`/login.html?next=${next}`);
@@ -155,6 +164,20 @@ export function openSidebar() {
   document.body.classList.add("nav-open");
 }
 
+let shellHooks = {};
+let shellBound = false;
+let navigateTo = (href) => {
+  location.assign(href);
+};
+
+export function setNavigator(navigate) {
+  navigateTo = navigate;
+}
+
+export function followAppLink(href) {
+  navigateTo(href);
+}
+
 export function setActiveDevice(id) {
   const current = String(id || "");
   for (const button of document.querySelectorAll("#sidebar-devices [data-device-id]")) {
@@ -162,36 +185,81 @@ export function setActiveDevice(id) {
   }
 }
 
-export function renderSidebarDevices(devices) {
+export function paintDevicePresence(id) {
+  const device = getDevices().find((item) => item.id === id);
+  const button = deviceButton(id);
+  if (!device || !button) return;
+  paintPresence(button, device, button.textContent || device.name || "");
+}
+
+export function clearSidebarDevices() {
+  document.querySelector("#sidebar-devices")?.replaceChildren();
+}
+
+export function renderSidebarDevices(devices, activeId = getActiveId()) {
   const box = document.querySelector("#sidebar-devices");
   if (!box) return;
-  box.dataset.loaded = "1";
-  box.replaceChildren();
-  const all = document.createElement("button");
-  all.type = "button";
-  all.className = "device-link is-active";
-  all.dataset.deviceId = "";
-  all.textContent = "全部设备";
-  box.append(all);
-  if (!devices.length) {
-    const empty = document.createElement("p");
-    empty.className = "sidebar-empty";
-    empty.textContent = "还没有设备。";
-    box.append(empty);
-    return;
+  const active = String(activeId || "");
+  const rows = [{ id: "", key: "all", name: "全部设备", device: null }];
+  for (const device of devices || []) {
+    if (!device?.id) continue;
+    rows.push({
+      id: String(device.id),
+      key: String(device.id),
+      name: String(device.name || "未命名设备"),
+      device,
+    });
   }
-  for (const device of devices) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "device-link";
-    button.dataset.deviceId = device.id;
-    button.title = device.name;
-    button.textContent = device.name;
-    box.append(button);
+  const wanted = new Set(rows.map((row) => row.key));
+  for (const node of [...box.querySelectorAll(":scope > [data-key]")]) {
+    if (!wanted.has(node.getAttribute("data-key") || "")) node.remove();
+  }
+  rows.forEach((row, index) => {
+    const buttons = () => [...box.querySelectorAll(":scope > [data-key]")];
+    let button = buttons().find((node) => (node.getAttribute("data-key") || "") === row.key);
+    if (!button) {
+      button = document.createElement("button");
+      button.type = "button";
+      button.className = "device-link";
+      button.dataset.deviceId = row.id;
+      button.dataset.key = row.key;
+    }
+    if (button.textContent !== row.name) button.textContent = row.name;
+    if (row.id) button.title = row.name;
+    else button.removeAttribute("title");
+    button.classList.toggle("is-active", row.id === active);
+    if (row.device) paintPresence(button, row.device, row.name);
+    else clearPresence(button);
+    const current = buttons();
+    if (current[index] !== button) box.insertBefore(button, current[index] || box.querySelector(".sidebar-empty"));
+  });
+  let empty = box.querySelector(".sidebar-empty");
+  if (!devices?.length) {
+    if (!empty) {
+      empty = document.createElement("p");
+      empty.className = "sidebar-empty";
+      empty.textContent = "还没有设备。";
+      box.append(empty);
+    }
+  } else if (empty) {
+    empty.remove();
+  }
+}
+
+export function paintMe(user) {
+  if (!user) return;
+  for (const who of document.querySelectorAll("[data-who], #who")) {
+    who.textContent = user.username || "";
+  }
+  for (const link of document.querySelectorAll("#users-link, #users-tab")) {
+    link.hidden = user.role !== "admin";
   }
 }
 
 export function initShell(options = {}) {
+  shellHooks = options;
+  if (shellBound) return;
+  shellBound = true;
   applyTheme(currentTheme());
   const flash = takeFlash();
   if (flash) toast(flash, { tone: "danger" });
@@ -216,10 +284,11 @@ export function initShell(options = {}) {
       openHelp();
     });
   }
-  document.querySelector("#search-toggle")?.addEventListener("click", () => {
-    const bar = document.querySelector(".topbar");
-    bar?.classList.add("is-searching");
-    document.querySelector(".topbar-search")?.focus();
+  document.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    if (target.closest("#refresh")) shellHooks.onRefresh?.();
+    if (target.closest("#search-toggle")) openSearch();
   });
   document.addEventListener("keydown", (event) => {
     if (document.querySelector(".modal-root, dialog[open]")) return;
@@ -228,7 +297,7 @@ export function initShell(options = {}) {
       closeMore();
       closeSidebar();
       document.querySelector(".topbar")?.classList.remove("is-searching");
-      options.onEscape?.();
+      shellHooks.onEscape?.();
       return;
     }
     if (isTyping(event.target)) return;
@@ -236,8 +305,7 @@ export function initShell(options = {}) {
       const search = document.querySelector(".topbar-search");
       if (!search) return;
       event.preventDefault();
-      document.querySelector(".topbar")?.classList.add("is-searching");
-      search.focus();
+      openSearch();
     } else if (event.key === "?") {
       event.preventDefault();
       openHelp();
@@ -245,49 +313,71 @@ export function initShell(options = {}) {
   });
   for (const button of document.querySelectorAll("[data-logout]")) {
     button.addEventListener("click", () => {
-      Promise.resolve(options.onLogout ? options.onLogout() : logout()).catch(() => {});
+      Promise.resolve(shellHooks.onLogout ? shellHooks.onLogout() : logout()).catch(() => {});
     });
   }
-  document.querySelector("#refresh")?.addEventListener("click", () => {
-    options.onRefresh?.();
-  });
   document.querySelector("#sidebar-devices")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-device-id]");
     if (!button) return;
     const id = button.getAttribute("data-device-id") || "";
-    setActiveDevice(id);
+    setActiveId(id);
     closeSidebar();
-    if (options.onDeviceFilter) {
-      options.onDeviceFilter(id);
+    if (shellHooks.onDeviceFilter) {
+      shellHooks.onDeviceFilter(id);
       return;
     }
     const url = new URL("/", location.origin);
     if (id) url.searchParams.set("device_id", id);
-    location.assign(`${url.pathname}${url.search}`);
+    followAppLink(`${url.pathname}${url.search}`);
   });
 }
 
 export async function loadNav() {
-  const me = await api("/api/v1/auth/me");
-  const user = me.data.user || null;
-  for (const who of document.querySelectorAll("[data-who], #who")) {
-    who.textContent = user?.username || "";
-  }
-  for (const link of document.querySelectorAll("#users-link, #users-tab")) {
-    if (user?.role === "admin") link.hidden = false;
-    else link.remove();
-  }
-  const box = document.querySelector("#sidebar-devices");
-  if (box && box.dataset.loaded !== "1") {
-    const result = await api("/api/v1/devices");
-    if (result.response.ok) renderSidebarDevices(result.data.devices || []);
-  }
-  return user;
+  const result = await ensureMe();
+  if (result?.ok && result.user) paintMe(result.user);
+  return result?.user || getMe() || null;
 }
 
 export async function logout() {
+  clearShellCache();
   await api("/api/v1/auth/logout", { method: "POST", body: "{}" });
   location.assign("/login.html");
+}
+
+function openSearch() {
+  document.querySelector(".topbar")?.classList.add("is-searching");
+  document.querySelector(".topbar-search")?.focus();
+}
+
+function deviceButton(id) {
+  return [...document.querySelectorAll("#sidebar-devices [data-device-id]")].find(
+    (node) => (node.getAttribute("data-device-id") || "") === String(id || ""),
+  );
+}
+
+function paintPresence(button, device, name) {
+  const presence = presenceOf(device);
+  const seen = Number(device?.last_seen_at);
+  if (!presence) {
+    clearPresence(button);
+    return;
+  }
+  if (button.getAttribute("data-presence") !== presence) button.setAttribute("data-presence", presence);
+  if (Number.isFinite(seen) && button.getAttribute("data-last-seen") !== String(seen)) {
+    button.setAttribute("data-last-seen", String(seen));
+  }
+  if (presence === "online") {
+    const label = `${name}，在线`;
+    if (button.getAttribute("aria-label") !== label) button.setAttribute("aria-label", label);
+  } else if (button.hasAttribute("aria-label")) {
+    button.removeAttribute("aria-label");
+  }
+}
+
+function clearPresence(button) {
+  button.removeAttribute("data-presence");
+  button.removeAttribute("data-last-seen");
+  button.removeAttribute("aria-label");
 }
 
 function openMore() {
