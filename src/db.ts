@@ -9,6 +9,7 @@ import type {
   MessageView,
   NotifyChannelRow,
   SessionUser,
+  UserAccount,
   UserRecord,
 } from "./types";
 
@@ -36,23 +37,80 @@ export async function countUsers(db: D1Database): Promise<number> {
 
 export async function findUserByUsername(db: D1Database, username: string): Promise<UserRecord | null> {
   return db
-    .prepare("SELECT id, username, password_hash, created_at FROM users WHERE username = ?")
+    .prepare(
+      "SELECT id, username, password_hash, role, disabled_at, created_at FROM users WHERE username = ?",
+    )
     .bind(username)
     .first<UserRecord>();
 }
 
+export async function findUserById(db: D1Database, userId: string): Promise<UserAccount | null> {
+  return db
+    .prepare("SELECT id, username, role, disabled_at, created_at FROM users WHERE id = ?")
+    .bind(userId)
+    .first<UserAccount>();
+}
+
+export async function listUsers(db: D1Database): Promise<UserAccount[]> {
+  const result = await db
+    .prepare("SELECT id, username, role, disabled_at, created_at FROM users ORDER BY created_at ASC")
+    .all<UserAccount>();
+  return result.results;
+}
+
+export async function countEnabledAdmins(db: D1Database): Promise<number> {
+  const row = await db
+    .prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'admin' AND disabled_at IS NULL")
+    .first<{ total: number }>();
+  return row?.total ?? 0;
+}
+
+export async function countAdmins(db: D1Database): Promise<number> {
+  const row = await db
+    .prepare("SELECT COUNT(*) AS total FROM users WHERE role = 'admin'")
+    .first<{ total: number }>();
+  return row?.total ?? 0;
+}
+
 export async function insertUser(
   db: D1Database,
-  user: { id: string; username: string; passwordHash: string; createdAt: number },
+  user: { id: string; username: string; passwordHash: string; role: "admin" | "member"; createdAt: number },
 ): Promise<void> {
   await db
-    .prepare("INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)")
-    .bind(user.id, user.username, user.passwordHash, user.createdAt)
+    .prepare("INSERT INTO users (id, username, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)")
+    .bind(user.id, user.username, user.passwordHash, user.role, user.createdAt)
     .run();
 }
 
 export async function updatePasswordHash(db: D1Database, userId: string, passwordHash: string): Promise<void> {
   await db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(passwordHash, userId).run();
+}
+
+export async function ensureAdmin(db: D1Database, userId: string): Promise<void> {
+  await db.prepare("UPDATE users SET role = 'admin', disabled_at = NULL WHERE id = ?").bind(userId).run();
+}
+
+export async function setUserRole(db: D1Database, userId: string, role: "admin" | "member"): Promise<void> {
+  await db.prepare("UPDATE users SET role = ? WHERE id = ?").bind(role, userId).run();
+}
+
+export async function setUserDisabledAt(db: D1Database, userId: string, disabledAt: number | null): Promise<void> {
+  await db.prepare("UPDATE users SET disabled_at = ? WHERE id = ?").bind(disabledAt, userId).run();
+}
+
+export async function deleteUserSessions(db: D1Database, userId: string): Promise<void> {
+  await db.prepare("DELETE FROM sessions WHERE user_id = ?").bind(userId).run();
+}
+
+export async function deleteUserCascade(db: D1Database, userId: string): Promise<void> {
+  await db.batch([
+    db.prepare("DELETE FROM rate_limits WHERE token_hash IN (SELECT token_hash FROM devices WHERE user_id = ?)").bind(userId),
+    db.prepare("DELETE FROM messages WHERE device_id IN (SELECT id FROM devices WHERE user_id = ?)").bind(userId),
+    db.prepare("DELETE FROM devices WHERE user_id = ?").bind(userId),
+    db.prepare("DELETE FROM sessions WHERE user_id = ?").bind(userId),
+    db.prepare("DELETE FROM notify_channels WHERE user_id = ?").bind(userId),
+    db.prepare("DELETE FROM users WHERE id = ?").bind(userId),
+  ]);
 }
 
 export async function createSession(
@@ -68,7 +126,8 @@ export async function createSession(
 export async function findSessionUser(db: D1Database, sessionHash: string): Promise<SessionUser | null> {
   return db
     .prepare(
-      `SELECT u.id AS id, u.username AS username, s.expires_at AS expires_at
+      `SELECT u.id AS id, u.username AS username, u.role AS role, u.disabled_at AS disabled_at,
+              s.expires_at AS expires_at
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.id = ?`,

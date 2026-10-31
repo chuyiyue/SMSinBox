@@ -1,4 +1,4 @@
-import { api, copyText, formatTime, logout, renderContent } from "./common.js";
+import { api, copyText, formatTime, loadNav, logout, renderContent } from "./common.js";
 
 const FALLBACK_MS = 30_000;
 const state = {
@@ -164,8 +164,7 @@ async function loadDevices() {
     deviceSelect.append(new Option(device.name, device.id));
   }
   if ([...deviceSelect.options].some((option) => option.value === current)) deviceSelect.value = current;
-  const me = await api("/api/v1/auth/me");
-  document.querySelector("#who").textContent = me.data.user?.username || "";
+  await loadNav();
 }
 
 async function loadMessages() {

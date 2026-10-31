@@ -1,4 +1,4 @@
-import { api, copyText, formatTime, logout } from "./common.js";
+import { api, copyText, formatTime, loadNav, logout } from "./common.js";
 
 const TEMPLATE = '{"from":"{{FROM}}","content":"{{SMS}}","timestamp":"{{RECEIVE_TIME}}","device":"{{DEVICE_NAME}}","sim":"{{CARD_SLOT}}"}';
 const form = document.querySelector("#device-form");
@@ -61,6 +61,9 @@ form.addEventListener("submit", async (event) => {
 loadDevices().catch((error) => {
   if (error instanceof Error && error.message === "unauthorized") return;
   setError("加载设备失败");
+});
+loadNav().catch((error) => {
+  if (error instanceof Error && error.message === "unauthorized") return;
 });
 
 async function loadDevices() {

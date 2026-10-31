@@ -69,6 +69,16 @@ export function renderContent(element, content, code) {
   if (last < content.length) element.append(document.createTextNode(content.slice(last)));
 }
 
+export async function loadNav() {
+  const me = await api("/api/v1/auth/me");
+  const user = me.data.user || null;
+  const who = document.querySelector("#who");
+  if (who) who.textContent = user?.username || "";
+  const link = document.querySelector("#users-link");
+  if (link) link.hidden = user?.role !== "admin";
+  return user;
+}
+
 export async function logout() {
   await api("/api/v1/auth/logout", { method: "POST", body: "{}" });
   location.assign("/login.html");

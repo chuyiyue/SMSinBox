@@ -57,12 +57,24 @@ export interface UserRecord {
   id: string;
   username: string;
   password_hash: string;
+  role: string;
+  disabled_at: number | null;
+  created_at: number;
+}
+
+export interface UserAccount {
+  id: string;
+  username: string;
+  role: string;
+  disabled_at: number | null;
   created_at: number;
 }
 
 export interface SessionUser {
   id: string;
   username: string;
+  role: string;
+  disabled_at: number | null;
   expires_at: number;
 }
 

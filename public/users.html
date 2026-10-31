@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>用户 · SMSinBox</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <span class="mark" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 32 32"><path d="M5 10h22v14H5z" fill="none" stroke="#0e6b4f" stroke-width="2"/><path d="M5 12l11 8 11-8" fill="none" stroke="#0e6b4f" stroke-width="2"/></svg>
+        </span>
+        SMSinBox
+      </a>
+      <nav class="nav">
+        <a href="/">收件箱</a>
+        <a href="/devices.html">设备</a>
+        <a id="users-link" class="active" href="/users.html" hidden>用户</a>
+        <button id="logout" type="button">退出</button>
+      </nav>
+    </header>
+    <main class="wrap">
+      <section class="panel">
+        <h1>用户</h1>
+        <p class="lede">没有公开注册。管理员可以添加用户。每个人只能看到自己的设备和短信。停用后，该用户已有的登录会立即失效。不能停用或删除自己，也不能动最后一位管理员。</p>
+        <form id="user-form" class="stack">
+          <label>用户名<input name="username" required maxlength="64" autocomplete="off" placeholder="字母或数字开头" /></label>
+          <label>密码<input name="password" type="password" required minlength="8" maxlength="256" autocomplete="new-password" placeholder="至少 8 位" /></label>
+          <label>角色
+            <select name="role">
+              <option value="member">普通用户</option>
+              <option value="admin">管理员</option>
+            </select>
+          </label>
+          <button type="submit">添加用户</button>
+        </form>
+        <p id="user-error" class="error" hidden></p>
+        <p id="user-status" class="subtle" hidden></p>
+        <div id="users" class="devices"></div>
+      </section>
+    </main>
+    <script type="module" src="/users.js"></script>
+  </body>
+</html>
