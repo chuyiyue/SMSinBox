@@ -2,41 +2,36 @@
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="robots" content="noindex, nofollow" />
-    <title>推送设置 · SMSinBox</title>
+    <title>推送渠道 · SMSinBox</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <script src="/theme-boot.js"></script>
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
     <div class="app-layout">
       <aside class="sidebar" id="sidebar">
         <a class="brand" href="/">
-          <span class="mark" aria-hidden="true">
-            <img src="/mark.svg" width="18" height="18" alt="" />
-          </span>
-          SMSinBox
-        </a>
-        <a class="sidebar-compose" href="/devices.html#device-form">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-          新建设备
+          <span class="mark" aria-hidden="true"><img src="/mark.svg" width="18" height="18" alt="" /></span>
+          <span class="brand-name">SMSinBox</span>
         </a>
         <nav class="sidebar-nav" aria-label="主导航">
           <a href="/">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg>
-            收件箱
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg>
+            <span class="nav-label">收件箱</span>
           </a>
           <a href="/devices.html">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>
-            设备管理
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>
+            <span class="nav-label">设备</span>
           </a>
           <a class="active" href="/notify.html" aria-current="page">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>
-            推送设置
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>
+            <span class="nav-label">推送</span>
           </a>
           <a id="users-link" href="/users.html" hidden>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 19c0-3.3 3.1-5.5 7-5.5s7 2.2 7 5.5"/></svg>
-            用户管理
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 19c1.5-3 4-4.5 7-4.5s5.5 1.5 7 4.5"/></svg>
+            <span class="nav-label">用户</span>
           </a>
         </nav>
         <div class="sidebar-devices">
@@ -44,51 +39,97 @@
           <div id="sidebar-devices"></div>
         </div>
         <div class="sidebar-footer">
-          <div>
-            <div class="sidebar-user" id="who" data-who></div>
-            <div class="sidebar-note">已登录</div>
-          </div>
-          <button id="logout" class="sidebar-logout" type="button" data-logout>退出</button>
+          <div class="sidebar-user" id="who" data-who></div>
+          <button class="ghost account-btn" type="button" data-theme-toggle>
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2"/></svg>
+            <span class="btn-label">主题：跟随系统</span>
+          </button>
+          <button class="ghost account-btn" type="button" data-help>
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1 1-1 1.7V14"/><path d="M12 17h.01"/></svg>
+            <span class="btn-label">快捷键</span>
+          </button>
+          <button class="ghost account-btn" type="button" data-logout>
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6H6v12h3M10 12h9M15 8l4 4-4 4"/></svg>
+            <span class="btn-label">退出登录</span>
+          </button>
         </div>
       </aside>
-      <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
       <div class="main">
         <header class="topbar">
-          <button class="hamburger" id="menu-toggle" type="button" aria-label="打开菜单" aria-expanded="false" aria-controls="sidebar">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
-          </button>
-          <h1 class="topbar-title">推送设置</h1>
-          <form class="topbar-search-form" action="/" method="get" role="search">
-            <input class="topbar-search" type="search" name="q" maxlength="48" placeholder="搜索正文、号码或验证码" />
+          <h1 class="topbar-title">推送渠道</h1>
+          <form class="search-wrap" action="/" method="get" role="search">
+            <input class="topbar-search" type="search" name="q" maxlength="80" placeholder="搜索正文、号码或验证码" aria-label="搜索短信" />
           </form>
+          <button id="search-toggle" class="icon-btn" type="button" aria-label="搜索">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          </button>
           <div class="topbar-actions">
-            <button id="refresh" class="secondary" type="button">刷新</button>
-            <span class="topbar-user" data-who></span>
-            <button class="secondary" type="button" data-logout>退出</button>
+            <span id="channel-count" class="count-pill">0 / 10</span>
+            <button id="add-channel" class="primary" type="button">添加渠道</button>
+            <button id="refresh" class="ghost icon-btn" type="button" aria-label="刷新">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.2-5.5M20 4v6h-6"/></svg>
+            </button>
           </div>
         </header>
         <div class="page">
-          <section class="panel">
-            <p class="lede">短信先写入收件箱，再推送到已启用的渠道。某个渠道失败不会丢掉短信。</p>
-            <form id="notify-form" class="stack">
-              <label>渠道
-                <select name="kind">
-                  <option value="telegram">Telegram</option>
-                  <option value="wecom">企业微信</option>
-                  <option value="bark">Bark</option>
-                  <option value="email">邮件</option>
-                </select>
-              </label>
-              <div id="notify-fields" class="stack"></div>
-              <button type="submit">添加渠道</button>
-            </form>
-            <p id="notify-error" class="error" hidden></p>
-            <p id="notify-status" class="subtle" hidden></p>
-            <div id="notify-list" class="devices"></div>
-          </section>
+          <div class="page-intro">
+            <p class="lede">短信入库后推送给你。推送失败不会影响收件箱。</p>
+            <p class="subtle">创建后不能修改配置。要更换密钥，删除这条渠道再添加。</p>
+          </div>
+          <p id="notify-error" class="callout danger" hidden></p>
+          <p id="notify-status" class="callout ok" hidden></p>
+          <div id="notify-list" class="devices"></div>
+          <p class="privacy">渠道配置保存在你自己的 D1 数据库中；日志不会记录正文、token 或密码。</p>
         </div>
       </div>
     </div>
+    <nav class="tabbar" aria-label="页面">
+      <a href="/">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg>
+        收件箱
+      </a>
+      <a href="/devices.html">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>
+        设备
+      </a>
+      <a href="/notify.html" aria-current="page">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>
+        推送
+      </a>
+      <button id="more-toggle" type="button">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="18" cy="12" r="1"/></svg>
+        更多
+      </button>
+    </nav>
+    <div id="more-sheet" class="sheet" hidden>
+      <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="more-title">
+        <h2 id="more-title">更多</h2>
+        <a id="users-tab" href="/users.html" hidden>用户</a>
+        <button class="ghost" type="button" data-theme-toggle><span class="btn-label">主题：跟随系统</span></button>
+        <button class="ghost" type="button" data-help>快捷键</button>
+        <button class="ghost" type="button" data-logout>退出登录</button>
+        <button id="more-close" class="secondary" type="button">关闭</button>
+      </div>
+    </div>
+    <dialog id="notify-dialog" class="modal">
+      <div class="modal-card">
+        <h2 id="notify-dialog-title">添加渠道</h2>
+        <div id="kind-step">
+          <div id="notify-kinds" class="kind-grid"></div>
+          <div class="modal-actions">
+            <button id="notify-close" class="secondary" type="button">取消</button>
+          </div>
+        </div>
+        <form id="notify-form" class="stack" hidden>
+          <div id="notify-fields"></div>
+          <p id="notify-form-error" class="field-error" hidden></p>
+          <div class="modal-actions">
+            <button id="notify-back" class="secondary" type="button">返回</button>
+            <button type="submit">添加</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
     <script type="module" src="/notify.js"></script>
   </body>
 </html>
