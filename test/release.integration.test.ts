@@ -1420,8 +1420,9 @@ describe("two-factor login", () => {
       .bind(ADMIN_USERNAME)
       .first<{ id: string }>();
     const userId = String(user?.id);
-    await runSql(env.DB, "DELETE FROM rate_limits WHERE token_hash = ?", [`totp:${userId}`]);
-    for (let index = 0; index < 5; index += 1) {
+    const accountKey = await loginRateKey("account", userId);
+    await runSql(env.DB, "DELETE FROM rate_limits WHERE token_hash = ?", [accountKey]);
+    for (let index = 0; index < LOGIN_FAILURE_LIMIT; index += 1) {
       const wrong = await call(
         "/api/v1/auth/totp/disable",
         jsonInit({ password: `wrong-${index}`, code: "000000" }),
@@ -1435,7 +1436,8 @@ describe("two-factor login", () => {
       jsonInit({ password: ADMIN_PASSWORD, code: await codeFor(state.secret) }),
       state.cookie,
     );
-    expect((await expectStatus(blocked, 429)).error).toContain("频繁");
+    expect((await expectStatus(blocked, 429)).error).toBe("尝试过多，请稍后再试");
+    expect(Number(blocked.headers.get("retry-after"))).toBeGreaterThan(0);
     expect((await expectStatus(await call("/api/v1/auth/totp", {}, state.cookie), 200)).enabled).toBe(true);
     const counter = await env.DB.prepare("SELECT totp_last_counter FROM users WHERE id = ?")
       .bind(userId)

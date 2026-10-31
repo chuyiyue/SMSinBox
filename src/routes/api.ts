@@ -11,6 +11,8 @@ import {
 } from "../auth";
 import { resolveContentKey, revealCode, sealMessage } from "../crypto";
 import {
+  accountPasswordLimited,
+  clearAccountPasswordFailures,
   clearLoginFailures,
   countDevices,
   countNotifyChannels,
@@ -49,6 +51,7 @@ import {
   MAX_DEVICES,
   mergeIntoAdmin,
   pushState,
+  recordAccountPasswordFailure,
   recordLoginFailure,
   replaceDevicePushToken,
   revokeDevicePush,
@@ -808,15 +811,14 @@ async function checkCurrentPassword(env: Env, userId: string, password: string):
   { status: "ok"; user: UserRecord } | { status: Exclude<PasswordCheck, "ok"> }
 > {
   const now = Date.now();
-  const key = await loginRateKey("account", userId);
-  if ((await loginAttemptCount(env.DB, key, now)) >= LOGIN_FAILURE_LIMIT) return { status: "limited" };
+  if (await accountPasswordLimited(env.DB, userId, now)) return { status: "limited" };
   const record = await findUserRecordById(env.DB, userId);
   if (!record) return { status: "missing" };
   if (!(await verifyPassword(password, record.password_hash))) {
-    await recordLoginFailure(env.DB, key, now);
+    await recordAccountPasswordFailure(env.DB, userId, now);
     return { status: "bad" };
   }
-  await clearLoginFailures(env.DB, key, now);
+  await clearAccountPasswordFailures(env.DB, userId, now);
   return { status: "ok", user: record };
 }
 

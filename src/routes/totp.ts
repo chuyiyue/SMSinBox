@@ -1,7 +1,10 @@
 import { bytesToBase64Url, sha256Hex, verifyPassword } from "../auth";
 import { resolveContentKey } from "../crypto";
 import {
+  accountPasswordLimited,
   advanceTotpCounter,
+  clearAccountPasswordFailures,
+  clearRateLimitWindow,
   clearTotp,
   consumeRateLimit,
   consumeRateLimitWindow,
@@ -14,7 +17,10 @@ import {
   enableTotp,
   findTotpTicket,
   findTotpUser,
+  loginRetryAfterSeconds,
+  rateLimitRetryAfterSeconds,
   readRateLimitWindow,
+  recordAccountPasswordFailure,
   recordTotpAttempt,
   replaceRecoveryCodes,
   setTotpPending,
@@ -168,14 +174,23 @@ export async function disableTotp(request: Request, env: Env): Promise<Response>
   if (record.totp_enabled_at === null || record.totp_secret === null) {
     return json({ ok: false, error: "两步验证未启用" }, 409);
   }
-  if (await totpChangeLimited(env, user.id)) {
-    return json({ ok: false, error: "尝试过于频繁，请稍后再试" }, 429);
-  }
+  const now = Date.now();
+  // The password step shares the current-password window with rename and
+  // password change, so a stolen session cannot shop for a weaker endpoint.
+  if (await accountPasswordLimited(env.DB, user.id, now)) return passwordLimited(now);
   if (!(await verifyPassword(password, record.password_hash))) {
+    await recordAccountPasswordFailure(env.DB, user.id, now);
     return json({ ok: false, error: "密码不正确" }, 401);
   }
-  const verdict = await verifySecondFactor(env, record, code, Date.now());
-  if (!verdict.ok) return json({ ok: false, error: verdict.error }, 401);
+  await clearAccountPasswordFailures(env.DB, user.id, now);
+  if (await secondFactorLocked(env, user.id, now)) return secondFactorLimited(now, "验证码尝试过多，请稍后再试");
+  const verdict = await verifySecondFactor(env, record, code, now);
+  if (!verdict.ok) {
+    const failures = await recordSecondFactorFailure(env, user.id, now);
+    if (failures >= TOTP_FAILURE_LIMIT) return secondFactorLimited(now, "验证码尝试过多，请稍后再试");
+    return json({ ok: false, error: verdict.error }, 401);
+  }
+  await clearSecondFactorFailures(env, user.id, now);
 
   await clearTotp(env.DB, user.id);
   const token = readCookie(request.headers.get("cookie"), SESSION_COOKIE);
@@ -201,16 +216,22 @@ export async function regenerateRecoveryCodes(request: Request, env: Env): Promi
   if (record.totp_enabled_at === null || record.totp_secret === null) {
     return json({ ok: false, error: "两步验证未启用" }, 409);
   }
-  if (await totpChangeLimited(env, user.id)) {
-    return json({ ok: false, error: "尝试过于频繁，请稍后再试" }, 429);
-  }
+  const now = Date.now();
+  if (await accountPasswordLimited(env.DB, user.id, now)) return passwordLimited(now);
   if (!(await verifyPassword(password, record.password_hash))) {
+    await recordAccountPasswordFailure(env.DB, user.id, now);
     return json({ ok: false, error: "密码不正确" }, 401);
   }
-  const verdict = await verifySecondFactor(env, record, code, Date.now());
-  if (!verdict.ok) return json({ ok: false, error: verdict.error }, 401);
+  await clearAccountPasswordFailures(env.DB, user.id, now);
+  if (await secondFactorLocked(env, user.id, now)) return secondFactorLimited(now, "验证码尝试过多，请稍后再试");
+  const verdict = await verifySecondFactor(env, record, code, now);
+  if (!verdict.ok) {
+    const failures = await recordSecondFactorFailure(env, user.id, now);
+    if (failures >= TOTP_FAILURE_LIMIT) return secondFactorLimited(now, "验证码尝试过多，请稍后再试");
+    return json({ ok: false, error: verdict.error }, 401);
+  }
+  await clearSecondFactorFailures(env, user.id, now);
 
-  const now = Date.now();
   const codes = generateRecoveryCodes();
   await replaceRecoveryCodes(env.DB, user.id, await Promise.all(codes.map((code) => hashRecoveryCode(code))), now);
   logInfo({ message: "totp_recovery_regenerated", user_id: user.id, recovery_codes: codes.length });
@@ -224,10 +245,10 @@ export async function startTotpChallenge(env: Env, user: { id: string; username:
   const now = Date.now();
   // A new ticket must not reset the account failure budget. Refuse before
   // issuing one, so the password step cannot buy another guess.
-  if (await totpLoginLocked(env, user.id, now)) {
+  if (await secondFactorLocked(env, user.id, now)) {
     await deleteUserTotpTickets(env.DB, user.id);
     logInfo({ message: "login_totp_throttled", user_id: user.id });
-    return json({ ok: false, error: "验证码尝试过多，请稍后再试" }, 429);
+    return secondFactorLimited(now, "验证码尝试过多，请稍后再试");
   }
   const ticket = `tot_${bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)))}`;
   // One live challenge per account; an older tab must restart at the password step.
@@ -277,15 +298,15 @@ export async function verifyTotpLogin(request: Request, env: Env): Promise<Respo
 
   // Check the account window before the code. A ticket saved from an earlier
   // login must not be tested once the budget is already spent.
-  if (await totpLoginLocked(env, record.user_id, now)) {
+  if (await secondFactorLocked(env, record.user_id, now)) {
     await deleteTotpTicket(env.DB, ticketHash);
-    return json({ ok: false, error: "验证码尝试过多，请重新登录" }, 429);
+    return secondFactorLimited(now, "验证码尝试过多，请重新登录");
   }
 
   const attempts = await consumeRateLimit(env.DB, `totp:${ticketHash}`, now);
   if (attempts > TOTP_TICKET_MAX_ATTEMPTS) {
     await deleteTotpTicket(env.DB, ticketHash);
-    return json({ ok: false, error: "验证码尝试过多，请重新登录" }, 429);
+    return ticketLimited(now);
   }
 
   const verdict = await verifySecondFactor(
@@ -296,15 +317,10 @@ export async function verifyTotpLogin(request: Request, env: Env): Promise<Respo
   );
   if (!verdict.ok) {
     const used = await recordTotpAttempt(env.DB, ticketHash);
-    const failures = await consumeRateLimitWindow(
-      env.DB,
-      `totp-login:${record.user_id}`,
-      now,
-      TOTP_FAILURE_WINDOW_MS,
-    );
-    if (used >= TOTP_TICKET_MAX_ATTEMPTS || failures > TOTP_FAILURE_LIMIT) {
+    const failures = await recordSecondFactorFailure(env, record.user_id, now);
+    if (used >= TOTP_TICKET_MAX_ATTEMPTS || failures >= TOTP_FAILURE_LIMIT) {
       await deleteTotpTicket(env.DB, ticketHash);
-      return json({ ok: false, error: "验证码尝试过多，请重新登录" }, 429);
+      return ticketLimited(now);
     }
     return json(
       { ok: false, error: verdict.error, attempts_remaining: TOTP_TICKET_MAX_ATTEMPTS - used },
@@ -312,6 +328,7 @@ export async function verifyTotpLogin(request: Request, env: Env): Promise<Respo
     );
   }
 
+  await clearSecondFactorFailures(env, record.user_id, now);
   await deleteTotpTicket(env.DB, ticketHash);
   logInfo({ message: "login_totp_verified", user_id: record.user_id, method: verdict.method });
   return issueSession(request, env, {
@@ -392,12 +409,38 @@ function readTicket(value: unknown): string | null {
 
 async function totpLoginLocked(env: Env, userId: string, now: number): Promise<boolean> {
   const failures = await readRateLimitWindow(env.DB, `totp-login:${userId}`, now, TOTP_FAILURE_WINDOW_MS);
-  return failures > TOTP_FAILURE_LIMIT;
+  return failures >= TOTP_FAILURE_LIMIT;
 }
 
-// Counts every disable/recovery attempt, including a wrong password, so a
-// stolen session cannot brute-force the password that turns two-factor off.
-async function totpChangeLimited(env: Env, userId: string): Promise<boolean> {
-  const attempts = await consumeRateLimit(env.DB, `totp:${userId}`, Date.now());
-  return attempts > TOTP_RATE_LIMIT_PER_MINUTE;
+// A wrong code counts into the same account window no matter which endpoint
+// (login verify, disable, recovery) asked for it, so switching endpoints does
+// not hand out fresh guesses.
+async function secondFactorLocked(env: Env, userId: string, now: number): Promise<boolean> {
+  return totpLoginLocked(env, userId, now);
+}
+
+async function recordSecondFactorFailure(env: Env, userId: string, now: number): Promise<number> {
+  return consumeRateLimitWindow(env.DB, `totp-login:${userId}`, now, TOTP_FAILURE_WINDOW_MS);
+}
+
+async function clearSecondFactorFailures(env: Env, userId: string, now: number): Promise<void> {
+  await clearRateLimitWindow(env.DB, `totp-login:${userId}`, now, TOTP_FAILURE_WINDOW_MS);
+}
+
+function passwordLimited(now: number): Response {
+  return json({ ok: false, error: "尝试过多，请稍后再试" }, 429, {
+    "retry-after": String(loginRetryAfterSeconds(now)),
+  });
+}
+
+function secondFactorLimited(now: number, error: string): Response {
+  return json({ ok: false, error }, 429, {
+    "retry-after": String(rateLimitRetryAfterSeconds(now, TOTP_FAILURE_WINDOW_MS)),
+  });
+}
+
+function ticketLimited(now: number): Response {
+  return json({ ok: false, error: "验证码尝试过多，请重新登录" }, 429, {
+    "retry-after": String(rateLimitRetryAfterSeconds(now, 60_000)),
+  });
 }

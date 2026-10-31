@@ -436,7 +436,7 @@ export async function consumeRateLimitWindow(
   now: number,
   windowMs: number,
 ): Promise<number> {
-  const windowStart = Math.floor(now / windowMs) * windowMs;
+  const windowStart = rateLimitWindowStart(now, windowMs);
   const row = await db
     .prepare(
       `INSERT INTO rate_limits (token_hash, window_start, count)
@@ -456,13 +456,21 @@ export const LOGIN_FAILURE_LIMIT = 8;
 export const LOGIN_IP_FAILURE_LIMIT = 30;
 export const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 
+export function rateLimitWindowStart(now: number, windowMs: number): number {
+  return Math.floor(now / windowMs) * windowMs;
+}
+
+export function rateLimitRetryAfterSeconds(now: number, windowMs: number): number {
+  const end = rateLimitWindowStart(now, windowMs) + windowMs;
+  return Math.max(1, Math.ceil((end - now) / 1000));
+}
+
 export function loginWindowStart(now: number): number {
-  return Math.floor(now / LOGIN_WINDOW_MS) * LOGIN_WINDOW_MS;
+  return rateLimitWindowStart(now, LOGIN_WINDOW_MS);
 }
 
 export function loginRetryAfterSeconds(now: number): number {
-  const end = loginWindowStart(now) + LOGIN_WINDOW_MS;
-  return Math.max(1, Math.ceil((end - now) / 1000));
+  return rateLimitRetryAfterSeconds(now, LOGIN_WINDOW_MS);
 }
 
 export async function loginRateKey(kind: "user" | "ip" | "account", value: string): Promise<string> {
@@ -490,11 +498,36 @@ export async function recordLoginFailure(db: D1Database, key: string, now: numbe
   return row?.count ?? 1;
 }
 
-export async function clearLoginFailures(db: D1Database, key: string, now: number): Promise<void> {
+export async function clearRateLimitWindow(
+  db: D1Database,
+  key: string,
+  now: number,
+  windowMs: number,
+): Promise<void> {
   await db
     .prepare("DELETE FROM rate_limits WHERE token_hash = ? AND window_start = ?")
-    .bind(key, loginWindowStart(now))
+    .bind(key, rateLimitWindowStart(now, windowMs))
     .run();
+}
+
+export async function clearLoginFailures(db: D1Database, key: string, now: number): Promise<void> {
+  await clearRateLimitWindow(db, key, now, LOGIN_WINDOW_MS);
+}
+
+// Every endpoint that re-checks the current password (rename, password change,
+// turning two-factor off, new recovery codes) shares one `login:account:`
+// budget. The key is separate from `login:user:`/`login:ip:`, so a stolen
+// session cannot lock the owner out of the login form.
+export async function accountPasswordLimited(db: D1Database, userId: string, now: number): Promise<boolean> {
+  return (await loginAttemptCount(db, await loginRateKey("account", userId), now)) >= LOGIN_FAILURE_LIMIT;
+}
+
+export async function recordAccountPasswordFailure(db: D1Database, userId: string, now: number): Promise<number> {
+  return recordLoginFailure(db, await loginRateKey("account", userId), now);
+}
+
+export async function clearAccountPasswordFailures(db: D1Database, userId: string, now: number): Promise<void> {
+  await clearLoginFailures(db, await loginRateKey("account", userId), now);
 }
 
 // Reads the counter without incrementing it, so a caller can refuse the
@@ -505,7 +538,7 @@ export async function readRateLimitWindow(
   now: number,
   windowMs: number,
 ): Promise<number> {
-  const windowStart = Math.floor(now / windowMs) * windowMs;
+  const windowStart = rateLimitWindowStart(now, windowMs);
   const row = await db
     .prepare(
       `SELECT "count" AS total FROM rate_limits WHERE token_hash = ? AND window_start = ?`,
