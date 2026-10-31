@@ -43,7 +43,7 @@ npx wrangler deploy
 openssl rand -base64 32 | npx wrangler secret put CONTENT_KEY
 ```
 
-更换或清空这个密钥之后，之前加密的短信无法再解密，收件箱会显示无法解密。部署含 `0003_message_encryption.sql` 或 `0004_users.sql` 的版本后，同样需要再执行一次数据库迁移。
+更换或清空这个密钥之后，之前加密的短信无法再解密，收件箱会显示无法解密。部署含 `0003_message_encryption.sql`、`0004_users.sql` 或 `0005_device_push.sql` 的版本后，同样需要再执行一次数据库迁移。读取推送链接列的 Worker 必须在 `0005` 应用之后部署。顺序、冒烟和回滚见 [docs/RELEASE_IOS_V2.md](docs/RELEASE_IOS_V2.md)。
 
 之后如果改了 `ADMIN_PASSWORD`，用新密码再登录一次即可。程序会在用户名与密钥一致时更新保存的口令哈希，并把这个账号设为管理员、取消停用。只改密钥、还没用新密码登录之前，旧密码仍然有效。升级到多用户之后，已有账号的角色默认是普通用户，需要用这对密钥再登录一次才会变成管理员。
 
@@ -165,4 +165,4 @@ npm test
 npx tsc --noEmit
 ```
 
-测试覆盖验证码提取、上报内容解析、去重哈希、登录口令 / token / HMAC，以及推送、加密、快捷指令和用户管理。改了 `wrangler.jsonc` 的绑定后，运行 `npm run cf-typegen` 重新生成 `worker-configuration.d.ts`。
+测试覆盖验证码提取、上报内容解析、去重哈希、登录口令 / token / HMAC，以及推送、加密、快捷指令和用户管理。`test/release.integration.test.ts` 再用本地 D1 跑迁移和整条上报链路，不连接生产。改了 `wrangler.jsonc` 的绑定后，运行 `npm run cf-typegen` 重新生成 `worker-configuration.d.ts`。
