@@ -14,12 +14,15 @@
 - `0004_users.sql`
 - `0005_device_push.sql`
 - `0006_single_user.sql`
+- `0007_totp.sql`
 
 `0005_device_push.sql` 只追加 `push_token_hash`、`push_revoked_at` 和唯一索引。它不改已有 `token_hash`，不改短信，不删行。SQLite 的唯一索引允许多个 NULL，还没签发推送链接的旧设备可以共存。
 
 `0006_single_user.sql` 只新增 `schema_meta`。它不改推送列，不删短信，也不在 SQL 里挑选管理员。单用户归并在配置的管理员下一次登录时由程序完成：先把其他用户的设备和通知渠道改挂过来，再删除他们的会话和用户行。设备 token、推送链接和历史短信保留。
 
-新 Worker 会读取这两列。数据库还没跑过 `0005` 时不要部署这份 Worker。旧 Worker 不读这两列，所以先迁移再部署是安全的。
+`0007_totp.sql` 只给 `users` 追加 TOTP 列（`totp_secret`、`totp_pending_secret`、`totp_pending_created_at`、`totp_enabled_at`、`totp_last_counter`），并新建 `totp_recovery_codes`、`totp_tickets`。它不改已有行、不删短信；未启用两步验证的账号照旧用密码登录。启用后，登录第二步、恢复码和关闭流程走 `/api/v1/auth/totp/*`，详见 README。
+
+新 Worker 会读取推送列和 TOTP 列。数据库还没跑过 `0005` / `0007` 时不要部署这份 Worker。旧 Worker 不读这些列，所以先迁移再部署是安全的。
 
 ## 已在本地完成
 
@@ -37,10 +40,10 @@
 
 1. 确认 `wrangler.jsonc` 里的 `database_id` 是这个账号的 D1。空着时按 README 创建并填上，不要写一个假的 UUID。
 2. 备份远程库：`npx wrangler d1 export smsinbox --remote --output smsinbox-backup.sql`。备份文件留在本机，不要提交。
-3. 先迁移再部署：`npx wrangler d1 migrations apply smsinbox --remote`。看到 `0005_device_push.sql` 已应用后再继续。本地用 `--local`。
+3. 先迁移再部署：`npx wrangler d1 migrations apply smsinbox --remote`。看到 `0005_device_push.sql`、`0006_single_user.sql` 和 `0007_totp.sql` 都已应用后再继续。本地用 `--local`。
 4. 确认 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 已经用 `wrangler secret put` 设置。已经设置过的 `CONTENT_KEY` 不要更换或清空，否则旧的加密短信无法解密。
 5. `npx wrangler deploy`。
-6. 用管理员登录。新建设备，确认页面同时给出一次性 Bearer 和一次性推送链接。刷新后两样都不再出现。
+6. 用管理员登录。新建设备，确认页面同时给出一次性 Bearer 和一次性推送链接。刷新后两样都不再出现。需要两步验证时，在「用户」页下方的「两步验证」卡片里绑定验证器并保存恢复码；之后登录会多一步验证码。
 7. 用推送链接 POST 一条短信，收件箱能看到。再用原来的 Bearer POST `/api/v1/sms`，仍然成功。
 8. 轮换后，旧推送链接返回 401，该设备已有短信还在。撤销后返回「推送链接已撤销」。丢掉链接就轮换，没有再显示明文的入口。
 9. 设备页 Android 说明里的 URL 仍是 `/api/v1/sms`。下载的 `SMSinBox-iOS.shortcut` 不含这台设备的密钥。

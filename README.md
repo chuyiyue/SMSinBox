@@ -43,11 +43,35 @@ npx wrangler deploy
 openssl rand -base64 32 | npx wrangler secret put CONTENT_KEY
 ```
 
-更换或清空这个密钥之后，之前加密的短信无法再解密，收件箱会显示无法解密。部署含 `0003_message_encryption.sql`、`0004_users.sql`、`0005_device_push.sql` 或 `0006_single_user.sql` 的版本后，同样需要再执行一次数据库迁移。读取推送链接列的 Worker 必须在 `0005` 应用之后部署。顺序、冒烟和回滚见 [docs/RELEASE_IOS_V2.md](docs/RELEASE_IOS_V2.md)。
+更换或清空这个密钥之后，之前加密的短信无法再解密，收件箱会显示无法解密。设置过 `CONTENT_KEY` 之后，两步验证的 TOTP 密钥也会用它加密；清空或更换后，验证器里的码将无法校验，但仍可用恢复码登录。部署含 `0003_message_encryption.sql`、`0004_users.sql`、`0005_device_push.sql`、`0006_single_user.sql` 或 `0007_totp.sql` 的版本后，同样需要再执行一次数据库迁移。读取推送链接或 TOTP 列的 Worker 必须在对应迁移应用之后部署。顺序、冒烟和回滚见 [docs/RELEASE_IOS_V2.md](docs/RELEASE_IOS_V2.md)。
 
 之后如果改了 `ADMIN_PASSWORD`，用新密码再登录一次即可。程序会在用户名与密钥一致时更新保存的口令哈希，并把这个账号设为管理员、取消停用。只改密钥、还没用新密码登录之前，旧密码仍然有效。改 `ADMIN_USERNAME` 不会再创建第二个管理员。密钥里的用户名必须就是要留下的那个账号；对不上时登录会停下，不会按创建时间挑一个管理员。登录之后也可以用下面的账号接口改用户名和密码。
 
 库里如果还有其他用户，用这对密钥成功登录一次即可归并。顺序是：先把他们的设备和通知渠道改挂到这个管理员，再删掉他们的会话和用户行。短信、设备 token、推送链接和 `CONTENT_KEY` 都保留。归并不走删除用户的级联，避免把短信一起删掉。旧的成员 Cookie 不会改挂到管理员身上。请先执行含 `0006_single_user.sql` 的迁移再登录。`0006` 只增加 `schema_meta`，用来记下已经归并过；它自己不猜管理员，也不删数据。合并之后如果设备超过 50 台，或通知渠道超过 10 个，已有记录都留着，只是暂时不能再新建，直到删到上限以内。
+
+### 两步验证（TOTP）
+
+登录支持可选的 TOTP 两步验证。启用后，密码通过只算第一步：服务端发一张 5 分钟内有效的临时 ticket，再用验证器上的 6 位码或一次性恢复码换会话 Cookie。接口如下（除 `verify` 外都需要已登录，写操作沿用 `SameSite=Lax` Cookie 和跨站拒绝）：
+
+| 方法 | 路径 | 用途 |
+|------|------|------|
+| `GET` | `/api/v1/auth/totp` | 是否启用、绑定是否待确认、剩余恢复码数量 |
+| `POST` | `/api/v1/auth/totp/setup` | 生成待确认密钥，返回手工密钥和 `otpauth://` URI |
+| `POST` | `/api/v1/auth/totp/enable` | 校验待确认密钥的 6 位码后启用，返回 10 个一次性恢复码 |
+| `POST` | `/api/v1/auth/totp/disable` | 当前密码 + TOTP/恢复码，关闭并清空恢复码，撤销其它会话 |
+| `POST` | `/api/v1/auth/totp/recovery` | 当前密码 + TOTP/恢复码，重新生成恢复码（旧列表立即作废） |
+| `POST` | `/api/v1/auth/totp/verify` | 用 ticket 换会话 Cookie |
+
+安全约定：
+
+- 密钥用 Web Crypto 生成 20 字节随机数，HMAC-SHA1、6 位、30 秒，允许前后各一个时间步的时钟偏差。
+- 设置了 `CONTENT_KEY` 时，秘钥以 AES-GCM（`enc1:`）存入 `users.totp_secret`；未设置时按 `plain:` 前缀保存，和 `devices.secret` 的处理一致。密钥和恢复码都不写日志。
+- 恢复码只存 SHA-256 哈希，用一次即作废。重新生成会替换整份列表。
+- 登录第二步的 ticket 单次有效，5 分钟过期；连续 5 次错误即作废。另有 `rate_limits` 计数：每个账号 5 分钟内最多 10 次第二步失败，避免靠不断换 ticket 绕过次数上限。密码失败不走这个窗口，走下面「管理员账号」的 15 分钟限流；密码正确会清掉那个窗口，再发 ticket。TOTP 时间步会记录在 `users.totp_last_counter`，已用过的码不能重放。
+- 关闭或重新生成恢复码需要当前密码再加一个有效 TOTP/恢复码。关闭后只保留当前会话。
+- 忘记验证器时用恢复码完成第二步，或登录后重新生成恢复码。全部用尽且无法登录时，可在 D1 里清空该账号的 `totp_secret`、`totp_enabled_at`、`totp_last_counter` 并删除 `totp_recovery_codes` 后重新绑定；不要删除用户行或设备。
+
+迁移 `0007_totp.sql` 只新增列和两张表（`totp_recovery_codes`、`totp_tickets`），不改已有行，未启用的账号照旧用密码登录。
 
 自定义域名可以在 Cloudflare 控制台里给这个 Worker 加路由，接口和页面都在同一个域名下。
 
@@ -192,7 +216,7 @@ Cookie: smsinbox_session=...
 - `/`：收件箱。左侧固定深色侧边栏，右侧浅色内容区。新短信在前，可按设备、号码和关键词筛选；侧边栏设备列表和顶部搜索也会筛选。页面通过 `GET /api/v1/events` 的 SSE 接收新短信：服务端按 `created_at` 和短信 id 记住游标，大约每 2 秒查一次 D1，连接大约保持 25 秒后主动结束，浏览器会带上 `Last-Event-ID` 自动重连。标签页切到后台时断开。另外每 30 秒补拉一次第一页，避免重连间隙漏消息。列表是行式的，验证码 chip 可一键复制，点击行在桌面展开详情、在窄屏打开抽屉。
 - `/devices.html`：设备卡片显示名称、平台（来自最近一条短信的 `device` 字段）、推送状态、设备 ID、最近一次短信接收时间，以及快捷指令配置状态。创建或轮换后，黄框里的 Bearer token 和推送链接可以一键复制；刷新后不再显示。数据库只存哈希，没有再显示明文的入口，丢掉推送链接就轮换。生成、轮换和撤销都会先确认。页面保留 iOS 安装说明，并给出 iCloud 分享链接与未签名备用下载。每个设备可以「发送测试消息」，把一条带验证码 `654321` 的短信写入收件箱。删除设备会同时删除该设备的短信。
 - `/notify.html`：给当前用户添加 Telegram、企业微信群机器人、Bark 和邮件推送渠道。
-- `/users.html`：用户列表、创建、改角色、停用和删除的接口已关闭，调用会返回 410。页面文件还在，系统管理四区不在这一步。改用户名、改密码和撤销会话用「管理员账号」里的接口。
+- `/users.html`：用户列表、创建、改角色、停用和删除的接口已关闭，调用会返回 410。页面文件还在。改用户名、改密码和撤销会话用「管理员账号」里的接口。页面下方的「两步验证」卡片可以启用、关闭 TOTP，查看剩余恢复码并重新生成。完整四区系统管理页留给后续批次。
 
 关键词搜索用 SQL `LIKE`。D1 的 LIKE 模式最长 50 字节，超出会返回错误。
 
@@ -220,4 +244,4 @@ npm test
 npx tsc --noEmit
 ```
 
-测试覆盖验证码提取、上报内容解析、去重哈希、登录口令 / token / HMAC、登录限流、改用户名改密码、会话撤销，以及推送、加密、快捷指令和单用户归并。`test/release.integration.test.ts` 再用本地 D1 跑迁移和整条上报链路，不连接生产。改了 `wrangler.jsonc` 的绑定后，运行 `npm run cf-typegen` 重新生成 `worker-configuration.d.ts`。
+测试覆盖验证码提取、上报内容解析、去重哈希、登录口令 / token / HMAC、登录限流、改用户名改密码、会话撤销、TOTP（RFC 6238 向量、绑定、登录第二步、重放、恢复码、关闭、第二步限流），以及推送、加密、快捷指令和单用户归并。`test/release.integration.test.ts` 再用本地 D1 跑迁移和整条上报链路，不连接生产。改了 `wrangler.jsonc` 的绑定后，运行 `npm run cf-typegen` 重新生成 `worker-configuration.d.ts`。

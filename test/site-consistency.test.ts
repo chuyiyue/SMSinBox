@@ -73,6 +73,26 @@ describe("site consistency", () => {
     expect(readFileSync("public/devices.js", "utf8")).toContain("refreshDevices");
   });
 
+  it("wires the login second step and the two-factor panel", () => {
+    const login = readFileSync("public/login.html", "utf8");
+    const loginJs = readFileSync("public/login.js", "utf8");
+    expect(login).toContain('id="totp-form"');
+    expect(login).toContain('autocomplete="one-time-code"');
+    expect(loginJs).toContain("/api/v1/auth/totp/verify");
+    expect(loginJs).toContain("totp_required");
+
+    const users = readFileSync("public/users.html", "utf8");
+    expect(users).toContain('id="totp-panel"');
+    expect(readFileSync("public/users.js", "utf8")).toContain("initTotpSettings");
+
+    const settings = readFileSync("public/totp-settings.js", "utf8");
+    expect(settings).toContain("/api/v1/auth/totp/setup");
+    expect(settings).toContain("/api/v1/auth/totp/disable");
+    expect(settings).toContain("/api/v1/auth/totp/recovery");
+    expect(settings).toContain("recovery_codes");
+    expect(settings).not.toContain("console.log");
+  });
+
   it("shortens log errors the same way everywhere", () => {
     expect(errorText(new Error("x".repeat(200)))).toHaveLength(180);
     expect(errorText(new Error("短"))).toBe("短");

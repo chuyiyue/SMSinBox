@@ -34,6 +34,15 @@
         </label>
         <button id="login-submit" type="submit">登录</button>
       </form>
+      <form id="totp-form" hidden>
+        <p id="totp-error" class="callout danger" hidden></p>
+        <p class="subtle">输入身份验证器上的 6 位验证码，或使用一次性恢复码。</p>
+        <label>验证码
+          <input id="totp-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="24" required />
+        </label>
+        <button id="totp-submit" type="submit">验证并登录</button>
+        <button id="totp-cancel" class="ghost" type="button">返回密码登录</button>
+      </form>
       <p class="auth-note">没有账号？请联系管理员添加。</p>
     </main>
     <script type="module" src="/login.js"></script>

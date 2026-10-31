@@ -156,6 +156,8 @@ function makeDb(options?: { users?: UserRow[]; sessions?: SessionRow[]; rates?: 
               sessions.splice(index, 1);
               changes = 1;
             }
+          } else if (sql.startsWith("DELETE FROM totp_tickets WHERE user_id = ?")) {
+            changes = 0;
           } else if (sql.startsWith("DELETE FROM sessions WHERE user_id = ?")) {
             const before = sessions.length;
             const kept = sessions.filter((item) => item.user_id !== args[0]);

@@ -49,6 +49,12 @@ export async function revealRaw(key: ContentKey, stored: string, encrypted: bool
   return (await decryptString(key.raw, stored)) ?? "";
 }
 
+// Callers outside message storage (TOTP secrets) reuse the same AES-GCM envelope.
+export async function sealString(key: ContentKey, plaintext: string): Promise<string | null> {
+  if (key.state !== "on") return null;
+  return encryptString(await importKey(key.raw), plaintext);
+}
+
 export async function decryptString(rawKey: Uint8Array, stored: string): Promise<string | null> {
   if (!stored.startsWith(ENCRYPTED_PREFIX)) return null;
   const body = stored.slice(ENCRYPTED_PREFIX.length);
