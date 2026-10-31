@@ -64,26 +64,34 @@ function envFor(db: D1Database, contentKey = ""): Env {
 }
 
 describe("shortcut plist", () => {
-  it("builds a near-all template with import questions and a POST", () => {
+  it("builds one unsigned template that posts to the push link", () => {
     const plist = buildShortcut("all");
-    expect(plist).toBe(buildShortcut("all"));
+    expect(plist).toBe(buildShortcut("all", "https://sms.example/api/v1/sms"));
     expect(plist.startsWith("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")).toBe(true);
     expect(plist).toContain("WFWorkflowImportQuestions");
+    expect(plist).toContain("<string>推送链接</string>");
     expect(plist).toContain("is.workflow.actions.downloadurl");
     expect(plist).toContain("<string>POST</string>");
-    expect(plist).toContain("<string>Authorization</string>");
-    expect(plist).toContain("Bearer \uFFFC");
+    expect(plist).toContain("<string>application/json</string>");
+    expect(plist).not.toContain("<string>Authorization</string>");
+    expect(plist).not.toContain("Bearer \uFFFC");
+    expect(plist).not.toContain("Webhook URL");
+    expect(plist).not.toContain("设备 Token");
+    expect(plist).not.toMatch(/<key>ActionIndex<\/key>\s*<integer>2<\/integer>/);
     for (const field of ["from", "content", "timestamp", "device"]) {
       expect(plist).toContain(`<string>${field}</string>`);
     }
     expect(plist).toContain("ExtensionInput");
     expect(plist).toContain("Sender");
     expect(plist).toContain("CurrentDate");
-    expect(plist).toContain(PLACEHOLDER_WEBHOOK);
+    expect(plist).not.toContain(PLACEHOLDER_WEBHOOK);
+    expect(plist).not.toContain("/api/v1/sms");
+    expect(plist).not.toContain("/api/v1/ingest/");
     expect(plist).not.toContain("is.workflow.actions.conditional");
     expect(plist).not.toContain("is.workflow.actions.exit");
     expect(plist).toContain("信息包含一个空格");
     expect(plist).toContain("尚未发布");
+    expect(plist).toContain("默认关闭");
     expect(plist).not.toContain("icloud.com/shortcuts");
     expect(shortcutFilename("all")).toBe("SMSinBox-iOS.shortcut");
   });
@@ -109,10 +117,11 @@ describe("shortcut plist", () => {
   it("matches the committed unsigned templates and refuses a non-http URL", () => {
     expect(readFileSync("shortcuts/SMSinBox-iOS.shortcut", "utf8")).toBe(buildShortcut("all"));
     expect(readFileSync("shortcuts/SMSinBox-iOS-code.shortcut", "utf8")).toBe(buildShortcut("code"));
-    const rejected = buildShortcut("all", "javascript:alert(1)");
+    const rejected = buildShortcut("code", "javascript:alert(1)");
     expect(rejected).not.toContain("javascript");
     expect(rejected).toContain(PLACEHOLDER_WEBHOOK);
-    expect(buildShortcut("all", "https://user:pass@example.com/hook")).toBe(buildShortcut("all"));
+    expect(buildShortcut("code", "https://user:pass@example.com/hook")).toBe(buildShortcut("code"));
+    expect(buildShortcut("all", "javascript:alert(1)")).toBe(buildShortcut("all"));
     expect(buildShortcut("code", "https://sms.example/api/v1/sms")).toContain("https://sms.example/api/v1/sms");
   });
 });
@@ -141,10 +150,28 @@ describe("iOS shortcut download", () => {
     expect(response.headers.get("content-type")).toBe("application/octet-stream");
     expect(response.headers.get("content-disposition")).toBe('attachment; filename="SMSinBox-iOS.shortcut"');
     const body = await response.text();
-    expect(body).toBe(buildShortcut("all", "https://sms.example/api/v1/sms"));
-    expect(body).toContain("https://sms.example/api/v1/sms");
+    expect(body).toBe(buildShortcut("all"));
+    expect(body).not.toContain("https://sms.example");
+    expect(body).not.toContain("/api/v1/sms");
+    expect(body).not.toContain("/api/v1/ingest/");
     expect(body).not.toContain("sms_session_token_value");
+    expect(body).not.toMatch(/psh_[A-Za-z0-9_-]{8,}/);
     expect(body).not.toMatch(/Bearer [A-Za-z0-9_-]{8,}/);
+  });
+
+  it("still downloads the keyword template", async () => {
+    const response = await handleApi(
+      new Request("https://sms.example/api/v1/ios/shortcut?variant=code", { headers: { cookie: COOKIE } }),
+      envFor(scriptedDb([sessionRow()]).db),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-disposition")).toBe('attachment; filename="SMSinBox-iOS-code.shortcut"');
+    const body = await response.text();
+    expect(body).toBe(buildShortcut("code", "https://sms.example/api/v1/sms"));
+    expect(body).toContain("https://sms.example/api/v1/sms");
+    expect(body).toContain("<string>Authorization</string>");
+    expect(body).not.toContain("sms_session_token_value");
+    expect(body).not.toMatch(/psh_[A-Za-z0-9_-]{8,}/);
   });
 });
 

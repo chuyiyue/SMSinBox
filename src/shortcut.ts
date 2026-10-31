@@ -1,7 +1,7 @@
 // Unsigned Shortcut templates. `shortcuts sign` exists only on macOS, so the
-// files in shortcuts/ are the plaintext plist from buildShortcut() with no
-// webhook argument. Regenerate those files when this generator changes.
-// Import questions stay on action 1 (URL) and action 2 (token) for both variants.
+// files in shortcuts/ are the plaintext plist from buildShortcut() and contain
+// no device secret. The default template asks only for a push URL. The code
+// template keeps the older Bearer questions on action 1 (URL) and action 2 (token).
 
 export const PLACEHOLDER_WEBHOOK = "https://example.workers.dev/api/v1/sms";
 
@@ -32,6 +32,81 @@ export function normalizeWebhookUrl(value: string | undefined): string {
 }
 
 export function buildShortcut(variant: ShortcutVariant, webhookUrl?: string): string {
+  if (variant === "all") return buildUnifiedShortcut();
+  return buildLegacyShortcut(variant, webhookUrl);
+}
+
+function buildUnifiedShortcut(): string {
+  const actions = [
+    commentAction(unifiedComment()),
+    textAction(URL_UUID, "推送链接", str("")),
+    unifiedDownloadAction(),
+    action(
+      "is.workflow.actions.notification",
+      plistDict([
+        ["WFNotificationActionBody", str("已转发")],
+        ["WFNotificationActionTitle", str("SMSinBox")],
+      ]),
+    ),
+  ];
+  const root = plistDict([
+    ["WFWorkflowActions", plistArray(actions)],
+    ["WFWorkflowClientVersion", str("4018.0.4")],
+    ["WFWorkflowHasShortcutInputVariables", bool(true)],
+    [
+      "WFWorkflowIcon",
+      plistDict([
+        ["WFWorkflowIconGlyphNumber", int(61440)],
+        ["WFWorkflowIconStartColor", int(431817727)],
+      ]),
+    ],
+    ["WFWorkflowImportQuestions", plistArray([importQuestion(1, "推送链接", "")])],
+    [
+      "WFWorkflowInputContentItemClasses",
+      plistArray([str("WFStringContentItem"), str("WFRichTextContentItem")]),
+    ],
+    ["WFWorkflowMinimumClientVersion", int(900)],
+    ["WFWorkflowMinimumClientVersionString", str("900")],
+    ["WFWorkflowName", str("SMSinBox")],
+    ["WFWorkflowTypes", plistArray([])],
+  ]);
+  return plistDocument(root);
+}
+
+function unifiedComment(): string {
+  return [
+    "未签名模板。Linux 无法签名，因为 shortcuts sign 只能在 macOS 上运行。iOS 15 及更高版本经常拒绝导入未签名文件。请在 iPhone 上导入，或使用 iCloud 分享链接。维护者还没有发布链接时，文档会写「尚未发布」。",
+    "导入时只填写推送链接。这条链接是设备密钥，不要发到聊天或工单。本快捷指令用 POST 发送 JSON，标头只有 Content-Type: application/json。from 会尝试读取短信的 Sender；如果结果是空的，请把 from 改成自动化提供的「发件人」变量。content 是快捷指令输入，timestamp 是当前日期，device 固定为 iOS。",
+    "把本快捷指令放进「信息」自动化，触发条件选「信息包含一个空格」，或包含「验证码」和 code。共享来的自动化默认关闭，需要手动打开，并关闭运行前询问。",
+  ].join("\n");
+}
+
+function unifiedDownloadAction(): string {
+  const headers = dictionaryValue([field("Content-Type", textToken("application/json"))]);
+  const body = dictionaryValue([
+    field("from", attachmentToken(extensionInput("Sender"))),
+    field("content", attachmentToken(extensionInput())),
+    field("timestamp", attachmentToken(plistDict([["Type", str("CurrentDate")]]))),
+    field("device", textToken("iOS")),
+  ]);
+  const url = textToken(OBJECT_REPLACEMENT, [
+    { range: "{0, 1}", body: actionOutput("推送链接", URL_UUID) },
+  ]);
+  return action(
+    "is.workflow.actions.downloadurl",
+    plistDict([
+      ["Advanced", bool(true)],
+      ["ShowHeaders", bool(true)],
+      ["WFHTTPBodyType", str("JSON")],
+      ["WFHTTPHeaders", headers],
+      ["WFHTTPMethod", str("POST")],
+      ["WFJSONValues", body],
+      ["WFURL", url],
+    ]),
+  );
+}
+
+function buildLegacyShortcut(variant: ShortcutVariant, webhookUrl?: string): string {
   const webhook = normalizeWebhookUrl(webhookUrl);
   const actions = [
     commentAction(commentText(variant)),
@@ -81,6 +156,10 @@ export function buildShortcut(variant: ShortcutVariant, webhookUrl?: string): st
     ["WFWorkflowName", str(variant === "code" ? "SMSinBox 验证码" : "SMSinBox")],
     ["WFWorkflowTypes", plistArray([])],
   ]);
+  return plistDocument(root);
+}
+
+function plistDocument(root: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">

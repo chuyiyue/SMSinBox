@@ -534,7 +534,7 @@ async function iosShortcut(request: Request, env: Env, url: URL): Promise<Respon
   if (raw !== "all" && raw !== "code") return json({ ok: false, error: "未知的快捷指令版本" }, 400);
   const variant: ShortcutVariant = raw;
   const filename = shortcutFilename(variant);
-  const body = buildShortcut(variant, `${url.origin}/api/v1/sms`);
+  const body = variant === "code" ? buildShortcut("code", `${url.origin}/api/v1/sms`) : buildShortcut("all");
   return new Response(body, {
     status: 200,
     headers: {
