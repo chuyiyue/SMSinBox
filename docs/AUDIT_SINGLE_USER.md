@@ -108,18 +108,34 @@ Cookie：`HttpOnly`、`Path=/`、`SameSite=Lax`、HTTPS 下 `Secure`；会话 TT
 
 - 空库且无 `ADMIN_*` → 登录 503；有用户无 env → 普通验密，不 bootstrap
 - `ADMIN_USERNAME` 变更会 **再 insert 第二个 admin**，旧行残留 → 单用户隐患
-- `rate_limits` / `consumeRateLimit` 用于短信 ingest（`sms.ts`），**登录无尝试限流**
+- `rate_limits` / `consumeRateLimit` 用于短信 ingest（`sms.ts`）；批次 4 起也用于登录失败计数和 TOTP 第二步（按用户 / ticket）
 - `MAX_DEVICES=50`、`MAX_NOTIFY_CHANNELS=10` 按 **每 user_id**；合并后若已超上限，后续创建会失败（勿为压数删历史）
 
 ### 2.5 已确认缺口（产品下一批要补）
 
 | 项 | 现状 |
 |----|------|
-| TOTP / 2FA | **无**：无列、无路由、无前端；`extract.ts` 的 otp 仅为短信验证码 |
-| 登录限流 | **无** |
+| TOTP / 2FA | **批次 4 已补**：迁移、API、恢复码、登录第二步与最简前端挂钩见 §2.6；`extract.ts` 的 otp 仍是短信验证码，与此无关 |
+| 登录限流 | **部分**：密码失败与 TOTP 第二步失败按 5 分钟窗口计数并返回 429；完整登录加固仍属批次 3 |
 | API 改用户名 | **不支持** |
 | 会话列表 / 撤其它会话 | **无**（仅当前 logout；改密清该用户全部 session） |
 | iOS 快捷指令 / 设备推送链接 | **已有，必须保留**（0005、`shortcut.ts`、devices 页推送 UI）；收敛时不得轮转 token / 改 `CONTENT_KEY` |
+
+### 2.6 批次 4 实现（TOTP）
+
+- 迁移 `0007_totp.sql`：`users` 追加 `totp_secret`、`totp_pending_secret`、`totp_pending_created_at`、`totp_enabled_at`、`totp_last_counter`；新增 `totp_recovery_codes`（SHA-256 哈希、`used_at`）与 `totp_tickets`（登录第二步临时票据）。只追加，不改已有行。
+- 加密：`CONTENT_KEY` 已设置时用 AES-GCM（`enc1:`）封存 secret，复用 `src/crypto.ts`；未设置时以 `plain:` 前缀保存（与 `devices.secret` 同级权衡）。密钥、恢复码、ticket 均不进日志。
+- API（除 `verify` 外均需管理员会话）：
+  - `GET /api/v1/auth/totp`：启用状态、待确认绑定、剩余恢复码数量
+  - `POST /api/v1/auth/totp/setup`：生成 20 字节 secret，返回手工密钥与 `otpauth://` URI（pending 15 分钟）
+  - `POST /api/v1/auth/totp/enable`：校验 pending secret 的 6 位码后启用，返回 10 个一次性恢复码
+  - `POST /api/v1/auth/totp/disable`：当前密码 + TOTP/恢复码，清空 secret/恢复码/ticket，保留当前会话、撤销其它会话
+  - `POST /api/v1/auth/totp/recovery`：当前密码 + TOTP/恢复码，重新生成恢复码，旧列表立即作废
+  - `POST /api/v1/auth/totp/verify`：用密码步骤发出的 `tot_` ticket 换会话 Cookie
+- 登录：密码通过后若已启用 TOTP，返回 `{ totp_required: true, ticket, expires_in }`，不发 Cookie；ticket 5 分钟过期、单次使用、5 次错误作废。`consumeRateLimit` / `consumeRateLimitWindow` 同时限制每个 ticket 的尝试和每个账号 5 分钟内的第二步失败次数，换 ticket 不能绕过；密码失败也按用户名用同一窗口限流。
+- 算法：HMAC-SHA1 / 6 位 / 30 秒，允许 ±1 时间步；`totp_last_counter` 拒绝重放。
+- 前端最小挂钩：`login.html` / `login.js` 增加第二步验证码表单；`users.html` 底部加「两步验证」面板（`public/totp-settings.js`），未重做 users 页。四区系统管理仍留批次 5。
+- 测试：`test/totp.test.ts`（RFC 6238 向量、base32、恢复码、封存）与 `test/release.integration.test.ts` 的真实 D1 旅程（绑定、启用、第二步、重放、限流、恢复码、关闭、重新生成）。
 
 ---
 
@@ -187,7 +203,7 @@ Cookie：`HttpOnly`、`Path=/`、`SameSite=Lax`、HTTPS 下 `Secure`；会话 TT
 
 ### 批次 4 — TOTP 2FA（P2）
 
-增量列（如加密 `totp_secret`、`totp_enabled_at`、恢复码哈希）；绑定须先验码；关闭须密码+TOTP；恢复码单次失效；防重放与尝试验流；密钥不进日志。可复用 `CONTENT_KEY` 思路加密 secret（实现时再定）。
+**已完成（worktree `stage2-totp`，本地提交，未部署）**：`0007_totp.sql`、`src/totp.ts`、`src/routes/totp.ts`、`src/session.ts`；登录第二步 ticket、恢复码单次失效、`totp_last_counter` 防重放、密码失败与 TOTP 尝试限流、密钥不进日志；`CONTENT_KEY` 存在时 AES-GCM 加密 secret。API 与安全细节见 §2.6。
 
 ### 批次 5 — 系统管理页（P2）· 等 UI/UX + 3/4 API
 

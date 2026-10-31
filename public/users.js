@@ -15,6 +15,7 @@ import {
 } from "./common.js";
 import { ensureMe } from "./device-store.js";
 import { go, registerView } from "./shell.js";
+import { initTotpSettings } from "./totp-settings.js";
 import { rememberFlash } from "./ui.js";
 
 const USERNAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -60,6 +61,7 @@ function startView() {
       setError("加载用户失败");
     }),
   });
+  const cleanupTotp = initTotpSettings();
   document.querySelector("#add-user").addEventListener("click", openCreate);
   document.querySelector("#user-cancel").addEventListener("click", () => dialog.close());
   dialog.addEventListener("click", (event) => {
@@ -82,6 +84,7 @@ function startView() {
   return () => {
     if (viewToken === token) viewToken += 1;
     if (dialog?.open) dialog.close();
+    cleanupTotp();
   };
 }
 

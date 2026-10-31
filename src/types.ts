@@ -81,6 +81,34 @@ export interface SessionUser {
   role: string;
   disabled_at: number | null;
   expires_at: number;
+  totp_enabled_at?: number | null;
+}
+
+export interface TotpUserRecord {
+  id: string;
+  username: string;
+  role: string;
+  disabled_at: number | null;
+  password_hash: string;
+  totp_secret: string | null;
+  totp_pending_secret: string | null;
+  totp_pending_created_at: number | null;
+  totp_enabled_at: number | null;
+  totp_last_counter: number | null;
+}
+
+export interface TotpTicketRecord {
+  id: string;
+  user_id: string;
+  expires_at: number;
+  attempts: number;
+  created_at: number;
+  username: string;
+  role: string;
+  disabled_at: number | null;
+  totp_secret: string | null;
+  totp_enabled_at: number | null;
+  totp_last_counter: number | null;
 }
 
 export interface NotifyChannelRow {

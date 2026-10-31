@@ -5,7 +5,6 @@ import {
   requestIsSecure,
   secretsEqual,
   SESSION_COOKIE,
-  SESSION_TTL_SECONDS,
   sessionCookieHeader,
   sha256Hex,
   verifyPassword,
@@ -15,7 +14,6 @@ import {
   countDevices,
   countNotifyChannels,
   countUsers,
-  createSession,
   deleteDevice,
   deleteNotifyChannel,
   deleteSession,
@@ -24,7 +22,7 @@ import {
   findMessageByHash,
   findNotifyChannel,
   findOwnedDevice,
-  findSessionUser,
+  findTotpUser,
   findUserByUsername,
   getMessage,
   insertDevice,
@@ -49,6 +47,16 @@ import { dedupHash } from "../dedup";
 import { extractCode } from "../extract";
 import { isCrossSite, json, readCookie, readLimitedBytes } from "../http";
 import { errorText, logError, logInfo } from "../log";
+import { issueSession, publicUser, recordLoginFailure, requireUser } from "../session";
+import {
+  beginTotpSetup,
+  disableTotp,
+  enableTotpHandler,
+  regenerateRecoveryCodes,
+  startTotpChallenge,
+  totpStatus,
+  verifyTotpLogin,
+} from "./totp";
 import {
   channelFromRow,
   deliverChannels,
@@ -64,7 +72,6 @@ import { buildShortcut, shortcutFilename, type ShortcutVariant } from "../shortc
 import { buildTestSms } from "./sms";
 import { openSmtpSocket } from "../smtp";
 import { createInboxStream, resolveCursor, SSE_BATCH } from "../sse";
-import type { SessionUser } from "../types";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -88,6 +95,30 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
   if (path === "/api/v1/auth/me") {
     if (method !== "GET") return methodNotAllowed("GET");
     return me(request, env);
+  }
+  if (path === "/api/v1/auth/totp") {
+    if (method !== "GET") return methodNotAllowed("GET");
+    return totpStatus(request, env);
+  }
+  if (path === "/api/v1/auth/totp/setup") {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return beginTotpSetup(request, env);
+  }
+  if (path === "/api/v1/auth/totp/enable") {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return enableTotpHandler(request, env);
+  }
+  if (path === "/api/v1/auth/totp/disable") {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return disableTotp(request, env);
+  }
+  if (path === "/api/v1/auth/totp/recovery") {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return regenerateRecoveryCodes(request, env);
+  }
+  if (path === "/api/v1/auth/totp/verify") {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return verifyTotpLogin(request, env);
   }
   if (path === "/api/v1/events") {
     if (method !== "GET") return methodNotAllowed("GET");
@@ -173,7 +204,12 @@ async function login(request: Request, env: Env): Promise<Response> {
     adminPassword.length > 0 &&
     credentials.username === adminUsername &&
     (await secretsEqual(credentials.password, adminPassword));
-  if (!passwordOk && !adminOk) return json({ ok: false, error: "用户名或密码错误" }, 401);
+  if (!passwordOk && !adminOk) {
+    if (await recordLoginFailure(env, credentials.username)) {
+      return json({ ok: false, error: "登录失败次数过多，请稍后再试" }, 429);
+    }
+    return json({ ok: false, error: "用户名或密码错误" }, 401);
+  }
 
   let user = existing;
   if (adminOk && !user) {
@@ -214,18 +250,12 @@ async function login(request: Request, env: Env): Promise<Response> {
     await mergeIntoAdmin(env.DB, user);
   }
 
-  const token = randomToken();
-  const now = Date.now();
-  await createSession(env.DB, {
-    id: await sha256Hex(token),
-    userId: user.id,
-    expiresAt: now + SESSION_TTL_SECONDS * 1000,
-    createdAt: now,
-  });
-  const headers = new Headers();
-  headers.set("set-cookie", sessionCookieHeader(token, requestIsSecure(request), SESSION_TTL_SECONDS));
+  const totp = await findTotpUser(env.DB, user.id);
+  if (totp?.totp_enabled_at != null && totp.totp_secret != null) {
+    return startTotpChallenge(env, user);
+  }
   logInfo({ message: "login", user_id: user.id });
-  return json({ ok: true, user: publicUser(user) }, 200, headers);
+  return issueSession(request, env, { ...user, totp_enabled_at: totp?.totp_enabled_at ?? null });
 }
 
 async function logout(request: Request, env: Env): Promise<Response> {
@@ -624,27 +654,6 @@ async function removeDevice(request: Request, env: Env, rawId: string): Promise<
   if (!removed) return json({ ok: false, error: "设备不存在" }, 404);
   logInfo({ message: "device_deleted", device_id: id, user_id: user.id });
   return json({ ok: true });
-}
-
-function publicUser(user: { id: string; username: string; role?: string }) {
-  return {
-    id: user.id,
-    username: user.username,
-    role: user.role === "admin" ? "admin" : "member",
-  };
-}
-
-async function requireUser(request: Request, env: Env): Promise<SessionUser | Response> {
-  if (isCrossSite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
-  const token = readCookie(request.headers.get("cookie"), SESSION_COOKIE);
-  if (!token) return json({ ok: false, error: "未登录" }, 401);
-  const sessionHash = await sha256Hex(token);
-  const user = await findSessionUser(env.DB, sessionHash);
-  if (!user || user.expires_at <= Date.now() || user.disabled_at != null || user.role !== "admin") {
-    if (user) await deleteSession(env.DB, sessionHash);
-    return json({ ok: false, error: "未登录" }, 401);
-  }
-  return user;
 }
 
 async function readJson(

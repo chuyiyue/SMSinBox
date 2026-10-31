@@ -7,6 +7,7 @@ import { Miniflare } from "miniflare";
 import { bytesToBase64Url, hashPassword, sha256Hex, signHmacHex } from "../src/auth";
 import { ENCRYPTED_PREFIX } from "../src/crypto";
 import worker from "../src/index";
+import { base32Decode, hotp, totpCounter } from "../src/totp";
 
 const ORIGIN = "http://smsinbox.test";
 const ADMIN_USERNAME = "admin";
@@ -19,8 +20,19 @@ const EXPECTED_MIGRATIONS = [
   "0004_users.sql",
   "0005_device_push.sql",
   "0006_single_user.sql",
+  "0007_totp.sql",
 ];
-const TABLES = ["schema_meta", "notify_channels", "messages", "rate_limits", "sessions", "devices", "users"];
+const TABLES = [
+  "schema_meta",
+  "totp_tickets",
+  "totp_recovery_codes",
+  "notify_channels",
+  "messages",
+  "rate_limits",
+  "sessions",
+  "devices",
+  "users",
+];
 
 const LEGACY_USER = "11111111-1111-4111-8111-111111111111";
 const LEGACY_DEVICE = "22222222-2222-4222-8222-222222222222";
@@ -250,6 +262,10 @@ describe("release migrations", () => {
       ),
     ).rejects.toThrow(/UNIQUE/);
 
+    // The worker under test reads the later additive columns, so finish the
+    // schema before exercising login on the legacy rows.
+    await applyFiles(["0006_single_user.sql", "0007_totp.sql"]);
+
     const login = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
     const cookie = sessionCookie(login);
     const session = await expectStatus(login, 200);
@@ -345,6 +361,72 @@ describe("release migrations", () => {
       name: string;
     }>();
     expect(meta?.name).toBe("schema_meta");
+  });
+
+  it("adds TOTP columns and tables without rewriting existing rows", async () => {
+    await resetSchema("0006_single_user.sql");
+    const sql = readFileSync("migrations/0007_totp.sql", "utf8");
+    expect(sql).toMatch(/ADD COLUMN totp_secret/);
+    expect(sql).toMatch(/ADD COLUMN totp_pending_secret/);
+    expect(sql).toMatch(/ADD COLUMN totp_enabled_at/);
+    expect(sql).toMatch(/CREATE TABLE totp_recovery_codes/);
+    expect(sql).toMatch(/CREATE TABLE totp_tickets/);
+    expect(sql).not.toMatch(/DROP\s+TABLE/i);
+    expect(sql).not.toMatch(/DELETE\s+FROM/i);
+    expect(sql).not.toMatch(/UPDATE\s+/i);
+
+    const userId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    await runSql(
+      env.DB,
+      "INSERT INTO users (id, username, password_hash, role, created_at) VALUES (?, ?, ?, 'admin', ?)",
+      [userId, ADMIN_USERNAME, "hash-kept", 1_700_000_000_000],
+    );
+    await runSql(
+      env.DB,
+      "INSERT INTO devices (id, user_id, name, token_hash, secret, created_at) VALUES (?, ?, ?, ?, NULL, ?)",
+      [LEGACY_DEVICE, userId, "旧手机", "hash-kept-device", 1_700_000_000_000],
+    );
+    await runSql(
+      env.DB,
+      "INSERT INTO messages (id, device_id, from_number, to_number, content, content_hash, code, raw_payload, received_at, created_at) VALUES (?, ?, '10086', '', '保留短信', 'hash-keep-totp', NULL, '{}', ?, ?)",
+      ["cccccccc-cccc-4ccc-8ccc-cccccccccccc", LEGACY_DEVICE, 1, 1],
+    );
+
+    await applyFiles(["0007_totp.sql"]);
+    const columns = await env.DB.prepare("PRAGMA table_info(users)").all<{ name: string }>();
+    expect(columns.results.map((column) => column.name)).toEqual([
+      "id",
+      "username",
+      "password_hash",
+      "created_at",
+      "role",
+      "disabled_at",
+      "totp_secret",
+      "totp_pending_secret",
+      "totp_pending_created_at",
+      "totp_enabled_at",
+      "totp_last_counter",
+    ]);
+    const user = await env.DB.prepare(
+      "SELECT username, password_hash, totp_secret, totp_pending_secret, totp_enabled_at FROM users WHERE id = ?",
+    )
+      .bind(userId)
+      .first<{
+        username: string;
+        password_hash: string;
+        totp_secret: string | null;
+        totp_pending_secret: string | null;
+        totp_enabled_at: number | null;
+      }>();
+    expect(user).toEqual({
+      username: ADMIN_USERNAME,
+      password_hash: "hash-kept",
+      totp_secret: null,
+      totp_pending_secret: null,
+      totp_enabled_at: null,
+    });
+    expect(await countOf("SELECT COUNT(*) AS total FROM devices")).toBe(1);
+    expect(await countOf("SELECT COUNT(*) AS total FROM messages")).toBe(1);
   });
 });
 
@@ -785,6 +867,327 @@ describe("single user convergence", () => {
       env.ADMIN_USERNAME = previous;
     }
   }, 30_000);
+});
+
+describe("two-factor login", () => {
+  const state = { cookie: "", secret: "", codes: [] as string[] };
+
+  async function codeFor(secret: string, offset = 0): Promise<string> {
+    const raw = base32Decode(secret);
+    expect(raw).not.toBeNull();
+    return hotp(raw ?? new Uint8Array(), totpCounter(Date.now()) + offset);
+  }
+
+  async function challenge(): Promise<{ ticket: string; body: Record<string, unknown> }> {
+    const response = await call(
+      "/api/v1/auth/login",
+      jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
+    );
+    expect(response.headers.get("set-cookie")).toBeNull();
+    const body = await expectStatus(response, 200);
+    expect(body).toMatchObject({ ok: true, totp_required: true });
+    return { ticket: String(body.ticket), body };
+  }
+
+  function wrongCode(good: string, digit: string): string {
+    const first = good[0] === digit ? (digit === "0" ? "1" : "0") : digit;
+    return `${first}${good.slice(1)}`;
+  }
+
+  // Pretend the previous 30s step has passed so a fresh code is not treated
+  // as a replay.
+  async function resetReplayGuard(): Promise<void> {
+    await runSql(env.DB, "UPDATE users SET totp_last_counter = NULL");
+  }
+
+  beforeAll(async () => {
+    await resetSchema();
+    const key = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+    env.CONTENT_KEY = key;
+    const login = await call(
+      "/api/v1/auth/login",
+      jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
+    );
+    state.cookie = sessionCookie(login);
+    await expectStatus(login, 200);
+  });
+
+  it("seals the secret, enables after one code, and shows recovery codes once", async () => {
+    const before = await expectStatus(await call("/api/v1/auth/totp", {}, state.cookie), 200);
+    expect(before).toMatchObject({ ok: true, enabled: false, recovery_codes_remaining: 0 });
+
+    const lines: string[] = [];
+    const log = vi.spyOn(console, "log").mockImplementation((message?: unknown) => {
+      lines.push(String(message));
+    });
+    const err = vi.spyOn(console, "error").mockImplementation((message?: unknown) => {
+      lines.push(String(message));
+    });
+    let setup: Record<string, unknown>;
+    let enabled: Record<string, unknown>;
+    try {
+      setup = await expectStatus(await call("/api/v1/auth/totp/setup", jsonInit({}), state.cookie), 200);
+      state.secret = String(setup.secret);
+      expect(state.secret).toMatch(/^[A-Z2-7]{32}$/);
+      const uri = String(setup.otpauth_uri);
+      expect(uri.startsWith("otpauth://totp/")).toBe(true);
+      expect(uri).toContain(`secret=${state.secret}`);
+      expect(uri).toContain("issuer=SMSinBox");
+      expect(uri).toContain("digits=6");
+      expect(uri).toContain("period=30");
+      expect(setup).toMatchObject({ digits: 6, period: 30, algorithm: "SHA1" });
+      enabled = await expectStatus(
+        await call("/api/v1/auth/totp/enable", jsonInit({ code: await codeFor(state.secret) }), state.cookie),
+        200,
+      );
+    } finally {
+      log.mockRestore();
+      err.mockRestore();
+    }
+    const codes = (enabled.recovery_codes as string[]).map(String);
+    expect(codes).toHaveLength(10);
+    expect(new Set(codes).size).toBe(10);
+    for (const code of codes) expect(code).toMatch(/^[A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{4}$/);
+    state.codes = codes;
+
+    const logged = lines.join("\n");
+    expect(logged).not.toContain(state.secret);
+    for (const code of codes) expect(logged).not.toContain(code);
+
+    const stored = await env.DB.prepare(
+      "SELECT totp_secret, totp_pending_secret, totp_pending_created_at, totp_enabled_at, totp_last_counter FROM users WHERE username = ?",
+    )
+      .bind(ADMIN_USERNAME)
+      .first<{
+        totp_secret: string | null;
+        totp_pending_secret: string | null;
+        totp_pending_created_at: number | null;
+        totp_enabled_at: number | null;
+        totp_last_counter: number | null;
+      }>();
+    expect(stored?.totp_secret?.startsWith(ENCRYPTED_PREFIX)).toBe(true);
+    expect(stored?.totp_secret).not.toContain(state.secret);
+    expect(stored?.totp_pending_secret).toBeNull();
+    expect(stored?.totp_pending_created_at).toBeNull();
+    expect(stored?.totp_enabled_at).toBeGreaterThan(0);
+    expect(stored?.totp_last_counter).toBeNull();
+    expect(await countOf("SELECT COUNT(*) AS total FROM totp_recovery_codes WHERE used_at IS NULL")).toBe(10);
+
+    const status = await expectStatus(await call("/api/v1/auth/totp", {}, state.cookie), 200);
+    expect(status).toMatchObject({ enabled: true, recovery_codes_remaining: 10 });
+    const statusText = JSON.stringify(status);
+    expect(statusText).not.toContain(state.secret);
+    for (const code of codes) expect(statusText).not.toContain(code);
+
+    const again = await call("/api/v1/auth/totp/setup", jsonInit({}), state.cookie);
+    expect((await expectStatus(again, 409)).error).toBe("两步验证已启用");
+  }, 20_000);
+
+  it("asks for a second factor and refuses a replayed code", async () => {
+    const { ticket } = await challenge();
+    const good = await codeFor(state.secret);
+
+    const wrong = await call("/api/v1/auth/totp/verify", jsonInit({ ticket, code: wrongCode(good, "0") }));
+    expect((await expectStatus(wrong, 401)).attempts_remaining).toBe(4);
+
+    const verified = await call("/api/v1/auth/totp/verify", jsonInit({ ticket, code: good }));
+    const body = await expectStatus(verified, 200);
+    expect(body.user).toMatchObject({ username: ADMIN_USERNAME, role: "admin", totp_enabled: true });
+    const cookie = sessionCookie(verified);
+    expect((await call("/api/v1/auth/me", {}, cookie)).status).toBe(200);
+
+    const reused = await challenge();
+    const replay = await call("/api/v1/auth/totp/verify", jsonInit({ ticket: reused.ticket, code: good }));
+    expect((await expectStatus(replay, 401)).error).toContain("验证码");
+    const next = await call(
+      "/api/v1/auth/totp/verify",
+      jsonInit({ ticket: reused.ticket, code: await codeFor(state.secret, 1) }),
+    );
+    await expectStatus(next, 200);
+
+    const bogus = await call(
+      "/api/v1/auth/totp/verify",
+      jsonInit({ ticket: `tot_${"a".repeat(43)}`, code: good }),
+    );
+    expect((await expectStatus(bogus, 401)).error).toBe("登录已过期，请重新登录");
+
+    const anonymous = await call("/api/v1/auth/totp", {});
+    expect(anonymous.status).toBe(401);
+  }, 20_000);
+
+  it("locks a ticket after five wrong codes", async () => {
+    const { ticket } = await challenge();
+    const good = await codeFor(state.secret);
+    for (let index = 0; index < 4; index += 1) {
+      const attempt = await call(
+        "/api/v1/auth/totp/verify",
+        jsonInit({ ticket, code: wrongCode(good, String(index)) }),
+      );
+      expect(attempt.status).toBe(401);
+    }
+    const fifth = await call(
+      "/api/v1/auth/totp/verify",
+      jsonInit({ ticket, code: wrongCode(good, "5") }),
+    );
+    expect((await expectStatus(fifth, 429)).error).toContain("尝试过多");
+    const after = await call("/api/v1/auth/totp/verify", jsonInit({ ticket, code: good }));
+    expect((await expectStatus(after, 401)).error).toBe("登录已过期，请重新登录");
+    expect(await countOf("SELECT COUNT(*) AS total FROM totp_tickets")).toBe(0);
+  }, 20_000);
+
+  it("accepts a recovery code once and leaves the rest usable", async () => {
+    const first = await challenge();
+    const used = await call(
+      "/api/v1/auth/totp/verify",
+      jsonInit({ ticket: first.ticket, code: state.codes[0] }),
+    );
+    const body = await expectStatus(used, 200);
+    expect(body.user).toMatchObject({ username: ADMIN_USERNAME, totp_enabled: true });
+    const cookie = sessionCookie(used);
+    expect(
+      (await expectStatus(await call("/api/v1/auth/totp", {}, cookie), 200)).recovery_codes_remaining,
+    ).toBe(9);
+    expect(await countOf("SELECT COUNT(*) AS total FROM totp_recovery_codes WHERE used_at IS NOT NULL")).toBe(1);
+
+    const second = await challenge();
+    const replay = await call(
+      "/api/v1/auth/totp/verify",
+      jsonInit({ ticket: second.ticket, code: state.codes[0] }),
+    );
+    expect((await expectStatus(replay, 401)).error).toBe("验证码不正确");
+    const fresh = await call(
+      "/api/v1/auth/totp/verify",
+      jsonInit({ ticket: second.ticket, code: state.codes[1] }),
+    );
+    await expectStatus(fresh, 200);
+  }, 20_000);
+
+  it("disables only with the password and a valid code, and drops other sessions", async () => {
+    const second = await challenge();
+    const secondLogin = await call(
+      "/api/v1/auth/totp/verify",
+      jsonInit({ ticket: second.ticket, code: state.codes[2] }),
+    );
+    await expectStatus(secondLogin, 200);
+    const other = { cookie: sessionCookie(secondLogin) };
+
+    await resetReplayGuard();
+    const good = await codeFor(state.secret);
+
+    const badPassword = await call(
+      "/api/v1/auth/totp/disable",
+      jsonInit({ password: "not-the-password", code: good }),
+      state.cookie,
+    );
+    expect((await expectStatus(badPassword, 401)).error).toBe("密码不正确");
+
+    const badCode = await call(
+      "/api/v1/auth/totp/disable",
+      jsonInit({ password: ADMIN_PASSWORD, code: wrongCode(good, "9") }),
+      state.cookie,
+    );
+    expect((await expectStatus(badCode, 401)).error).toBe("验证码不正确");
+
+    const disabled = await call(
+      "/api/v1/auth/totp/disable",
+      jsonInit({ password: ADMIN_PASSWORD, code: good }),
+      state.cookie,
+    );
+    expect(await expectStatus(disabled, 200)).toMatchObject({ ok: true, enabled: false });
+
+    const stored = await env.DB.prepare(
+      "SELECT totp_secret, totp_pending_secret, totp_enabled_at, totp_last_counter FROM users WHERE username = ?",
+    )
+      .bind(ADMIN_USERNAME)
+      .first<{
+        totp_secret: string | null;
+        totp_pending_secret: string | null;
+        totp_enabled_at: number | null;
+        totp_last_counter: number | null;
+      }>();
+    expect(stored).toEqual({
+      totp_secret: null,
+      totp_pending_secret: null,
+      totp_enabled_at: null,
+      totp_last_counter: null,
+    });
+    expect(await countOf("SELECT COUNT(*) AS total FROM totp_recovery_codes")).toBe(0);
+    expect(await countOf("SELECT COUNT(*) AS total FROM totp_tickets")).toBe(0);
+    expect(await countOf("SELECT COUNT(*) AS total FROM sessions")).toBe(1);
+    expect((await call("/api/v1/auth/me", {}, other.cookie)).status).toBe(401);
+    expect((await call("/api/v1/auth/me", {}, state.cookie)).status).toBe(200);
+
+    const plain = await call(
+      "/api/v1/auth/login",
+      jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
+    );
+    const session = await expectStatus(plain, 200);
+    expect(session.totp_required).toBeUndefined();
+    expect((await expectStatus(await call("/api/v1/auth/totp", {}, state.cookie), 200)).enabled).toBe(false);
+  }, 20_000);
+
+  it("regenerates recovery codes and invalidates the old list", async () => {
+    const setup = await expectStatus(await call("/api/v1/auth/totp/setup", jsonInit({}), state.cookie), 200);
+    state.secret = String(setup.secret);
+    const enabled = await expectStatus(
+      await call("/api/v1/auth/totp/enable", jsonInit({ code: await codeFor(state.secret) }), state.cookie),
+      200,
+    );
+    const oldCodes = (enabled.recovery_codes as string[]).map(String);
+    state.codes = oldCodes;
+
+    const regenerated = await call(
+      "/api/v1/auth/totp/recovery",
+      jsonInit({ password: ADMIN_PASSWORD, code: await codeFor(state.secret) }),
+      state.cookie,
+    );
+    const body = await expectStatus(regenerated, 200);
+    const newCodes = (body.recovery_codes as string[]).map(String);
+    expect(newCodes).toHaveLength(10);
+    expect(newCodes).not.toContain(oldCodes[0]);
+    expect(body.recovery_codes_remaining).toBe(10);
+
+    const stale = await challenge();
+    const rejected = await call(
+      "/api/v1/auth/totp/verify",
+      jsonInit({ ticket: stale.ticket, code: oldCodes[0] }),
+    );
+    expect((await expectStatus(rejected, 401)).error).toBe("验证码不正确");
+
+    const fresh = await challenge();
+    const accepted = await call(
+      "/api/v1/auth/totp/verify",
+      jsonInit({ ticket: fresh.ticket, code: newCodes[0] }),
+    );
+    const session = await expectStatus(accepted, 200);
+    expect(session.user).toMatchObject({ totp_enabled: true });
+    const cookie = sessionCookie(accepted);
+    expect(
+      (await expectStatus(await call("/api/v1/auth/totp", {}, cookie), 200)).recovery_codes_remaining,
+    ).toBe(9);
+  }, 20_000);
+
+  it("throttles repeated password failures without locking out the right password", async () => {
+    for (let index = 0; index < 10; index += 1) {
+      const wrong = await call(
+        "/api/v1/auth/login",
+        jsonInit({ username: ADMIN_USERNAME, password: `wrong-password-${index}` }),
+      );
+      expect((await expectStatus(wrong, 401)).error).toBe("用户名或密码错误");
+    }
+    const limited = await call(
+      "/api/v1/auth/login",
+      jsonInit({ username: ADMIN_USERNAME, password: "wrong-password-10" }),
+    );
+    expect((await expectStatus(limited, 429)).error).toContain("次数过多");
+
+    const right = await call(
+      "/api/v1/auth/login",
+      jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
+    );
+    const body = await expectStatus(right, 200);
+    expect(body.totp_required).toBe(true);
+  }, 20_000);
 });
 
 describe("release storage edges", () => {
