@@ -99,14 +99,17 @@ Content-Type: application/json
 
 分版本步骤、通知含义和限制见 [docs/ios-setup.md](docs/ios-setup.md)。新建设备时，页面同时给出一次性 Bearer token 和一次性推送链接。iOS 只复制推送链接，贴进快捷指令。刷新后链接不再显示，丢掉就在该设备上轮换。设备页还可以下载模板，并给设备发送测试短信。导入、立即运行和通知只能在你的 iPhone 上确认。
 
-`shortcuts/` 里有两份未签名文件。主路径只有第一份：
+iOS 推荐安装：打开 iCloud 分享链接 **SMSinBox Next**（已签名）https://www.icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494 ，导入后只填推送链接。自动化里 `content` 必须用「信息 › 内容」，`from` 用「信息 › 发件人」。详见 `docs/ios-setup.md`。
 
-- `SMSinBox-iOS.shortcut`：唯一的新安装模板。导入时只问「推送链接」，默认空。动作是 POST JSON 到这条链接，标头只有 `Content-Type: application/json`，字段为 `from`、`content`、`timestamp`、`device` 为 `iOS`。文件里不写设备地址，也不写 Bearer。正文为空时通知并不发送。Sender 为空时仍发送，`from` 写成「（发件人为空）」。返回里的「请求过于频繁」通知 429，「推送链接无效」或「推送链接已撤销」通知 401，没有 `ok` 时通知网络失败。自动化条件在手机上设置：「信息包含一个空格」最接近全部短信，但没有空格的短码匹配不到；只要验证码时用「验证码」或 `code`，不要另装一套主快捷指令。
-- `SMSinBox-iOS-code.shortcut`：旧的关键词模板，只为收藏夹里的 `?variant=code` 保留。正文不含「验证码」或 `code` 时不发送。设备页不再提供第二个下载按钮。导入时填写 Webhook URL 和设备 token，请求 `POST /api/v1/sms`，头是 `Authorization: Bearer <token>`。已经装在手机里的旧快捷指令不用改。
+`shortcuts/` 里还有：
+
+- `SMSinBox-iOS-Next.shortcut`：上述 iCloud 记录的已签名二进制副本（推送链接为空）。
+- `SMSinBox-iOS.shortcut`：未签名备用模板（`buildShortcut("all")`）。导入时只问「推送链接」。动作 POST JSON，字段 `from`、`content`、`timestamp`、`device`＝`iOS`。被 iOS 拒绝时改用 iCloud 链接或手动步骤。
+- `SMSinBox-iOS-code.shortcut`：旧的关键词模板，只为收藏夹里的 `?variant=code` 保留。
 
 登录后从设备页下载默认模板。下载结果不含推送密钥，也不能用来上报。设备页和文档同样不是推送地址。
 
-这些文件未签名。`shortcuts sign` 只在 macOS 上提供，Linux 下无法生成签名快捷指令，仓库里也不会放伪造的签名。iOS 15 及更高版本经常拒绝未签名文件。请在 iPhone 上导入。iCloud 分享链接尚未发布，见 `docs/ios-setup.md`。被拒绝时按该文档手动添加「获取 URL 内容」，URL 填推送链接，不要加 Authorization。
+未签名备用文件可能被 iOS 15+ 拒绝。`shortcuts sign` 只在 macOS 上提供。请优先用 `docs/ios-setup.md` 里的 iCloud 分享链接；被拒绝或无法打开时再按该文档手动添加「获取 URL 内容」，URL 填推送链接，不要加 Authorization。
 
 推送链接不校验 HMAC。同一台设备如果填了签名密钥，Android 的 Bearer 仍然要签名。推送链接等同设备密钥，不要发到聊天或工单。
 
@@ -138,7 +141,7 @@ iOS 27 及以上从导入的快捷指令展开触发器，打开自动化开关�
 
 - `/login.html`：用户名和密码登录。居中卡片。
 - `/`：收件箱。左侧固定深色侧边栏，右侧浅色内容区。新短信在前，可按设备、号码和关键词筛选；侧边栏设备列表和顶部搜索也会筛选。页面通过 `GET /api/v1/events` 的 SSE 接收新短信：服务端按 `created_at` 和短信 id 记住游标，大约每 2 秒查一次 D1，连接大约保持 25 秒后主动结束，浏览器会带上 `Last-Event-ID` 自动重连。标签页切到后台时断开。另外每 30 秒补拉一次第一页，避免重连间隙漏消息。列表是行式的，验证码 chip 可一键复制，点击行在桌面展开详情、在窄屏打开抽屉。
-- `/devices.html`：设备卡片显示名称、平台（来自最近一条短信的 `device` 字段）、推送状态、设备 ID、最近一次短信接收时间，以及快捷指令配置状态。创建或轮换后，黄框里的 Bearer token 和推送链接可以一键复制；刷新后不再显示。数据库只存哈希，没有再显示明文的入口，丢掉推送链接就轮换。生成、轮换和撤销都会先确认。页面保留 iOS 安装说明，并写明统一模板未签名、iCloud 尚未发布。每个设备可以「发送测试消息」，把一条带验证码 `654321` 的短信写入收件箱。删除设备会同时删除该设备的短信。
+- `/devices.html`：设备卡片显示名称、平台（来自最近一条短信的 `device` 字段）、推送状态、设备 ID、最近一次短信接收时间，以及快捷指令配置状态。创建或轮换后，黄框里的 Bearer token 和推送链接可以一键复制；刷新后不再显示。数据库只存哈希，没有再显示明文的入口，丢掉推送链接就轮换。生成、轮换和撤销都会先确认。页面保留 iOS 安装说明，并给出 iCloud 分享链接与未签名备用下载。每个设备可以「发送测试消息」，把一条带验证码 `654321` 的短信写入收件箱。删除设备会同时删除该设备的短信。
 - `/notify.html`：给当前用户添加 Telegram、企业微信群机器人、Bark 和邮件推送渠道。
 - `/users.html`：用户列表、创建、改角色、停用和删除的接口已关闭，调用会返回 410。页面文件还在，系统管理改版不在这一步。改密码仍用上面的 `ADMIN_PASSWORD` 再登录一次。
 

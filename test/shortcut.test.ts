@@ -140,10 +140,12 @@ describe("shortcut plist", () => {
     expect(plist).not.toContain("/api/v1/sms");
     expect(plist).not.toContain("/api/v1/ingest/");
     expect(plist).toContain("信息包含一个空格");
-    expect(plist).toContain("尚未发布");
+    expect(plist).toContain("SMSinBox Next");
+    expect(plist).toContain("信息 › 内容");
     expect(plist).toContain("默认关闭");
     expect(plist).toContain("立即运行");
     expect(plist).not.toContain("icloud.com");
+    expect(plist).not.toContain("尚未发布");
     expect(shortcutFilename("all")).toBe("SMSinBox-iOS.shortcut");
   });
 

@@ -86,17 +86,18 @@
             <div data-panel="ios">
               <h3>版本与配置状态</h3>
               <ul class="status-list" id="shortcut-status">
-                <li>模板：统一快捷指令 SMSinBox-iOS.shortcut。导入时只填写推送链接。</li>
-                <li>签名：未签名。iOS 15 及更高版本可能拒绝导入。</li>
-                <li>iCloud：尚未发布。不要使用来路不明的分享链接。</li>
-                <li>配置状态：本页看不到手机上的自动化开关。收到 device 为 iOS 的短信后，设备卡片会写成「已收到 iOS 短信」。发送测试消息不会写成 iOS。</li>
+                <li>推荐：打开 iCloud 分享链接安装 SMSinBox Next（已签名）。导入后只填写推送链接。</li>
+                <li>备用：设备页可下载未签名的 SMSinBox-iOS.shortcut；iOS 15 及更高版本可能拒绝导入。</li>
+                <li>iCloud：https://www.icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494 。不要使用来路不明的其它分享链接。</li>
+                <li>配置状态：本页看不到手机上的自动化开关。自动化里 content 必须用「信息 › 内容」，不要用「快捷指令输入」。收到 device 为 iOS 的短信后，设备卡片会写成「已收到 iOS 短信」。发送测试消息不会写成 iOS。</li>
               </ul>
               <p>推送链接在新建设备或轮换时出现一次，形如 <code>https://&lt;你的域名&gt;/api/v1/ingest/psh_...</code>。请立刻复制。刷新后无法再查看，丢掉就点该设备的「轮换」。不要把链接发到聊天或工单。Workers 的平台访问日志仍可能看到路径。</p>
               <div class="compare">
                 <article>
-                  <h3>SMSinBox-iOS</h3>
-                  <p>接近全部短信。适合普通号码。导入时只填推送链接，自动化条件用「信息包含一个空格」。</p>
-                  <a class="button secondary" href="/api/v1/ios/shortcut?variant=all" download="SMSinBox-iOS.shortcut">下载快捷指令</a>
+                  <h3>SMSinBox Next / SMSinBox-iOS</h3>
+                  <p>接近全部短信。适合普通号码。优先用 iCloud 分享链接；备用下载导入时只填推送链接。自动化条件用「信息包含一个空格」。<code>content</code> 用「信息 › 内容」。</p>
+                  <p><a href="https://www.icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494" target="_blank" rel="noopener">打开 iCloud 分享链接</a></p>
+                  <a class="button secondary" href="/api/v1/ios/shortcut?variant=all" download="SMSinBox-iOS.shortcut">下载备用未签名文件</a>
                 </article>
                 <article>
                   <h3>只要验证码</h3>
@@ -105,7 +106,7 @@
               </div>
               <div class="limits">
                 <strong>已知限制</strong>
-                <p>文件未签名。Linux 上无法运行 <code>shortcuts sign</code>，iOS 15 及更高版本经常拒绝未签名文件。被拒绝时按手动步骤新建。iCloud 分享链接尚未发布，不要使用来路不明的链接。需要关闭「运行前询问」。手机需开机联网，重启后要解锁一次。只转发文本，不支持彩信。</p>
+                <p>推荐用上方 iCloud 已签名分享链接。仓库下载的备用文件未签名；Linux 上无法运行 <code>shortcuts sign</code>，iOS 15 及更高版本经常拒绝未签名文件。被拒绝时按手动步骤新建。不要使用来路不明的其它链接。自动化里 <code>content</code> 必须用「信息 › 内容」。需要关闭「运行前询问」。手机需开机联网，重启后要解锁一次。只转发文本，不支持彩信。</p>
               </div>
               <p class="subtle">导入时只填推送链接。正文为空会通知「未发送：正文为空」并且不发送。读不到发件人时仍会发送，收件箱里的发件人是「（发件人为空）」；把 JSON 的 <code>from</code> 改成这条自动化的「发件人」才能得到号码。返回里有「请求过于频繁」时通知 429，有「推送链接无效」或「推送链接已撤销」时通知 401。没有 JSON，或系统停在「获取 URL 内容」报错，是网络失败或推送链接为空。</p>
               <div class="ios-steps">
@@ -113,7 +114,7 @@
                   <summary>iOS 27 及以上</summary>
                   <ol>
                     <li>在上面新建设备，复制一次性推送链接。</li>
-                    <li>下载快捷指令后在 iPhone 上打开。系统拒绝未签名文件时，用下面的手动步骤。iCloud 链接尚未发布。</li>
+                    <li>优先打开上方 iCloud 分享链接安装 SMSinBox Next；或下载备用未签名文件。系统拒绝未签名文件时，用下面的手动步骤。</li>
                     <li>导入时只填写推送链接。不要把链接发给别人。</li>
                     <li>打开「快捷指令」→「自动化」，展开这条快捷指令的触发器。</li>
                     <li>打开自动化开关，关闭「运行前确认」。有「锁定时允许运行」就打开它。这就是立即运行。</li>
@@ -136,12 +137,12 @@
                   <summary>手动添加「获取 URL 内容」</summary>
                   <ol>
                     <li>按上面对应系统版本新建「信息」自动化，选立即运行，并关掉运行前询问或运行前确认。</li>
-                    <li>快捷指令输入没有内容时，通知「未发送：正文为空」，然后停止。</li>
-                    <li>Sender 没有内容时，用文本「（发件人为空）」；否则用 Sender。把结果设成变量「发件人」。</li>
+                    <li>「信息 › 内容」没有内容时，通知「未发送：正文为空」，然后停止。</li>
+                    <li>「信息 › 发件人」没有内容时，用文本「（发件人为空）」；否则用「信息 › 发件人」。把结果设成变量「发件人」。</li>
                     <li>添加「文本」，内容填推送链接。</li>
                     <li>添加「获取 URL 内容」。URL 选上一步的文本，方法 POST，打开显示标头。</li>
                     <li>标头只加 <code>Content-Type</code>，值是 <code>application/json</code>。不要加 Authorization。</li>
-                    <li>请求体选 JSON：<code>from</code> 用变量「发件人」；<code>content</code> 用快捷指令输入；<code>timestamp</code> 用当前日期；<code>device</code> 填 iOS。</li>
+                    <li>请求体选 JSON：<code>from</code> 用变量「发件人」；<code>content</code> 用「信息 › 内容」（不要用「快捷指令输入」）；<code>timestamp</code> 用当前日期；<code>device</code> 填 iOS。</li>
                     <li>看返回的文字。包含「请求过于频繁」就通知 429。包含「推送链接」就通知 401，然后到设备页轮换。包含 false 就通知服务器拒绝了这条短信。不包含 ok 就通知网络失败。否则通知「已转发」。</li>
                   </ol>
                 </details>

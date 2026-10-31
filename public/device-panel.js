@@ -137,9 +137,9 @@ export function describeDevice(device, latest) {
 
 export function shortcutStatusLines() {
   return [
-    "模板：统一快捷指令 SMSinBox-iOS.shortcut。导入时只填写推送链接。",
-    "签名：未签名。iOS 15 及更高版本可能拒绝导入。",
-    "iCloud：尚未发布。不要使用来路不明的分享链接。",
-    "配置状态：本页看不到手机上的自动化开关。收到 device 为 iOS 的短信后，设备卡片会写成「已收到 iOS 短信」。发送测试消息不会写成 iOS。",
+    "推荐：打开 iCloud 分享链接安装 SMSinBox Next（已签名）。导入后只填写推送链接。",
+    "备用：设备页可下载未签名的 SMSinBox-iOS.shortcut；iOS 15 及更高版本可能拒绝导入。",
+    "iCloud：https://www.icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494 。不要使用来路不明的其它分享链接。",
+    "配置状态：本页看不到手机上的自动化开关。自动化里 content 必须用「信息 › 内容」，不要用「快捷指令输入」。收到 device 为 iOS 的短信后，设备卡片会写成「已收到 iOS 短信」。发送测试消息不会写成 iOS。",
   ];
 }

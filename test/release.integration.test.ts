@@ -890,7 +890,7 @@ describe("release checklist", () => {
     for (const file of EXPECTED_MIGRATIONS) expect(doc).toContain(file);
     expect(doc).toContain("先迁移再部署");
     expect(doc).toContain("不要在本次准备中部署生产");
-    expect(doc).toContain("尚未发布");
+    expect(doc).toContain("iCloud");
     expect(doc).toContain("未签名");
     expect(doc).toContain("/api/v1/sms");
     expect(doc).toContain("/api/v1/ingest/:secret");
@@ -905,9 +905,11 @@ describe("release checklist", () => {
     const setup = readFileSync("docs/ios-setup.md", "utf8");
     expect(devicesHtml).toContain('id="sms-url"');
     expect(devicesJs).toContain("/api/v1/sms");
-    expect(setup).toContain("尚未发布");
-    for (const file of [devicesHtml, setup, readFileSync("shortcuts/SMSinBox-iOS.shortcut", "utf8")]) {
-      expect(file).not.toContain("icloud.com/shortcuts");
-    }
+    expect(setup).toContain("https://www.icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494");
+    expect(setup).toContain("信息 › 内容");
+    expect(devicesHtml).toContain("https://www.icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494");
+    expect(setup).not.toContain("尚未发布");
+    // Unsigned downloadable template must not embed the share URL.
+    expect(readFileSync("shortcuts/SMSinBox-iOS.shortcut", "utf8")).not.toContain("icloud.com/shortcuts");
   });
 });

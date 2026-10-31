@@ -100,8 +100,8 @@ function buildUnifiedShortcut(): string {
 
 function unifiedComment(): string {
   return [
-    "未签名模板。Linux 无法签名，因为 shortcuts sign 只能在 macOS 上运行。iOS 15 及更高版本经常拒绝导入未签名文件。请在你的 iPhone 上导入。iCloud 分享链接尚未发布。维护者还没有在 Mac 上真实分享之前，文档只会写「尚未发布」，这里也不会放链接。",
-    "导入时只填写推送链接。这条链接是设备密钥，不要发到聊天或工单。本快捷指令用 POST 发送 JSON，标头只有 Content-Type: application/json，不要加 Authorization。content 是快捷指令输入。正文没有内容时会停住，不发送。from 优先用短信的 Sender；Sender 没有内容时改成「（发件人为空）」并仍然发送。要得到真实号码，把获取 URL 内容里的 from 改成这条自动化提供的「发件人」。timestamp 是当前日期，device 固定为 iOS。",
+    "未签名模板。Linux 无法签名，因为 shortcuts sign 只能在 macOS 上运行。iOS 15 及更高版本经常拒绝导入未签名文件。推荐安装：打开设备页或 docs/ios-setup.md 里的 iCloud 分享链接（SMSinBox Next，已签名）。本文件是备用下载，被拒绝时按文档手动新建。不要把分享链接写进本快捷指令。",
+    "导入时只填写推送链接。这条链接是设备密钥，不要发到聊天或工单。本快捷指令用 POST 发送 JSON，标头只有 Content-Type: application/json，不要加 Authorization。自动化里 content 必须用「信息 › 内容」（TriggerOutput），不要用「快捷指令输入」；from 用「信息 › 发件人」。正文没有内容时会停住，不发送。Sender 没有内容时改成「（发件人为空）」并仍然发送。timestamp 是当前日期，device 固定为 iOS。",
     "发送之后按服务器返回的文字区分结果：正文里的「请求过于频繁」表示 429；「推送链接无效」或「推送链接已撤销」表示 401；还有 false 表示服务器拒绝；没有 ok 表示网络失败、推送链接为空，或返回的不是 JSON。系统若直接停在获取 URL 内容的报错上，同样是网络失败或推送链接为空。",
     "只要验证码时不要另装一套主快捷指令。在「信息」自动化里把条件改成包含「验证码」，并再加一条包含 code。接近全部短信时用「信息包含一个空格」，这不是真正的全量，没有空格的短码匹配不到。共享来的自动化默认关闭，需要手动打开，选择立即运行，并关闭运行前询问。手机重启后要先解锁一次。这些步骤只能在你的 iPhone 上确认。",
   ].join("\n");
@@ -228,7 +228,7 @@ function commentText(variant: ShortcutVariant): string {
       ? "正文不包含「验证码」或 code 时，快捷指令会停止，不会发送请求。短码短信如果没有空格，用这一版，或在自动化里另加「验证码」和 code。"
       : "把本快捷指令放进「信息」自动化，触发条件选「信息包含一个空格」。这是最接近全部短信的规则。";
   return [
-    "未签名模板。Linux 无法签名，因为 shortcuts sign 只能在 macOS 上运行。iOS 15 及更高版本经常拒绝导入未签名文件。请在 iPhone 上导入，或使用 iCloud 分享链接。维护者还没有发布链接时，文档会写「尚未发布」。",
+    "未签名模板。Linux 无法签名，因为 shortcuts sign 只能在 macOS 上运行。iOS 15 及更高版本经常拒绝导入未签名文件。请在 iPhone 上导入，或使用文档里的 iCloud 分享链接（推荐 SMSinBox Next）。",
     "导入时填写 Webhook URL 和设备 token。本快捷指令用 POST 发送 JSON，Authorization 头为 Bearer 加上设备 token。from 会尝试读取短信的 Sender；如果结果是空的，请把 from 改成自动化提供的「发件人」变量。content 是快捷指令输入，timestamp 是当前日期，device 固定为 iOS。",
     `${filter}共享来的自动化默认关闭，需要手动打开，并关闭运行前询问。`,
   ].join("\n");

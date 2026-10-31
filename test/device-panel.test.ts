@@ -123,14 +123,15 @@ describe("device panel status", () => {
 });
 
 describe("shortcut version status", () => {
-  it("states the unsigned unified template and that iCloud is not published", () => {
+  it("recommends the published iCloud share and keeps an unsigned fallback", () => {
     const lines = shortcutStatusLines();
     expect(lines).toHaveLength(4);
-    expect(lines.join("\n")).toContain("SMSinBox-iOS.shortcut");
+    expect(lines.join("\n")).toContain("SMSinBox Next");
     expect(lines.join("\n")).toContain("只填写推送链接");
     expect(lines.join("\n")).toContain("未签名");
-    expect(lines.join("\n")).toContain("尚未发布");
-    expect(lines.join("\n")).not.toMatch(/icloud\.com/i);
+    expect(lines.join("\n")).toContain("icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494");
+    expect(lines.join("\n")).toContain("信息 › 内容");
+    expect(lines.join("\n")).not.toContain("尚未发布");
     expect(lines.join("\n")).toContain("已收到 iOS 短信");
   });
 });

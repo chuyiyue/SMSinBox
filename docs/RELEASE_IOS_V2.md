@@ -26,7 +26,7 @@
 - `npm test` 含 `test/release.integration.test.ts`。该文件用本地 D1 应用上述迁移，再走登录、旧行补签、Bearer、推送链接、轮换、撤销、HMAC、删除和保留任务。
 - `npx tsc --noEmit`。
 - 应用日志把 `/api/v1/ingest/<密钥>` 收成 `/api/v1/ingest/:secret`，不记录查询串。
-- 统一模板未签名。仓库和下载结果都不含 `icloud.com/shortcuts`。文档写的是尚未发布。
+- 推荐安装走文档中的 iCloud 分享链接（SMSinBox Next）。未签名备用模板由生成器产出，下载结果仍不含 `icloud.com/shortcuts` URL；链接写在文档与设备页。
 - Android 和旧快捷指令仍指向 `/api/v1/sms`。
 
 本环境没有 iPhone，也没有浏览器自动化。快捷指令能否导入、自动化开关、锁定时运行，要在操作者自己的手机上确认。
@@ -44,7 +44,7 @@
 7. 用推送链接 POST 一条短信，收件箱能看到。再用原来的 Bearer POST `/api/v1/sms`，仍然成功。
 8. 轮换后，旧推送链接返回 401，该设备已有短信还在。撤销后返回「推送链接已撤销」。丢掉链接就轮换，没有再显示明文的入口。
 9. 设备页 Android 说明里的 URL 仍是 `/api/v1/sms`。下载的 `SMSinBox-iOS.shortcut` 不含这台设备的密钥。
-10. 在 iPhone 上导入或按 `docs/ios-setup.md` 手动重建。系统拒绝未签名文件时，不要关掉系统的签名检查，也不要改用来路不明的分享链接。iCloud 分享链接尚未发布。
+10. 在 iPhone 上优先打开 `docs/ios-setup.md` 里的 iCloud 分享链接，或按该文档手动重建。系统拒绝未签名备用文件时，不要关掉系统的签名检查，也不要改用来路不明的其它分享链接。
 
 推送链接等同设备密钥。不要把它发到聊天或工单里。应用日志已经打码，Workers 自己的请求日志仍可能看到路径。
 
