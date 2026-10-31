@@ -2,18 +2,29 @@ import { purgeExpired } from "./db";
 import { json } from "./http";
 import { logError, logInfo } from "./log";
 import { handleApi } from "./routes/api";
-import { handleSms } from "./routes/sms";
+import { handleIngest, handleSms } from "./routes/sms";
+
+function pathForLog(pathname: string): string {
+  if (pathname.startsWith("/api/v1/ingest/")) return "/api/v1/ingest/:secret";
+  return pathname;
+}
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {
     const url = new URL(request.url);
     const requestId = crypto.randomUUID();
+    const path = pathForLog(url.pathname);
     try {
       let response: Response;
       if (url.pathname === "/api/v1/sms") {
         response =
           request.method.toUpperCase() === "POST"
             ? await handleSms(request, env, ctx)
+            : json({ ok: false, error: "方法不允许" }, 405, { allow: "POST" });
+      } else if (url.pathname.startsWith("/api/v1/ingest/")) {
+        response =
+          request.method.toUpperCase() === "POST"
+            ? await handleIngest(request, env, ctx)
             : json({ ok: false, error: "方法不允许" }, 405, { allow: "POST" });
       } else if (url.pathname.startsWith("/api/")) {
         response = await handleApi(request, env, ctx);
@@ -25,7 +36,7 @@ export default {
           message: "request",
           request_id: requestId,
           method: request.method,
-          path: url.pathname,
+          path,
           status: response.status,
         });
       }
@@ -35,7 +46,7 @@ export default {
         message: "request_failed",
         request_id: requestId,
         method: request.method,
-        path: url.pathname,
+        path,
         error: error instanceof Error ? error.message.slice(0, 180) : "unknown",
       });
       return json({ ok: false, error: "服务器错误", request_id: requestId }, 500);

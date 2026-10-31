@@ -7,6 +7,7 @@ import { resolveContentKey, revealCode, sealMessage } from "../crypto";
 import { dedupHash } from "../dedup";
 import {
   consumeRateLimit,
+  findDeviceByPushTokenHash,
   findDeviceByTokenHash,
   findMessageByHash,
   insertMessage,
@@ -19,9 +20,29 @@ import { json, MAX_BODY_BYTES, readLimitedBytes } from "../http";
 import { logInfo } from "../log";
 import { notifyStoredSms, scheduleNotify } from "../notify";
 import { buildRawPayload, parseSmsPayload } from "../parse";
+import type { DeviceRecord } from "../types";
+
+const INGEST_PREFIX = "/api/v1/ingest/";
+const PUSH_TOKEN_PATTERN = /^psh_[A-Za-z0-9_-]+$/;
 
 export function buildTestSms(nonce: string): string {
   return `SMSinBox 测试短信。验证码 654321。序号 ${nonce}`;
+}
+
+// Reject before hashing. The charset is the psh_ prefix plus base64url, and the
+// length cap matches readBearer so a huge path never becomes a SHA-256 input.
+export function readIngestSecret(pathname: string): string | null {
+  if (!pathname.startsWith(INGEST_PREFIX)) return null;
+  const raw = pathname.slice(INGEST_PREFIX.length);
+  if (!raw || raw.includes("/")) return null;
+  let secret: string;
+  try {
+    secret = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  if (secret.length < 16 || secret.length > 256 || !PUSH_TOKEN_PATTERN.test(secret)) return null;
+  return secret;
 }
 
 export async function handleSms(
@@ -55,7 +76,39 @@ export async function handleSms(
     return json({ ok: false, error: "该设备未启用签名" }, 401);
   }
 
-  const hits = await consumeRateLimit(env.DB, tokenHash, now);
+  return storeSms(request, env, ctx, device, bytes, tokenHash, now);
+}
+
+export async function handleIngest(
+  request: Request,
+  env: Env,
+  ctx: { waitUntil(promise: Promise<unknown>): void },
+): Promise<Response> {
+  const bytes = await readLimitedBytes(request, MAX_BODY_BYTES);
+  if (bytes === null) return json({ ok: false, error: "请求体过大" }, 413);
+
+  // The path is the only credential. Authorization is ignored so a foreign
+  // Bearer cannot choose a different device. HMAC stays on the Bearer route.
+  const secret = readIngestSecret(new URL(request.url).pathname);
+  if (!secret) return json({ ok: false, error: "推送链接无效" }, 401);
+  const tokenHash = await sha256Hex(secret);
+  const device = await findDeviceByPushTokenHash(env.DB, tokenHash);
+  if (!device) return json({ ok: false, error: "推送链接无效" }, 401);
+  if (device.push_revoked_at != null) return json({ ok: false, error: "推送链接已撤销" }, 401);
+
+  return storeSms(request, env, ctx, device, bytes, tokenHash, Date.now());
+}
+
+async function storeSms(
+  request: Request,
+  env: Env,
+  ctx: { waitUntil(promise: Promise<unknown>): void },
+  device: DeviceRecord,
+  bytes: Uint8Array,
+  rateKey: string,
+  now: number,
+): Promise<Response> {
+  const hits = await consumeRateLimit(env.DB, rateKey, now);
   if (hits > RATE_LIMIT_PER_MINUTE) {
     return json({ ok: false, error: "请求过于频繁" }, 429, { "retry-after": "60" });
   }

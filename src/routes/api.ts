@@ -1,4 +1,5 @@
 import {
+  bytesToBase64Url,
   hashPassword,
   randomToken,
   requestIsSecure,
@@ -26,6 +27,7 @@ import {
   findDeviceForUser,
   findMessageByHash,
   findNotifyChannel,
+  findOwnedDevice,
   findSessionUser,
   findUserById,
   findUserByUsername,
@@ -41,6 +43,9 @@ import {
   listNotifyChannels,
   listUsers as listUserRows,
   MAX_DEVICES,
+  pushState,
+  replaceDevicePushToken,
+  revokeDevicePush,
   setNotifyChannelEnabled,
   setUserDisabledAt,
   setUserRole,
@@ -133,6 +138,11 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
   if (deviceTest?.[1]) {
     if (method !== "POST") return methodNotAllowed("POST");
     return testDevice(request, env, ctx, deviceTest[1]);
+  }
+  const devicePush = /^\/api\/v1\/devices\/([^/]+)\/push$/.exec(path);
+  if (devicePush?.[1]) {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return updateDevicePush(request, env, devicePush[1]);
   }
   const deviceMatch = /^\/api\/v1\/devices\/([^/]+)$/.exec(path);
   if (deviceMatch?.[1]) {
@@ -325,6 +335,7 @@ async function createDevice(request: Request, env: Env): Promise<Response> {
   }
 
   const token = randomToken();
+  const pushToken = newPushToken();
   const id = crypto.randomUUID();
   const createdAt = Date.now();
   await insertDevice(env.DB, {
@@ -332,6 +343,7 @@ async function createDevice(request: Request, env: Env): Promise<Response> {
     userId: user.id,
     name: parsed.name,
     tokenHash: await sha256Hex(token),
+    pushTokenHash: await sha256Hex(pushToken),
     secret: parsed.secret,
     createdAt,
   });
@@ -339,14 +351,74 @@ async function createDevice(request: Request, env: Env): Promise<Response> {
   return json({
     ok: true,
     token,
+    push_url: ingestUrl(request, pushToken),
     device: {
       id,
       name: parsed.name,
       created_at: createdAt,
       last_seen_at: null,
       has_secret: parsed.secret !== null,
+      push: "active" as const,
     },
   });
+}
+
+async function updateDevicePush(request: Request, env: Env, rawId: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const action = readPushAction(body.value);
+  if (typeof action !== "string") return json({ ok: false, error: action.error }, 400);
+  const id = decodePart(rawId);
+  if (!id || !UUID_RE.test(id)) return json({ ok: false, error: "设备不存在" }, 404);
+  const device = await findOwnedDevice(env.DB, user.id, id);
+  if (!device) return json({ ok: false, error: "设备不存在" }, 404);
+  const state = pushState(device.push_token_hash, device.push_revoked_at);
+
+  if (action === "revoke") {
+    if (state !== "active") {
+      return json({ ok: false, error: state === "none" ? "还没有推送链接" : "推送链接已经撤销" }, 409);
+    }
+    const revoked = await revokeDevicePush(env.DB, user.id, id, Date.now());
+    if (!revoked) return json({ ok: false, error: "推送链接已经撤销" }, 409);
+    logInfo({ message: "device_push_revoked", device_id: id, user_id: user.id });
+    return json({ ok: true, device: { id, push: "revoked" } });
+  }
+
+  if (action === "issue" && state === "active") {
+    return json({ ok: false, error: "推送链接仍有效，请改用轮换" }, 409);
+  }
+  if (action === "rotate" && state === "none") {
+    return json({ ok: false, error: "还没有推送链接" }, 409);
+  }
+
+  const pushToken = newPushToken();
+  const updated = await replaceDevicePushToken(env.DB, user.id, id, await sha256Hex(pushToken), action);
+  if (!updated) return json({ ok: false, error: "推送链接状态已变化" }, 409);
+  logInfo({ message: "device_push_issued", device_id: id, user_id: user.id, action });
+  return json({
+    ok: true,
+    push_url: ingestUrl(request, pushToken),
+    device: { id, push: "active" },
+  });
+}
+
+function newPushToken(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return `psh_${bytesToBase64Url(bytes)}`;
+}
+
+function ingestUrl(request: Request, pushToken: string): string {
+  return `${new URL(request.url).origin}/api/v1/ingest/${pushToken}`;
+}
+
+function readPushAction(value: unknown): "issue" | "rotate" | "revoke" | { error: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { error: "请求体无效" };
+  const action = (value as Record<string, unknown>).action;
+  if (action === "issue" || action === "rotate" || action === "revoke") return action;
+  return { error: "请指定 issue、rotate 或 revoke" };
 }
 
 async function listNotifications(request: Request, env: Env): Promise<Response> {

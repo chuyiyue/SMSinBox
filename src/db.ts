@@ -8,6 +8,7 @@ import type {
   MessageRecord,
   MessageView,
   NotifyChannelRow,
+  PushState,
   SessionUser,
   UserAccount,
   UserRecord,
@@ -105,6 +106,9 @@ export async function deleteUserSessions(db: D1Database, userId: string): Promis
 export async function deleteUserCascade(db: D1Database, userId: string): Promise<void> {
   await db.batch([
     db.prepare("DELETE FROM rate_limits WHERE token_hash IN (SELECT token_hash FROM devices WHERE user_id = ?)").bind(userId),
+    db.prepare(
+      "DELETE FROM rate_limits WHERE token_hash IN (SELECT push_token_hash FROM devices WHERE user_id = ? AND push_token_hash IS NOT NULL)",
+    ).bind(userId),
     db.prepare("DELETE FROM messages WHERE device_id IN (SELECT id FROM devices WHERE user_id = ?)").bind(userId),
     db.prepare("DELETE FROM devices WHERE user_id = ?").bind(userId),
     db.prepare("DELETE FROM sessions WHERE user_id = ?").bind(userId),
@@ -140,6 +144,12 @@ export async function deleteSession(db: D1Database, sessionHash: string): Promis
   await db.prepare("DELETE FROM sessions WHERE id = ?").bind(sessionHash).run();
 }
 
+export function pushState(hash: string | null | undefined, revokedAt: number | null | undefined): PushState {
+  if (hash == null || hash === "") return "none";
+  if (revokedAt != null) return "revoked";
+  return "active";
+}
+
 export async function findDeviceByTokenHash(db: D1Database, tokenHash: string): Promise<DeviceRecord | null> {
   return db
     .prepare(
@@ -147,6 +157,17 @@ export async function findDeviceByTokenHash(db: D1Database, tokenHash: string): 
        FROM devices WHERE token_hash = ?`,
     )
     .bind(tokenHash)
+    .first<DeviceRecord>();
+}
+
+export async function findDeviceByPushTokenHash(db: D1Database, pushTokenHash: string): Promise<DeviceRecord | null> {
+  return db
+    .prepare(
+      `SELECT id, user_id, name, token_hash, secret, last_seen_at, created_at,
+              push_token_hash, push_revoked_at
+       FROM devices WHERE push_token_hash = ?`,
+    )
+    .bind(pushTokenHash)
     .first<DeviceRecord>();
 }
 
@@ -179,32 +200,121 @@ export async function countDevices(db: D1Database, userId: string): Promise<numb
 export async function listDevices(db: D1Database, userId: string): Promise<DeviceView[]> {
   const result = await db
     .prepare(
-      `SELECT id, name, created_at, last_seen_at, secret
+      `SELECT id, name, created_at, last_seen_at, secret, push_token_hash, push_revoked_at
        FROM devices WHERE user_id = ?
        ORDER BY created_at DESC`,
     )
     .bind(userId)
-    .all<{ id: string; name: string; created_at: number; last_seen_at: number | null; secret: string | null }>();
+    .all<{
+      id: string;
+      name: string;
+      created_at: number;
+      last_seen_at: number | null;
+      secret: string | null;
+      push_token_hash: string | null;
+      push_revoked_at: number | null;
+    }>();
   return result.results.map((row) => ({
     id: row.id,
     name: row.name,
     created_at: row.created_at,
     last_seen_at: row.last_seen_at,
     has_secret: Boolean(row.secret),
+    push: pushState(row.push_token_hash, row.push_revoked_at),
   }));
 }
 
 export async function insertDevice(
   db: D1Database,
-  device: { id: string; userId: string; name: string; tokenHash: string; secret: string | null; createdAt: number },
+  device: {
+    id: string;
+    userId: string;
+    name: string;
+    tokenHash: string;
+    secret: string | null;
+    createdAt: number;
+    pushTokenHash?: string | null;
+  },
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO devices (id, user_id, name, token_hash, secret, last_seen_at, created_at)
-       VALUES (?, ?, ?, ?, ?, NULL, ?)`,
+      `INSERT INTO devices (
+         id, user_id, name, token_hash, secret, last_seen_at, created_at, push_token_hash, push_revoked_at
+       ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL)`,
     )
-    .bind(device.id, device.userId, device.name, device.tokenHash, device.secret, device.createdAt)
+    .bind(
+      device.id,
+      device.userId,
+      device.name,
+      device.tokenHash,
+      device.secret,
+      device.createdAt,
+      device.pushTokenHash ?? null,
+    )
     .run();
+}
+
+export async function findOwnedDevice(
+  db: D1Database,
+  userId: string,
+  deviceId: string,
+): Promise<{
+  id: string;
+  name: string;
+  push_token_hash: string | null;
+  push_revoked_at: number | null;
+} | null> {
+  return db
+    .prepare(
+      `SELECT id, name, push_token_hash, push_revoked_at
+       FROM devices WHERE id = ? AND user_id = ?`,
+    )
+    .bind(deviceId, userId)
+    .first<{
+      id: string;
+      name: string;
+      push_token_hash: string | null;
+      push_revoked_at: number | null;
+    }>();
+}
+
+export async function replaceDevicePushToken(
+  db: D1Database,
+  userId: string,
+  deviceId: string,
+  pushTokenHash: string,
+  action: "issue" | "rotate",
+): Promise<boolean> {
+  const guard =
+    action === "issue"
+      ? "AND (push_token_hash IS NULL OR push_revoked_at IS NOT NULL)"
+      : "AND push_token_hash IS NOT NULL";
+  const result = await db
+    .prepare(
+      `UPDATE devices
+       SET push_token_hash = ?, push_revoked_at = NULL
+       WHERE id = ? AND user_id = ?
+       ${guard}`,
+    )
+    .bind(pushTokenHash, deviceId, userId)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+export async function revokeDevicePush(
+  db: D1Database,
+  userId: string,
+  deviceId: string,
+  revokedAt: number,
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE devices SET push_revoked_at = ?
+       WHERE id = ? AND user_id = ? AND push_token_hash IS NOT NULL AND push_revoked_at IS NULL`,
+    )
+    .bind(revokedAt, deviceId, userId)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
 }
 
 export async function findDeviceForUser(
@@ -220,12 +330,13 @@ export async function findDeviceForUser(
 
 export async function deleteDevice(db: D1Database, userId: string, deviceId: string): Promise<boolean> {
   const owned = await db
-    .prepare("SELECT id FROM devices WHERE id = ? AND user_id = ?")
+    .prepare("SELECT id, token_hash, push_token_hash FROM devices WHERE id = ? AND user_id = ?")
     .bind(deviceId, userId)
-    .first<{ id: string }>();
+    .first<{ id: string; token_hash: string; push_token_hash: string | null }>();
   if (!owned) return false;
   await db.batch([
     db.prepare("DELETE FROM messages WHERE device_id = ?").bind(deviceId),
+    db.prepare("DELETE FROM rate_limits WHERE token_hash = ? OR token_hash = ?").bind(owned.token_hash, owned.push_token_hash),
     db.prepare("DELETE FROM devices WHERE id = ? AND user_id = ?").bind(deviceId, userId),
   ]);
   return true;

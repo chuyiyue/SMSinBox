@@ -35,6 +35,8 @@ export interface MessageView {
   created_at: number;
 }
 
+export type PushState = "none" | "active" | "revoked";
+
 export interface DeviceRecord {
   id: string;
   user_id: string;
@@ -43,6 +45,8 @@ export interface DeviceRecord {
   secret: string | null;
   last_seen_at: number | null;
   created_at: number;
+  push_token_hash?: string | null;
+  push_revoked_at?: number | null;
 }
 
 export interface DeviceView {
@@ -51,6 +55,7 @@ export interface DeviceView {
   created_at: number;
   last_seen_at: number | null;
   has_secret: boolean;
+  push: PushState;
 }
 
 export interface UserRecord {
