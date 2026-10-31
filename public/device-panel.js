@@ -59,6 +59,22 @@ export function platformFromReport(value) {
   return { key: "reported", label: text };
 }
 
+export function platformBadge(platform) {
+  if (platform?.key === "ios") return "iOS";
+  if (platform?.key === "android") return "Android";
+  if (platform?.key === "reported") return "其他";
+  return "尚未上报";
+}
+
+export function platformDetail(platform) {
+  if (platform?.key === "ios") return "最近一条短信的 device 是 iOS。";
+  if (platform?.key === "android") return "最近一条短信的 device 是 Android。";
+  if (platform?.key === "reported") {
+    return `最近一条短信的 device 是「${platform.label}」。测试短信会写成设备名称。`;
+  }
+  return "还没有短信。快捷指令上报后，这里会变成 iOS。";
+}
+
 export function receiveTime(device, latest) {
   const at = Number(latest?.received_at);
   if (Number.isFinite(at) && at > 0) return { kind: "message", at };
@@ -107,6 +123,8 @@ export function describeDevice(device, latest) {
     name: String(device?.name || ""),
     id: String(device?.id || ""),
     platform,
+    platformBadge: platformBadge(platform),
+    platformDetail: platformDetail(platform),
     push,
     pushLabel: pushLabel(push),
     pushHint: pushLinkHint(push),

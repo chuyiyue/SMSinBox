@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   canRevealPushSecret,
@@ -82,6 +83,8 @@ describe("device panel status", () => {
   it("describes shortcut config without claiming the phone switch is visible", () => {
     const waiting = describeDevice(DEVICE, null);
     expect(waiting.platform).toEqual({ key: "unknown", label: "尚未上报" });
+    expect(waiting.platformBadge).toBe("尚未上报");
+    expect(waiting.platformDetail).toContain("会变成 iOS");
     expect(waiting.hmac).toBe("未启用 HMAC");
     expect(waiting.shortcut).toContain("要在 iPhone 上确认");
     expect(waiting.id).toBe(DEVICE.id);
@@ -91,6 +94,7 @@ describe("device panel status", () => {
       { device_id: DEVICE.id, reported_device: "iOS", received_at: 20 },
     );
     expect(ios.platform.label).toBe("iOS");
+    expect(ios.platformBadge).toBe("iOS");
     expect(ios.hmac).toBe("已启用 HMAC");
     expect(ios.received).toEqual({ kind: "message", at: 20 });
     expect(ios.shortcut).toContain("已收到 iOS 短信");
@@ -102,6 +106,8 @@ describe("device panel status", () => {
       received_at: 30,
     });
     expect(tested.shortcut).toContain("测试短信会写成设备名称");
+    expect(tested.platformBadge).toBe("其他");
+    expect(tested.platformDetail).toContain("我的 iPhone");
   });
 
   it("keeps the newest message for each device", () => {
@@ -126,5 +132,53 @@ describe("shortcut version status", () => {
     expect(lines.join("\n")).toContain("尚未发布");
     expect(lines.join("\n")).not.toMatch(/icloud\.com/i);
     expect(lines.join("\n")).toContain("已收到 iOS 短信");
+  });
+});
+
+describe("devices page", () => {
+  const html = readFileSync("public/devices.html", "utf8");
+  const js = readFileSync("public/devices.js", "utf8");
+  const css = readFileSync("public/style.css", "utf8");
+
+  it("keeps the Cloud Mail shell, yellow box, and shortcut status", () => {
+    expect(html).toContain('class="app-layout"');
+    expect(html).toContain('class="sidebar"');
+    expect(html).toContain('class="topbar"');
+    expect(html).toContain('id="token-box" class="token-box"');
+    expect(html).toContain("只显示这一次");
+    expect(html).toContain("不能再显示明文");
+    expect(html).toContain("版本与配置状态");
+    expect(html).toContain('id="shortcut-status"');
+    expect(html).toContain('href="/api/v1/ios/shortcut?variant=all"');
+    expect(html).not.toMatch(/href="[^"]*variant=code/);
+    expect(html).not.toContain("再显示一次");
+    for (const line of shortcutStatusLines()) expect(html).toContain(line);
+  });
+
+  it("confirms generate, rotate, and revoke, and does not read a secret back", () => {
+    expect(js).toContain("describeDevice");
+    expect(js).toContain("if (!message || !window.confirm(message)) return;");
+    expect(js).toContain('api("/api/v1/devices"');
+    expect(js).toContain("/api/v1/devices/${device.id}/push");
+    expect(js).toContain("/api/v1/devices/${device.id}/test");
+    expect(js).toContain("/api/v1/messages?device_id=");
+    expect(js).toContain("复制推送链接");
+    expect(js).toContain("复制 ID");
+    expect(js).toContain("发送测试消息");
+    expect(js).toContain("安装说明");
+    expect(js).not.toContain("device.push_url");
+    expect(js).not.toContain("再显示一次");
+    expect(js).not.toMatch(/\/reveal/);
+  });
+
+  it("keeps the yellow credential box and the phone breakpoints", () => {
+    expect(css).toMatch(/\.token-box \{ background: #fff7e8;/);
+    expect(css).toContain(".device-facts");
+    expect(css).toContain(".device.is-highlighted");
+    expect(css).toContain("@media (max-width: 640px)");
+    expect(css).toContain("@media (max-width: 380px)");
+    expect(css).toMatch(/\[hidden\] \{ display: none !important; \}/);
+    expect(css).toContain("--sidebar: #1c1915");
+    expect(css).toContain("--paper: #f3ecdf");
   });
 });

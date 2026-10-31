@@ -1,11 +1,7 @@
-import { api, copyText, formatTime, initShell, loadNav, logout } from "./common.js";
+import { api, copyText, formatTime, initShell, loadNav, logout, renderSidebarDevices } from "./common.js";
+import { credentialBoxes, describeDevice, pushConfirm, shortcutStatusLines } from "./device-panel.js";
 
 const TEMPLATE = '{"from":"{{FROM}}","content":"{{SMS}}","timestamp":"{{RECEIVE_TIME}}","device":"{{DEVICE_NAME}}","sim":"{{CARD_SLOT}}"}';
-const PUSH_LABEL = {
-  none: "未生成推送链接",
-  active: "推送链接有效",
-  revoked: "推送链接已撤销",
-};
 const form = document.querySelector("#device-form");
 const errorBox = document.querySelector("#device-error");
 const statusBox = document.querySelector("#device-status");
@@ -20,6 +16,7 @@ let shownDeviceId = "";
 
 document.querySelector("#sms-url").textContent = webhookUrl;
 document.querySelector("#android-template").textContent = TEMPLATE;
+fillShortcutStatus();
 initShell({
   onLogout: () => logout().catch(() => setError("退出失败")),
   onRefresh: () => loadDevices().catch(() => setError("加载设备失败")),
@@ -33,6 +30,8 @@ document.querySelector("#copy-token").addEventListener("click", async (event) =>
 document.querySelector("#copy-push-url").addEventListener("click", async (event) => {
   await copyAndFlash(event.currentTarget, pushUrlValue.textContent || "", "复制推送链接");
 });
+tokenValue.addEventListener("click", () => selectContents(tokenValue));
+pushUrlValue.addEventListener("click", () => selectContents(pushUrlValue));
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -54,6 +53,7 @@ form.addEventListener("submit", async (event) => {
       token: result.data.token || "",
       pushUrl: result.data.push_url || "",
     });
+    setStatus("请立刻复制黄框里的内容。刷新后不能再查看。");
     form.reset();
     await loadDevices();
   } catch (error) {
@@ -72,19 +72,51 @@ loadNav().catch((error) => {
   if (error instanceof Error && error.message === "unauthorized") return;
 });
 
+function fillShortcutStatus() {
+  const list = document.querySelector("#shortcut-status");
+  if (!list) return;
+  list.replaceChildren();
+  for (const line of shortcutStatusLines()) {
+    const item = document.createElement("li");
+    item.textContent = line;
+    list.append(item);
+  }
+}
+
 function showCredentials({ deviceId, token, pushUrl }) {
   shownDeviceId = deviceId || "";
   tokenValue.textContent = token || "";
   pushUrlValue.textContent = pushUrl || "";
-  bearerWrap.hidden = !token;
-  pushWrap.hidden = !pushUrl;
-  tokenBox.hidden = !token && !pushUrl;
+  const boxes = credentialBoxes({ token, pushUrl });
+  bearerWrap.hidden = !boxes.showBearer;
+  pushWrap.hidden = !boxes.showPush;
+  tokenBox.hidden = !boxes.showBox;
+  if (boxes.showBox) tokenBox.scrollIntoView({ block: "nearest" });
 }
 
 async function loadDevices() {
+  const sidebar = document.querySelector("#sidebar-devices");
+  if (sidebar) sidebar.dataset.loaded = "1";
   const result = await api("/api/v1/devices");
-  devices.replaceChildren();
   const rows = result.data.devices || [];
+  renderSidebarDevices(rows);
+  const latest = await loadLatest(rows);
+  renderDeviceList(rows, latest);
+}
+
+async function loadLatest(rows) {
+  const found = new Map();
+  await mapLimit(rows, 4, async (device) => {
+    const result = await api(`/api/v1/messages?device_id=${encodeURIComponent(device.id)}&page_size=1`);
+    if (!result.response.ok) return;
+    const message = result.data.messages?.[0];
+    if (message) found.set(device.id, message);
+  });
+  return found;
+}
+
+function renderDeviceList(rows, latest) {
+  devices.replaceChildren();
   if (rows.length === 0) {
     const empty = document.createElement("p");
     empty.className = "empty";
@@ -93,62 +125,155 @@ async function loadDevices() {
     return;
   }
   for (const device of rows) {
-    const row = document.createElement("article");
-    row.className = "device";
-    const text = document.createElement("div");
-    const title = document.createElement("strong");
-    title.textContent = device.name;
-    const meta = document.createElement("p");
-    meta.className = "subtle";
-    const seen = device.last_seen_at ? `最近上报 ${formatTime(device.last_seen_at)}` : "还没有上报";
-    const push = PUSH_LABEL[device.push] || PUSH_LABEL.none;
-    meta.textContent = `${seen}${device.has_secret ? " · 已启用 HMAC" : ""} · ${push}`;
-    text.append(title, meta);
-    const actions = document.createElement("div");
-    actions.className = "actions";
-    const test = document.createElement("button");
-    test.type = "button";
-    test.className = "secondary";
-    test.textContent = "发送测试消息";
-    test.addEventListener("click", async () => {
-      test.disabled = true;
-      setError("");
-      try {
-        const sent = await api(`/api/v1/devices/${device.id}/test`, { method: "POST", body: "{}" });
-        if (!sent.response.ok) {
-          setStatus(sent.data.error || "测试失败");
-          return;
-        }
-        setStatus(`已写入收件箱，验证码 ${sent.data.code || ""}`);
-      } catch (error) {
-        if (error instanceof Error && error.message === "unauthorized") return;
-        setStatus("测试失败");
-      } finally {
-        test.disabled = false;
-      }
-    });
-    actions.append(test);
-    if (device.push !== "active") actions.append(pushButton(device, "issue", "生成推送链接"));
-    if (device.push === "active" || device.push === "revoked") actions.append(pushButton(device, "rotate", "轮换"));
-    if (device.push === "active") actions.append(pushButton(device, "revoke", "撤销"));
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.className = "danger";
-    remove.textContent = "删除";
-    remove.addEventListener("click", async () => {
-      if (!window.confirm(`删除「${device.name}」及其短信？`)) return;
-      const deleted = await api(`/api/v1/devices/${device.id}`, { method: "DELETE" });
-      if (!deleted.response.ok) {
-        setError(deleted.data.error || "删除失败");
+    devices.append(renderDevice(device, latest.get(device.id) || null));
+  }
+}
+
+function renderDevice(device, latest) {
+  const view = describeDevice(device, latest);
+  const row = document.createElement("article");
+  row.className = "device";
+  if (view.id) row.dataset.deviceId = view.id;
+  if (view.id && view.id === shownDeviceId) row.classList.add("is-highlighted");
+
+  const head = document.createElement("div");
+  head.className = "device-head";
+  const titleWrap = document.createElement("div");
+  titleWrap.className = "device-title";
+  const title = document.createElement("strong");
+  title.className = "device-name";
+  title.textContent = view.name || "未命名设备";
+  const badge = document.createElement("span");
+  badge.className = "badge";
+  badge.dataset.platform = view.platform.key;
+  badge.textContent = view.platformBadge;
+  titleWrap.append(title, badge);
+  const pill = document.createElement("span");
+  pill.className = "status-pill";
+  pill.dataset.push = view.push;
+  pill.textContent = view.pushLabel;
+  head.append(titleWrap, pill);
+
+  const facts = document.createElement("dl");
+  facts.className = "device-facts";
+  addFact(facts, "平台", view.platformDetail, { wide: true });
+  addFact(facts, "设备 ID", null, { wide: true, node: idLine(view.id) });
+  addFact(facts, "最近一次短信", receiveText(view.received), {
+    title: view.received.at ? absoluteTime(view.received.at) : "",
+  });
+  addFact(facts, "签名", view.hmac);
+  addFact(facts, "推送链接", view.pushHint, { wide: true });
+  addFact(facts, "快捷指令", view.shortcut, { wide: true });
+
+  const actions = document.createElement("div");
+  actions.className = "actions";
+  actions.append(testButton(device));
+  for (const item of view.actions) actions.append(pushButton(device, item.action, item.label));
+  const guide = document.createElement("a");
+  guide.className = "button secondary";
+  guide.href = "#ios-setup";
+  guide.textContent = "安装说明";
+  actions.append(guide, deleteButton(device));
+
+  row.append(head);
+  if (view.id && view.id === shownDeviceId && !pushWrap.hidden) {
+    const note = document.createElement("p");
+    note.className = "subtle";
+    note.textContent = "一次性推送链接在上方黄框里，请立刻复制。";
+    row.append(note);
+  }
+  row.append(facts, actions);
+  return row;
+}
+
+function addFact(list, label, value, options = {}) {
+  const wrap = document.createElement("div");
+  if (options.wide) wrap.className = "span-2";
+  const term = document.createElement("dt");
+  term.textContent = label;
+  const detail = document.createElement("dd");
+  if (options.node) detail.append(options.node);
+  else detail.textContent = value || "";
+  if (options.title) detail.title = options.title;
+  wrap.append(term, detail);
+  list.append(wrap);
+}
+
+function idLine(id) {
+  const line = document.createElement("div");
+  line.className = "device-id";
+  const code = document.createElement("code");
+  code.textContent = id;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "secondary";
+  button.textContent = "复制 ID";
+  button.addEventListener("click", (event) => {
+    copyAndFlash(event.currentTarget, id, "复制 ID");
+  });
+  line.append(code, button);
+  return line;
+}
+
+function receiveText(received) {
+  if (received.kind === "message") return formatTime(received.at);
+  if (received.kind === "seen-without-message") {
+    return `收件箱里已经没有短信。最近上报 ${formatTime(received.at)}`;
+  }
+  return "还没有短信";
+}
+
+function absoluteTime(ms) {
+  return new Date(ms).toLocaleString("zh-CN", { hour12: false });
+}
+
+function testButton(device) {
+  const test = document.createElement("button");
+  test.type = "button";
+  test.className = "secondary";
+  test.textContent = "发送测试消息";
+  test.addEventListener("click", async () => {
+    test.disabled = true;
+    setError("");
+    try {
+      const sent = await api(`/api/v1/devices/${device.id}/test`, { method: "POST", body: "{}" });
+      if (!sent.response.ok) {
+        setStatus(sent.data.error || "测试失败");
         return;
       }
-      if (shownDeviceId === device.id) showCredentials({ deviceId: "", token: "", pushUrl: "" });
-      await loadDevices();
-    });
-    actions.append(remove);
-    row.append(text, actions);
-    devices.append(row);
-  }
+      setStatus(`已写入收件箱，验证码 ${sent.data.code || ""}`);
+      try {
+        await loadDevices();
+      } catch (error) {
+        if (error instanceof Error && error.message === "unauthorized") return;
+        setError("加载设备失败");
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message === "unauthorized") return;
+      setStatus("测试失败");
+    } finally {
+      test.disabled = false;
+    }
+  });
+  return test;
+}
+
+function deleteButton(device) {
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "danger";
+  remove.textContent = "删除";
+  remove.addEventListener("click", async () => {
+    if (!window.confirm(`删除「${device.name}」及其短信？`)) return;
+    const deleted = await api(`/api/v1/devices/${device.id}`, { method: "DELETE" });
+    if (!deleted.response.ok) {
+      setError(deleted.data.error || "删除失败");
+      return;
+    }
+    if (shownDeviceId === device.id) showCredentials({ deviceId: "", token: "", pushUrl: "" });
+    await loadDevices();
+  });
+  return remove;
 }
 
 function pushButton(device, action, label) {
@@ -157,8 +282,8 @@ function pushButton(device, action, label) {
   button.className = action === "revoke" ? "danger" : "secondary";
   button.textContent = label;
   button.addEventListener("click", async () => {
-    if (action === "rotate" && !window.confirm(`轮换「${device.name}」的推送链接？手机上的旧链接会立刻失效。`)) return;
-    if (action === "revoke" && !window.confirm(`撤销「${device.name}」的推送链接？短信仍会保留。`)) return;
+    const message = pushConfirm(action, device.name);
+    if (!message || !window.confirm(message)) return;
     button.disabled = true;
     setError("");
     try {
@@ -172,8 +297,10 @@ function pushButton(device, action, label) {
       }
       if (result.data.push_url) {
         showCredentials({ deviceId: device.id, token: "", pushUrl: result.data.push_url });
-      } else if (shownDeviceId === device.id) {
-        showCredentials({ deviceId: "", token: "", pushUrl: "" });
+        setStatus("请立刻复制黄框里的推送链接。刷新后不能再查看。");
+      } else {
+        if (shownDeviceId === device.id) showCredentials({ deviceId: "", token: "", pushUrl: "" });
+        if (action === "revoke") setStatus("推送链接已撤销。短信仍保留，旧链接不会再显示。");
       }
       await loadDevices();
     } catch (error) {
@@ -186,6 +313,20 @@ function pushButton(device, action, label) {
   return button;
 }
 
+async function mapLimit(items, limit, fn) {
+  let cursor = 0;
+  async function worker() {
+    while (cursor < items.length) {
+      const current = cursor;
+      cursor += 1;
+      await fn(items[current], current);
+    }
+  }
+  const count = Math.min(limit, items.length);
+  if (count === 0) return;
+  await Promise.all(Array.from({ length: count }, () => worker()));
+}
+
 async function copyAndFlash(button, value, label) {
   try {
     await copyText(value);
@@ -196,6 +337,15 @@ async function copyAndFlash(button, value, label) {
   window.setTimeout(() => {
     button.textContent = label;
   }, 1600);
+}
+
+function selectContents(node) {
+  const selection = window.getSelection();
+  if (!selection) return;
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  selection.removeAllRanges();
+  selection.addRange(range);
 }
 
 function setError(message) {

@@ -69,7 +69,7 @@
         </header>
         <div class="page">
           <section class="panel">
-            <p class="lede">每个设备有自己的 Bearer token，以及一条推送链接。Bearer 只在创建时显示一次。推送链接在创建或轮换时显示一次。推送链接可以轮换或撤销，短信会保留。Bearer 丢失后，仍然要删除设备并新建。</p>
+            <p class="lede">每台设备卡片显示名称、平台、状态、设备 ID 和最近一次短信。Bearer token 只在创建时出现一次。推送链接在创建或轮换后的黄框里出现一次，可以一键复制。数据库只存哈希，刷新后不能再查看明文，丢掉请轮换。生成、轮换和撤销都会先确认。Bearer 丢失后，仍然要删除设备并新建。</p>
             <form id="device-form" class="device-form">
               <label>名称<input name="name" required maxlength="64" placeholder="例如：我的 Pixel" /></label>
               <label>签名密钥（可选）<input name="secret" maxlength="256" placeholder="留空则只校验 Bearer token" autocomplete="off" /></label>
@@ -77,17 +77,17 @@
             </form>
             <p id="device-error" class="error" hidden></p>
             <p id="device-status" class="subtle" hidden></p>
-            <div id="token-box" class="token-box" hidden>
+            <div id="token-box" class="token-box" hidden role="status">
               <div id="bearer-wrap" class="stack" hidden>
                 <strong>Bearer token，只显示这一次</strong>
                 <code id="token-value"></code>
-                <p>请立刻保存。关闭或刷新页面后无法再查看。请求头使用 <code>Authorization: Bearer &lt;token&gt;</code>。Android 和已经装好的旧快捷指令继续用它。</p>
+                <p>请立刻保存。关闭或刷新页面后无法再查看。请求头使用 <code>Authorization: Bearer &lt;token&gt;</code>。Android 和已经装好的旧快捷指令继续用它。丢失后要删除设备并新建。</p>
                 <button id="copy-token" class="secondary" type="button">复制 token</button>
               </div>
               <div id="push-wrap" class="stack" hidden>
                 <strong>推送链接，只显示这一次</strong>
                 <code id="push-url-value"></code>
-                <p>贴进已经装好的那一条快捷指令。它等同设备密钥，不要发到聊天或工单。刷新后无法再查看，丢掉请轮换。</p>
+                <p>贴进已经装好的那一条快捷指令。它等同设备密钥，不要发到聊天或工单。数据库只保存哈希，刷新后不能再显示明文。丢掉请在这台设备上点「轮换」。</p>
                 <button id="copy-push-url" class="secondary" type="button">复制推送链接</button>
               </div>
             </div>
@@ -96,6 +96,13 @@
           <section class="panel" id="ios-setup">
             <h2>iOS 配置</h2>
             <p class="lede">手机上只装一次快捷指令，之后每台设备只贴一条推送链接。本页和下面的下载是配置入口，不含设备密钥，也不能用来上报短信。导入和通知要在你的 iPhone 上确认，这个页面不会替手机执行。</p>
+            <h3>版本与配置状态</h3>
+            <ul class="status-list" id="shortcut-status">
+              <li>模板：统一快捷指令 SMSinBox-iOS.shortcut。导入时只填写推送链接。</li>
+              <li>签名：未签名。iOS 15 及更高版本可能拒绝导入。</li>
+              <li>iCloud：尚未发布。不要使用来路不明的分享链接。</li>
+              <li>配置状态：本页看不到手机上的自动化开关。收到 device 为 iOS 的短信后，设备卡片会写成「已收到 iOS 短信」。发送测试消息不会写成 iOS。</li>
+            </ul>
             <p>推送链接在新建设备或轮换时出现一次，形如 <code>https://&lt;你的域名&gt;/api/v1/ingest/psh_...</code>。请立刻复制。刷新后无法再查看，丢掉就点该设备的「轮换」。不要把链接发到聊天或工单。Workers 的平台访问日志仍可能看到路径。</p>
             <div class="actions">
               <a class="button secondary" href="/api/v1/ios/shortcut?variant=all" download="SMSinBox-iOS.shortcut">下载快捷指令</a>

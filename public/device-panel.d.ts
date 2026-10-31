@@ -20,6 +20,10 @@ export interface PlatformView {
 
 export function platformFromReport(value: unknown): PlatformView;
 
+export function platformBadge(platform: PlatformView | null | undefined): string;
+
+export function platformDetail(platform: PlatformView | null | undefined): string;
+
 export interface ReceiveTime {
   kind: "message" | "seen-without-message" | "none";
   at: number | null;
@@ -50,6 +54,8 @@ export interface DeviceCardModel {
   name: string;
   id: string;
   platform: PlatformView;
+  platformBadge: string;
+  platformDetail: string;
   push: "none" | "active" | "revoked";
   pushLabel: string;
   pushHint: string;
