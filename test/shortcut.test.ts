@@ -63,6 +63,57 @@ function envFor(db: D1Database, contentKey = ""): Env {
   } as unknown as Env;
 }
 
+function actionIdentifiers(plist: string): string[] {
+  return [...plist.matchAll(/<key>WFWorkflowActionIdentifier<\/key>\s*<string>([^<]+)<\/string>/g)].map(
+    (match) => match[1],
+  );
+}
+
+function flowModes(plist: string): Map<string, number[]> {
+  const modes = new Map<string, number[]>();
+  const pattern =
+    /<key>GroupingIdentifier<\/key>\s*<string>([^<]+)<\/string>\s*<key>WFControlFlowMode<\/key>\s*<integer>(\d+)<\/integer>/g;
+  for (const match of plist.matchAll(pattern)) {
+    const list = modes.get(match[1]) ?? [];
+    list.push(Number(match[2]));
+    modes.set(match[1], list);
+  }
+  return modes;
+}
+
+const UNIFIED_ACTIONS = [
+  "is.workflow.actions.comment",
+  "is.workflow.actions.gettext",
+  "is.workflow.actions.conditional",
+  "is.workflow.actions.notification",
+  "is.workflow.actions.exit",
+  "is.workflow.actions.conditional",
+  "is.workflow.actions.conditional",
+  "is.workflow.actions.gettext",
+  "is.workflow.actions.setvariable",
+  "is.workflow.actions.conditional",
+  "is.workflow.actions.setvariable",
+  "is.workflow.actions.conditional",
+  "is.workflow.actions.downloadurl",
+  "is.workflow.actions.conditional",
+  "is.workflow.actions.notification",
+  "is.workflow.actions.exit",
+  "is.workflow.actions.conditional",
+  "is.workflow.actions.conditional",
+  "is.workflow.actions.notification",
+  "is.workflow.actions.exit",
+  "is.workflow.actions.conditional",
+  "is.workflow.actions.conditional",
+  "is.workflow.actions.notification",
+  "is.workflow.actions.exit",
+  "is.workflow.actions.conditional",
+  "is.workflow.actions.conditional",
+  "is.workflow.actions.notification",
+  "is.workflow.actions.exit",
+  "is.workflow.actions.conditional",
+  "is.workflow.actions.notification",
+];
+
 describe("shortcut plist", () => {
   it("builds one unsigned template that posts to the push link", () => {
     const plist = buildShortcut("all");
@@ -87,13 +138,47 @@ describe("shortcut plist", () => {
     expect(plist).not.toContain(PLACEHOLDER_WEBHOOK);
     expect(plist).not.toContain("/api/v1/sms");
     expect(plist).not.toContain("/api/v1/ingest/");
-    expect(plist).not.toContain("is.workflow.actions.conditional");
-    expect(plist).not.toContain("is.workflow.actions.exit");
     expect(plist).toContain("信息包含一个空格");
     expect(plist).toContain("尚未发布");
     expect(plist).toContain("默认关闭");
-    expect(plist).not.toContain("icloud.com/shortcuts");
+    expect(plist).toContain("立即运行");
+    expect(plist).not.toContain("icloud.com");
     expect(shortcutFilename("all")).toBe("SMSinBox-iOS.shortcut");
+  });
+
+  it("stops on an empty body, fills an empty sender, and names 401, 429, and network failures", () => {
+    const plist = buildShortcut("all");
+    expect(actionIdentifiers(plist)).toEqual(UNIFIED_ACTIONS);
+    expect(plist.match(/is\.workflow\.actions\.downloadurl/g)).toHaveLength(1);
+    const downloadAt = plist.indexOf("is.workflow.actions.downloadurl");
+    const emptyBody = plist.indexOf("<string>未发送：正文为空</string>");
+    const sent = plist.indexOf("<string>已转发</string>");
+    const limited = plist.indexOf("<string>未写入：请求过于频繁（429）。请稍后再试。</string>");
+    const denied = plist.indexOf("<string>未写入：推送链接无效或已撤销（401）。请在设备页轮换后重贴链接。</string>");
+    const rejected = plist.indexOf("<string>未写入：服务器拒绝了这条短信。</string>");
+    const offline = plist.indexOf("<string>未发送：网络失败，或返回的不是 JSON。");
+    expect(emptyBody).toBeGreaterThan(0);
+    expect(emptyBody).toBeLessThan(downloadAt);
+    expect(downloadAt).toBeLessThan(limited);
+    expect(limited).toBeLessThan(denied);
+    expect(denied).toBeLessThan(rejected);
+    expect(rejected).toBeLessThan(offline);
+    expect(offline).toBeLessThan(sent);
+    expect(plist).toContain("<string>（发件人为空）</string>");
+    expect(plist).toContain("<string>发件人</string>");
+    expect(plist).toContain("<integer>101</integer>");
+    expect(plist).toContain("<integer>999</integer>");
+    expect(plist).toContain("<string>false</string>");
+    expect(plist).toContain("<string>请求过于频繁</string>");
+    expect(plist).toContain("WFStringContentItem");
+    for (const modes of flowModes(plist).values()) {
+      expect(modes[0]).toBe(0);
+      expect(modes[modes.length - 1]).toBe(2);
+      expect(modes.every((mode) => mode === 0 || mode === 1 || mode === 2)).toBe(true);
+    }
+    const questions = plist.slice(plist.indexOf("<key>WFWorkflowImportQuestions</key>"));
+    expect(questions.match(/<key>ActionIndex<\/key>/g)).toHaveLength(1);
+    expect(questions).toContain("<integer>1</integer>");
   });
 
   it("stops the verification-code template unless the message matches", () => {
@@ -111,6 +196,25 @@ describe("shortcut plist", () => {
     expect(plist).toContain("<key>ActionIndex</key>");
     expect(plist).toContain("<integer>1</integer>");
     expect(plist).toContain("<integer>2</integer>");
+    expect(plist).not.toContain("（发件人为空）");
+    expect(plist).not.toContain("未发送：正文为空");
+    expect(plist).not.toContain("（429）");
+    expect(plist).not.toContain("（401）");
+    expect(actionIdentifiers(plist)).toEqual([
+      "is.workflow.actions.comment",
+      "is.workflow.actions.gettext",
+      "is.workflow.actions.gettext",
+      "is.workflow.actions.gettext",
+      "is.workflow.actions.conditional",
+      "is.workflow.actions.conditional",
+      "is.workflow.actions.conditional",
+      "is.workflow.actions.conditional",
+      "is.workflow.actions.exit",
+      "is.workflow.actions.conditional",
+      "is.workflow.actions.conditional",
+      "is.workflow.actions.downloadurl",
+      "is.workflow.actions.notification",
+    ]);
     expect(shortcutFilename("code")).toBe("SMSinBox-iOS-code.shortcut");
   });
 
@@ -157,6 +261,10 @@ describe("iOS shortcut download", () => {
     expect(body).not.toContain("sms_session_token_value");
     expect(body).not.toMatch(/psh_[A-Za-z0-9_-]{8,}/);
     expect(body).not.toMatch(/Bearer [A-Za-z0-9_-]{8,}/);
+    expect(body).toContain("未发送：正文为空");
+    expect(body).toContain("（429）");
+    expect(body).toContain("（401）");
+    expect(body).not.toContain("icloud.com");
   });
 
   it("still downloads the keyword template", async () => {

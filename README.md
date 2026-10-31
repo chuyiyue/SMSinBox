@@ -95,20 +95,20 @@ Content-Type: application/json
 
 ### iOS 快捷指令
 
-分版本步骤、常见问题和限制见 [docs/ios-setup.md](docs/ios-setup.md)。新建设备时，页面同时给出一次性 Bearer token 和一次性推送链接。iOS 只复制推送链接，贴进快捷指令。刷新后链接不再显示，丢掉就在该设备上轮换。设备页还可以下载模板，并给设备发送测试短信。
+分版本步骤、通知含义和限制见 [docs/ios-setup.md](docs/ios-setup.md)。新建设备时，页面同时给出一次性 Bearer token 和一次性推送链接。iOS 只复制推送链接，贴进快捷指令。刷新后链接不再显示，丢掉就在该设备上轮换。设备页还可以下载模板，并给设备发送测试短信。导入、立即运行和通知只能在你的 iPhone 上确认。
 
-`shortcuts/` 里有两份未签名文件：
+`shortcuts/` 里有两份未签名文件。主路径只有第一份：
 
-- `SMSinBox-iOS.shortcut`：默认模板。导入时只问「推送链接」，默认空。动作是 POST JSON 到这条链接，标头只有 `Content-Type: application/json`，字段为 `from`、`content`、`timestamp`、`device` 为 `iOS`。文件里不写设备地址，也不写 Bearer。自动化条件在手机上设置：「信息包含一个空格」最接近全部短信；只要验证码时用「验证码」或 `code`。
-- `SMSinBox-iOS-code.shortcut`：仍是旧的关键词模板。正文不含「验证码」或 `code` 时不发送。设备页不再提供第二个下载按钮。收藏夹里的 `?variant=code` 仍会下载这一份，导入时填写 Webhook URL 和设备 token，请求 `POST /api/v1/sms`，头是 `Authorization: Bearer <token>`。已经装在手机里的旧快捷指令不用改。
+- `SMSinBox-iOS.shortcut`：唯一的新安装模板。导入时只问「推送链接」，默认空。动作是 POST JSON 到这条链接，标头只有 `Content-Type: application/json`，字段为 `from`、`content`、`timestamp`、`device` 为 `iOS`。文件里不写设备地址，也不写 Bearer。正文为空时通知并不发送。Sender 为空时仍发送，`from` 写成「（发件人为空）」。返回里的「请求过于频繁」通知 429，「推送链接无效」或「推送链接已撤销」通知 401，没有 `ok` 时通知网络失败。自动化条件在手机上设置：「信息包含一个空格」最接近全部短信，但没有空格的短码匹配不到；只要验证码时用「验证码」或 `code`，不要另装一套主快捷指令。
+- `SMSinBox-iOS-code.shortcut`：旧的关键词模板，只为收藏夹里的 `?variant=code` 保留。正文不含「验证码」或 `code` 时不发送。设备页不再提供第二个下载按钮。导入时填写 Webhook URL 和设备 token，请求 `POST /api/v1/sms`，头是 `Authorization: Bearer <token>`。已经装在手机里的旧快捷指令不用改。
 
 登录后从设备页下载默认模板。下载结果不含推送密钥，也不能用来上报。设备页和文档同样不是推送地址。
 
-这些文件未签名。`shortcuts sign` 只在 macOS 上提供，Linux 下无法生成签名快捷指令。iOS 15 及更高版本经常拒绝未签名文件。请在 iPhone 上导入，或使用 iCloud 分享链接。链接尚未发布，见 `docs/ios-setup.md`。被拒绝时按该文档手动添加「获取 URL 内容」，URL 填推送链接，不要加 Authorization。
+这些文件未签名。`shortcuts sign` 只在 macOS 上提供，Linux 下无法生成签名快捷指令，仓库里也不会放伪造的签名。iOS 15 及更高版本经常拒绝未签名文件。请在 iPhone 上导入。iCloud 分享链接尚未发布，见 `docs/ios-setup.md`。被拒绝时按该文档手动添加「获取 URL 内容」，URL 填推送链接，不要加 Authorization。
 
 推送链接不校验 HMAC。同一台设备如果填了签名密钥，Android 的 Bearer 仍然要签名。推送链接等同设备密钥，不要发到聊天或工单。
 
-iOS 27 及以上从导入的快捷指令展开触发器，再打开自动化开关。iOS 26 及以下在「自动化」里点「+」→「信息」→「立即运行」。两边都要关掉运行前确认。共享来的自动化默认是关闭的。
+iOS 27 及以上从导入的快捷指令展开触发器，打开自动化开关，并关闭「运行前确认」。iOS 26 及以下在「自动化」里点「+」→「信息」→「立即运行」，再关闭「运行前询问」。两边的自动化默认都是关闭的。手机重启后要先解锁一次。
 
 部署读取推送链接列的 Worker 之前，先用仓库里已有的 `npx wrangler d1 migrations apply smsinbox --remote`（本地用 `--local`）把 `0005_device_push.sql` 应用到数据库。先迁移再部署是安全的。
 
