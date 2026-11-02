@@ -1,9 +1,11 @@
 import {
   clearShellCache,
+  deviceStateOf,
   ensureMe,
   getActiveId,
   getDevices,
-  presenceOf,
+  getMe,
+  inboxDeviceHref,
   setActiveId,
 } from "./device-store.js";
 import {
@@ -87,6 +89,21 @@ export function absoluteTime(ms) {
     zone = "";
   }
   return zone ? `${text}（${zone}）` : text;
+}
+
+// The inbox detail only ever shows the device receive time, to the minute,
+// in the browser's own timezone. Never build it from created_at.
+export function minuteStamp(ms) {
+  const date = new Date(Number(ms));
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(
+    date.getMinutes(),
+  )}`;
+}
+
+export function receivedStamp(ms) {
+  const text = minuteStamp(ms);
+  return text ? `收到时间 ${text}` : "";
 }
 
 export function isUnauthorized(error) {
@@ -189,7 +206,7 @@ export function paintDevicePresence(id) {
   const device = getDevices().find((item) => item.id === id);
   const button = deviceButton(id);
   if (!device || !button) return;
-  paintPresence(button, device, button.textContent || device.name || "");
+  paintState(button, device);
 }
 
 export function clearSidebarDevices() {
@@ -224,35 +241,39 @@ export function renderSidebarDevices(devices, activeId = getActiveId()) {
       button.dataset.deviceId = row.id;
       button.dataset.key = row.key;
     }
-    if (button.textContent !== row.name) button.textContent = row.name;
-    if (row.id) button.title = row.name;
-    else button.removeAttribute("title");
+    // The id only lives in the data attribute; text and title stay human.
     button.classList.toggle("is-active", row.id === active);
-    if (row.device) paintPresence(button, row.device, row.name);
-    else clearPresence(button);
+    if (row.device) {
+      button.title = row.name;
+      paintLabel(button, row.name);
+      paintState(button, row.device);
+    } else {
+      button.removeAttribute("title");
+      button.removeAttribute("data-state");
+      button.textContent = row.name;
+    }
     const current = buttons();
     if (current[index] !== button) box.insertBefore(button, current[index] || box.querySelector(".sidebar-empty"));
   });
   let empty = box.querySelector(".sidebar-empty");
+  let add = box.querySelector(".sidebar-empty-add");
   if (!devices?.length) {
     if (!empty) {
       empty = document.createElement("p");
       empty.className = "sidebar-empty";
-      empty.textContent = "还没有设备。";
+      empty.textContent = "还没有设备";
       box.append(empty);
     }
-  } else if (empty) {
-    empty.remove();
-  }
-}
-
-export function paintMe(user) {
-  if (!user) return;
-  for (const who of document.querySelectorAll("[data-who], #who")) {
-    who.textContent = user.username || "";
-  }
-  for (const link of document.querySelectorAll("#users-link, #users-tab")) {
-    link.hidden = user.role !== "admin";
+    if (!add) {
+      add = document.createElement("a");
+      add.className = "sidebar-empty-add";
+      add.href = "/devices.html#add";
+      add.textContent = "添加设备";
+      box.append(add);
+    }
+  } else {
+    empty?.remove();
+    add?.remove();
   }
 }
 
@@ -326,17 +347,15 @@ export function initShell(options = {}) {
       shellHooks.onDeviceFilter(id);
       return;
     }
-    const url = new URL("/", location.origin);
-    if (id) url.searchParams.set("device_id", id);
-    followAppLink(`${url.pathname}${url.search}`);
+    followAppLink(inboxDeviceHref(id));
   });
 }
 
 export async function loadNav() {
   const result = await ensureMe();
-  if (result?.ok && result.user) paintMe(result.user);
   return result?.user || getMe() || null;
 }
+
 
 export async function logout() {
   clearShellCache();
@@ -355,29 +374,37 @@ function deviceButton(id) {
   );
 }
 
-function paintPresence(button, device, name) {
-  const presence = presenceOf(device);
-  const seen = Number(device?.last_seen_at);
-  if (!presence) {
-    clearPresence(button);
-    return;
+function paintLabel(button, name) {
+  let title = button.querySelector(".device-name");
+  if (!title) {
+    button.replaceChildren();
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("class", "icon");
+    icon.setAttribute("viewBox", "0 0 24 24");
+    icon.setAttribute("aria-hidden", "true");
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", "7");
+    rect.setAttribute("y", "2");
+    rect.setAttribute("width", "10");
+    rect.setAttribute("height", "20");
+    rect.setAttribute("rx", "2");
+    const dot = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    dot.setAttribute("d", "M11 18h2");
+    icon.append(rect, dot);
+    title = document.createElement("span");
+    title.className = "device-name";
+    const state = document.createElement("span");
+    state.className = "device-state";
+    button.append(icon, title, state);
   }
-  if (button.getAttribute("data-presence") !== presence) button.setAttribute("data-presence", presence);
-  if (Number.isFinite(seen) && button.getAttribute("data-last-seen") !== String(seen)) {
-    button.setAttribute("data-last-seen", String(seen));
-  }
-  if (presence === "online") {
-    const label = `${name}，在线`;
-    if (button.getAttribute("aria-label") !== label) button.setAttribute("aria-label", label);
-  } else if (button.hasAttribute("aria-label")) {
-    button.removeAttribute("aria-label");
-  }
+  if (title.textContent !== name) title.textContent = name;
 }
 
-function clearPresence(button) {
-  button.removeAttribute("data-presence");
-  button.removeAttribute("data-last-seen");
-  button.removeAttribute("aria-label");
+function paintState(button, device) {
+  const state = deviceStateOf(device);
+  const node = button.querySelector(".device-state");
+  if (node && node.textContent !== state.text) node.textContent = state.text;
+  if (button.getAttribute("data-state") !== state.key) button.setAttribute("data-state", state.key);
 }
 
 function openMore() {

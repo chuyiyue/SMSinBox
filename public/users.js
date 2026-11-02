@@ -9,35 +9,20 @@ import {
   logout,
   openModal,
   passwordScore,
-  paintMe,
   showNotice,
   toast,
 } from "./common.js";
-import {
-  ensureDevices,
-  ensureMe,
-  getDevices,
-  noteMe,
-  refreshDevices,
-} from "./device-store.js";
+import { ensureDevices, ensureMe, getDevices, refreshDevices } from "./device-store.js";
 import { go, registerView } from "./shell.js";
 import { initTotpSettings } from "./totp-settings.js";
 import { rememberFlash } from "./ui.js";
-
-const USERNAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 let viewToken = 0;
 let me = null;
 let sessions = [];
 
-let accountName;
 let accountError;
 let accountStatus;
-let usernameForm;
-let usernameInput;
-let usernamePassword;
-let usernameError;
-let usernameSubmit;
 let passwordForm;
 let passwordCurrent;
 let passwordInput;
@@ -49,7 +34,6 @@ let sessionsError;
 let sessionsStatus;
 let revokeOthers;
 let factVersion;
-let factUser;
 let factDevices;
 let factSessions;
 let pageError;
@@ -62,14 +46,8 @@ function startView() {
   me = null;
   sessions = [];
 
-  accountName = document.querySelector("#account-name");
   accountError = document.querySelector("#account-error");
   accountStatus = document.querySelector("#account-status");
-  usernameForm = document.querySelector("#username-form");
-  usernameInput = document.querySelector("#username");
-  usernamePassword = document.querySelector("#username-password");
-  usernameError = document.querySelector("#username-error");
-  usernameSubmit = document.querySelector("#username-submit");
   passwordForm = document.querySelector("#password-form");
   passwordCurrent = document.querySelector("#password-current");
   passwordInput = document.querySelector("#password");
@@ -81,7 +59,6 @@ function startView() {
   sessionsStatus = document.querySelector("#sessions-status");
   revokeOthers = document.querySelector("#revoke-others");
   factVersion = document.querySelector("#fact-version");
-  factUser = document.querySelector("#fact-user");
   factDevices = document.querySelector("#fact-devices");
   factSessions = document.querySelector("#fact-sessions");
   pageError = document.querySelector("#page-error");
@@ -94,11 +71,6 @@ function startView() {
   });
   const cleanupTotp = initTotpSettings();
 
-  usernameForm.addEventListener("submit", submitUsername);
-  usernameInput.addEventListener("input", () => paintUsername(true));
-  usernamePassword.addEventListener("input", () => {
-    usernamePassword.setAttribute("aria-invalid", "false");
-  });
   passwordForm.addEventListener("submit", submitPassword);
   passwordInput.addEventListener("input", () => paintPassword(true));
   document.querySelector("#generate-password").addEventListener("click", () => {
@@ -175,10 +147,8 @@ async function refreshPage() {
 }
 
 function paintAccount() {
-  const name = me?.username || "管理员";
-  accountName.textContent = name;
-  factUser.textContent = name;
-  usernameInput.value = name;
+  // No username is shown anywhere: there is exactly one administrator.
+  if (!me) me = { role: "admin" };
 }
 
 async function loadDeviceCount() {
@@ -225,19 +195,6 @@ async function loadSystemInfo() {
   }
 }
 
-function paintUsername(silent) {
-  const value = usernameInput.value.trim();
-  const ok = USERNAME_RE.test(value);
-  usernameError.hidden = Boolean(silent) || ok;
-  usernameError.textContent = ok
-    ? ""
-    : value
-      ? "用户名需以字母或数字开头，只能包含字母、数字、. _ -，最长 64。"
-      : "请填写用户名";
-  usernameInput.setAttribute("aria-invalid", !silent && !ok ? "true" : "false");
-  return ok;
-}
-
 function paintPassword(silent) {
   const value = passwordInput.value;
   const ok = value.length >= 8 && value.length <= 256;
@@ -246,50 +203,6 @@ function paintPassword(silent) {
   passwordError.textContent = ok ? "" : "密码长度需在 8 到 256 之间";
   passwordInput.setAttribute("aria-invalid", !silent && !ok ? "true" : "false");
   return ok;
-}
-
-async function submitUsername(event) {
-  event.preventDefault();
-  setAccountError("");
-  setAccountStatus("");
-  const usernameOk = paintUsername(false);
-  const currentPassword = usernamePassword.value;
-  if (!usernameOk) return;
-  if (!currentPassword) {
-    setAccountError("请填写当前密码");
-    usernamePassword.focus();
-    return;
-  }
-  const username = usernameInput.value.trim();
-  usernameSubmit.disabled = true;
-  const previous = usernameSubmit.textContent;
-  usernameSubmit.textContent = "保存中…";
-  try {
-    const result = await api("/api/v1/auth/username", {
-      method: "POST",
-      body: JSON.stringify({ current_password: currentPassword, username }),
-      allowUnauthorized: true,
-    });
-    if (!result.response.ok) {
-      setAccountError(result.data.error || "改用户名失败");
-      return;
-    }
-    usernamePassword.value = "";
-    usernamePassword.setAttribute("aria-invalid", "false");
-    const updated = result.data.user || { ...me, username };
-    me = { ...(me || {}), ...updated };
-    noteMe(me);
-    paintMe(me);
-    paintAccount();
-    setAccountStatus(`用户名已改为 ${me.username}`);
-    toast(`用户名已改为 ${me.username}`);
-  } catch (error) {
-    if (isUnauthorized(error)) return;
-    setAccountError("改用户名失败，请重试");
-  } finally {
-    usernameSubmit.disabled = false;
-    usernameSubmit.textContent = previous;
-  }
 }
 
 async function submitPassword(event) {

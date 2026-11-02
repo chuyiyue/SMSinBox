@@ -76,9 +76,23 @@
 .chip-slot { grid-area: chip; justify-self: end; }
 
 .message-detail { display: none; padding: 0 16px 16px 64px; }
-.message-row.is-open .message-detail { display: block; animation: rise 200ms var(--ease); }
+.message-row.is-open .message-detail {
+  display: block;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  animation: rise 200ms var(--ease);
+}
 
-.content { white-space: pre-wrap; line-height: 1.65; margin: 8px 0; overflow-wrap: anywhere; }
+.message-detail-inner { display: grid; gap: 10px; }
+
+.received-at {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.content { white-space: pre-wrap; line-height: 1.65; margin: 0; overflow-wrap: anywhere; }
 
 .message-drawer {
   position: fixed;

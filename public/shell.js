@@ -1,11 +1,9 @@
-import { closeSidebar, clearSidebarDevices, paintDevicePresence, paintMe, renderSidebarDevices, setActiveDevice, setNavigator } from "./common.js";
+import { closeSidebar, clearSidebarDevices, paintDevicePresence, renderSidebarDevices, setActiveDevice, setNavigator } from "./common.js";
 import {
   devicesKnown,
   ensureDevices,
-  ensureMe,
   getActiveId,
   getDevices,
-  getMe,
   hydrateShell,
   subscribeDevices,
 } from "./device-store.js";
@@ -71,18 +69,11 @@ function installShell() {
     renderSidebarDevices(getDevices(), getActiveId());
   });
   if (devicesKnown() || getDevices().length > 0) renderSidebarDevices(getDevices(), getActiveId());
-  const cached = getMe();
-  if (cached) paintMe(cached);
   setNavigator((href, options) => navigate(href, options || {}));
   document.addEventListener("click", onDocumentClick);
   document.addEventListener("submit", onDocumentSubmit);
   window.addEventListener("popstate", onPopState);
   if ("scrollRestoration" in history) history.scrollRestoration = "manual";
-  void ensureMe()
-    .then((result) => {
-      if (result?.ok && result.user) paintMe(result.user);
-    })
-    .catch(() => {});
   void ensureDevices().catch(() => {});
 }
 

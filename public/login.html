@@ -19,31 +19,52 @@
       </a>
       <h1 class="auth-title">SMSinBox</h1>
       <p class="lede">你自己的短信收件箱</p>
-      <form id="login-form">
-        <p id="login-error" class="callout danger" hidden></p>
-        <label>用户名
-          <input id="username" name="username" autocomplete="username" required maxlength="64" />
-        </label>
+      <p id="login-error" class="callout danger auth-error" role="alert" hidden></p>
+      <!-- 登录方式列表：本版只有「密码」一项。将来的第三方 OAuth 与通行密钥
+           作为同一列表的新项渲染在密码表单下方（用带「或」字的分隔线隔开），
+           目前只留插槽，不渲染任何不可用按钮。 -->
+      <form id="login-form" class="auth-form">
         <label>密码
           <span class="password-field">
-            <input id="password" name="password" type="password" autocomplete="current-password" required />
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              maxlength="256"
+              required
+              autofocus
+            />
             <button id="password-toggle" class="icon-btn" type="button" aria-label="显示密码" aria-pressed="false">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
             </button>
           </span>
         </label>
+        <!-- 密码管理器兼容：对用户不可见，读屏跳过；服务端忽略这个值。 -->
+        <input
+          id="username"
+          name="username"
+          type="text"
+          autocomplete="username"
+          class="auth-username-proxy"
+          tabindex="-1"
+          aria-hidden="true"
+          value="admin"
+        />
         <button id="login-submit" type="submit">登录</button>
       </form>
-      <form id="totp-form" hidden>
-        <p id="totp-error" class="callout danger" hidden></p>
+      <!-- 验证步骤：与密码共用同一张卡片，不新开页面。 -->
+      <form id="totp-form" class="auth-form auth-step" hidden>
+        <h2 id="totp-title" class="auth-step-title">两步验证</h2>
         <p class="subtle">输入身份验证器上的 6 位验证码，或使用一次性恢复码。</p>
+        <p id="totp-error" class="callout danger" role="alert" hidden></p>
         <label>验证码
           <input id="totp-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="24" required />
         </label>
         <button id="totp-submit" type="submit">验证并登录</button>
         <button id="totp-cancel" class="ghost" type="button">返回密码登录</button>
       </form>
-      <p class="auth-note">没有账号？请联系管理员添加。</p>
+      <div id="auth-alternatives" class="auth-alternatives" hidden></div>
     </main>
     <script type="module" src="/login.js"></script>
   </body>

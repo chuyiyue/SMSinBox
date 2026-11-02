@@ -1,7 +1,9 @@
 import { api, isUnauthorized } from "./common.js";
 
 export const STORAGE_KEY = "smsinbox.shell";
-export const PRESENCE_WINDOW_MS = 600000;
+// Devices that have not reported for a week show a weak warning tone.
+// Never translate this into "online" / "offline".
+export const DEVICE_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 
 const state = {
   me: null,
@@ -18,10 +20,41 @@ let meGeneration = 0;
 let meFetched = false;
 let mePending = null;
 
-export function presenceOf(device, now = Date.now()) {
+export function relativeReport(ms, now = Date.now()) {
+  const date = new Date(Number(ms));
+  if (Number.isNaN(date.getTime())) return "";
+  const diff = now - date.getTime();
+  if (diff >= 0 && diff < 60_000) return "刚刚";
+  if (diff >= 0 && diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+  const clock = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const today = new Date(now);
+  if (sameDay(date, today)) return clock;
+  const yesterday = new Date(now);
+  yesterday.setDate(today.getDate() - 1);
+  if (sameDay(date, yesterday)) return `昨天 ${clock}`;
+  const monthDay = `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${clock}`;
+  if (date.getFullYear() === today.getFullYear()) return monthDay;
+  return `${date.getFullYear()}-${monthDay}`;
+}
+
+// Honest device status: only what the last report time proves.
+export function deviceStateOf(device, now = Date.now()) {
   const seen = Number(device?.last_seen_at);
-  if (!Number.isFinite(seen) || seen <= 0) return "";
-  return now - seen <= PRESENCE_WINDOW_MS ? "online" : "idle";
+  if (!Number.isFinite(seen) || seen <= 0) return { key: "none", text: "尚未收到", stale: false };
+  const stale = now - seen > DEVICE_STALE_MS;
+  return { key: stale ? "stale" : "recent", text: `最近上报 ${relativeReport(seen, now)}`, stale };
+}
+
+// Inbox device filter lives in the URL. `device` is the current name;
+// `device_id` is still read so old bookmarks and links keep working.
+export function readInboxDeviceParam(search = "") {
+  const params = new URLSearchParams(search);
+  return String(params.get("device") || params.get("device_id") || "");
+}
+
+export function inboxDeviceHref(id) {
+  const next = String(id || "");
+  return next ? `/?device=${encodeURIComponent(next)}` : "/";
 }
 
 export function getDevices() {
@@ -64,7 +97,7 @@ export function hydrateShell() {
   state.devicesKnown = saved.devicesKnown === true;
   state.activeId = String(saved.activeId || "");
   if (isInboxPath(location.pathname)) {
-    state.activeId = new URLSearchParams(location.search).get("device_id") || "";
+    state.activeId = readInboxDeviceParam(location.search);
   }
 }
 
@@ -230,4 +263,16 @@ function readStorage() {
 
 function isInboxPath(pathname) {
   return pathname === "/" || pathname === "/index.html";
+}
+
+function pad(value) {
+  return String(value).padStart(2, "0");
+}
+
+function sameDay(left, right) {
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
 }

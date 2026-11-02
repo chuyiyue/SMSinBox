@@ -14,6 +14,8 @@ const totpCancel = document.querySelector("#totp-cancel");
 const next = safeNext(new URLSearchParams(location.search).get("next"));
 const label = "登录";
 let ticket = "";
+let lockedUntil = 0;
+let countdownTimer = 0;
 
 const flash = takeFlash();
 if (flash) showError(flash);
@@ -25,24 +27,44 @@ toggle.addEventListener("click", () => {
   toggle.setAttribute("aria-label", show ? "隐藏密码" : "显示密码");
 });
 
-const existing = await api("/api/v1/auth/me", { allowUnauthorized: true });
-if (existing.response.ok) location.replace(next);
+password.addEventListener("input", () => {
+  // Typing again clears a plain error banner, but not a running rate limit.
+  if (error.dataset.tone === "locked") return;
+  delete error.dataset.tone;
+  error.hidden = true;
+});
+
+try {
+  const existing = await api("/api/v1/auth/me", { allowUnauthorized: true });
+  if (existing.response.ok) location.replace(next);
+} catch {
+  // A network hiccup must not stop the password form from working.
+}
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
-  error.hidden = true;
-  const payload = new FormData(form);
-  const username = String(payload.get("username") || "").trim();
-  const passwordValue = String(payload.get("password") || "");
+  if (Date.now() < lockedUntil) return;
+  hideError();
+  const passwordValue = password.value;
+  if (!passwordValue) {
+    showError("请输入密码");
+    password.focus();
+    return;
+  }
   setBusy(true);
   try {
     const result = await api("/api/v1/auth/login", {
       method: "POST",
       allowUnauthorized: true,
-      body: JSON.stringify({ username, password: passwordValue }),
+      body: JSON.stringify({ password: passwordValue }),
     });
+    if (result.response.status === 429) {
+      startCountdown(retryAfterSeconds(result.response.headers.get("retry-after")));
+      return;
+    }
     if (!result.response.ok) {
-      showError(loginMessage(result.data.error));
+      showError(loginMessage(result.response.status, result.data.error));
+      password.select();
       return;
     }
     if (result.data.totp_required && result.data.ticket) {
@@ -83,7 +105,7 @@ totpForm.addEventListener("submit", async (event) => {
         backToPassword("验证已过期，请重新输入密码");
         return;
       }
-      showTotpError(loginMessage(message));
+      showTotpError(loginMessage(result.response.status, message));
       return;
     }
     location.assign(next);
@@ -106,16 +128,68 @@ function backToPassword(message) {
   password.focus();
 }
 
-function loginMessage(value) {
-  if (value === "用户名或密码错误") return "用户名或密码不正确";
-  if (value === "账号已停用") return "该账号已停用，请联系管理员";
+function loginMessage(status, value) {
+  // Keep the old wording working in case a proxy still serves the previous worker.
+  if (value === "用户名或密码错误") return "密码不正确";
+  if (value === "账号已停用") return "该账号已停用";
   if (value === "验证码不正确") return "验证码或恢复码不正确";
+  if (value === "跨站请求被拒绝") return "请求被拒绝，请刷新页面后重试";
+  if (status === 403) return "请求被拒绝，请刷新页面后重试";
+  if (status === 401) return "密码不正确";
   return value || "登录失败";
+}
+
+function retryAfterSeconds(header) {
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds > 0) return Math.min(seconds, 60 * 60);
+  return 60;
+}
+
+function startCountdown(seconds) {
+  window.clearInterval(countdownTimer);
+  countdownTimer = 0;
+  lockedUntil = Date.now() + seconds * 1000;
+  error.dataset.tone = "locked";
+  paintCountdown(seconds);
+  setBusy(false);
+  countdownTimer = window.setInterval(() => {
+    const left = Math.ceil((lockedUntil - Date.now()) / 1000);
+    if (left <= 0) {
+      window.clearInterval(countdownTimer);
+      countdownTimer = 0;
+      lockedUntil = 0;
+      hideError();
+      setBusy(false);
+      password.focus();
+      return;
+    }
+    paintCountdown(left);
+  }, 1000);
+}
+
+function paintCountdown(seconds) {
+  showError(`尝试次数过多，请 ${waitText(seconds)}后再试`);
+  submit.disabled = true;
+  submit.textContent = `${seconds} 秒后可重试`;
+}
+
+function waitText(seconds) {
+  if (seconds >= 60) {
+    const minutes = Math.ceil(seconds / 60);
+    return `${minutes} 分钟`;
+  }
+  return `${seconds} 秒`;
 }
 
 function showError(message) {
   error.textContent = message;
   error.hidden = false;
+}
+
+function hideError() {
+  delete error.dataset.tone;
+  error.hidden = true;
+  error.textContent = "";
 }
 
 function showTotpError(message) {
@@ -124,17 +198,18 @@ function showTotpError(message) {
 }
 
 function setBusy(busy) {
-  submit.disabled = busy;
-  for (const field of form.querySelectorAll("input")) field.disabled = busy;
-  submit.replaceChildren();
+  const locked = Date.now() < lockedUntil;
+  submit.disabled = busy || locked;
+  password.disabled = busy;
   if (busy) {
+    submit.replaceChildren();
     const spinner = document.createElement("span");
     spinner.className = "spinner";
     spinner.setAttribute("aria-hidden", "true");
     submit.append(spinner, document.createTextNode("登录中…"));
     return;
   }
-  submit.textContent = label;
+  if (!locked) submit.textContent = label;
 }
 
 function setTotpBusy(busy) {

@@ -1,5 +1,4 @@
 import {
-  absoluteTime,
   api,
   flashLabel,
   formatTime,
@@ -7,6 +6,8 @@ import {
   isUnauthorized,
   loadNav,
   logout,
+  minuteStamp,
+  receivedStamp,
   renderContent,
   toast,
 } from "./common.js";
@@ -45,8 +46,6 @@ let deviceSelect;
 let banner;
 let drawer;
 let drawerSender;
-let drawerTime;
-let drawerMeta;
 let drawerBody;
 let qInput;
 let qCount;
@@ -74,8 +73,6 @@ function startView() {
   banner = document.querySelector("#live-banner");
   drawer = document.querySelector("#message-drawer");
   drawerSender = document.querySelector("#drawer-sender");
-  drawerTime = document.querySelector("#drawer-time");
-  drawerMeta = document.querySelector("#drawer-meta");
   drawerBody = document.querySelector("#drawer-body");
   qInput = document.querySelector("input[name=q]");
   qCount = document.querySelector("#q-count");
@@ -99,6 +96,10 @@ function startView() {
       deviceSelect.value = id;
       state.page = 1;
       banner.hidden = true;
+      closeDrawer();
+      // Keep the address bar in step with the sidebar immediately, even if the
+      // request below fails; the sidebar highlight and URL stay in sync.
+      syncUrl();
       loadMessages().catch(showError);
     },
     onEscape() {
@@ -207,7 +208,7 @@ async function boot(token) {
   const params = new URLSearchParams(location.search);
   if (params.get("q") && !qInput.value) qInput.value = params.get("q");
   if (params.get("from") && !filters.elements.from.value) filters.elements.from.value = params.get("from");
-  const preferred = params.get("device_id") || "";
+  const preferred = params.get("device") || params.get("device_id") || "";
   await loadDevices(preferred);
   if (token !== viewToken) return;
   await loadMessages();
@@ -410,13 +411,6 @@ function renderMessage(message) {
   sender.className = "sender";
   sender.textContent = senderText;
   senderLine.append(sender);
-  const tagText = [message.device_name, message.sim ? `SIM ${message.sim}` : ""].filter(Boolean).join(" · ");
-  if (tagText) {
-    const tag = document.createElement("span");
-    tag.className = "tag";
-    tag.textContent = tagText;
-    senderLine.append(tag);
-  }
   const inlineTime = timeNode(message, "time-inline");
   senderLine.append(inlineTime);
   const preview = document.createElement("div");
@@ -433,6 +427,8 @@ function renderMessage(message) {
   article.append(line, detail);
   article.addEventListener("click", (event) => {
     if (event.target.closest("button, a")) return;
+    // Clicks inside the open detail (selecting text, links) must not collapse it.
+    if (event.target.closest(".message-detail")) return;
     openMessage(article, message);
   });
   article.addEventListener("keydown", (event) => {
@@ -466,10 +462,6 @@ function openMessage(article, message) {
 function openDrawer(message) {
   if (!drawer) return;
   drawerSender.textContent = message.from_number || "未知发件人";
-  drawerTime.dateTime = new Date(message.received_at).toISOString();
-  drawerTime.textContent = absoluteTime(message.received_at);
-  drawerTime.title = drawerTime.textContent;
-  drawerMeta.textContent = messageMeta(message);
   drawerBody.replaceChildren(buildDetail(message));
   drawer.hidden = false;
   document.body.classList.add("drawer-open");
@@ -482,18 +474,30 @@ function closeDrawer() {
   document.body.classList.remove("drawer-open");
 }
 
+// One click reveals everything. Three blocks only: body, device receive time,
+// and the copy actions. No message id, no server insert time, no device/SIM.
 function buildDetail(message) {
   const wrap = document.createElement("div");
-  const meta = document.createElement("p");
-  meta.className = "subtle";
-  meta.textContent = `${absoluteTime(message.received_at)} · ${messageMeta(message)}`;
-  wrap.append(meta);
+  wrap.className = "message-detail-inner";
   if (unreadable(message)) {
     const warn = document.createElement("div");
     warn.className = "callout warn";
     warn.textContent = "这条短信无法解密（加密密钥已更换或被清空）";
     wrap.append(warn);
   } else {
+    const content = document.createElement("p");
+    content.className = "content";
+    renderContent(content, message.content, message.code);
+    wrap.append(content);
+  }
+  const received = document.createElement("p");
+  received.className = "received-at";
+  const stamp = receivedStamp(message.received_at);
+  if (stamp) {
+    received.textContent = stamp;
+    wrap.append(received);
+  }
+  if (!unreadable(message)) {
     const actions = document.createElement("div");
     actions.className = "actions";
     if (message.code) actions.append(labeledCopy(message.code, "复制验证码", true));
@@ -506,23 +510,8 @@ function buildDetail(message) {
       await flashLabel(full, message.content || "", "复制全文");
     });
     actions.append(full);
-    const content = document.createElement("p");
-    content.className = "content";
-    renderContent(content, message.content, message.code);
-    wrap.append(actions, content);
+    wrap.append(actions);
   }
-  const extra = document.createElement("details");
-  extra.className = "fold";
-  const summaryNode = document.createElement("summary");
-  summaryNode.textContent = "高级信息";
-  const facts = document.createElement("dl");
-  facts.className = "device-facts";
-  addTiny(facts, "短信 ID", message.id);
-  addTiny(facts, "接收时间", absoluteTime(message.received_at));
-  if (message.created_at) addTiny(facts, "入库时间", absoluteTime(message.created_at));
-  if (message.reported_device) addTiny(facts, "上报设备", message.reported_device);
-  extra.append(summaryNode, facts);
-  wrap.append(extra);
   return wrap;
 }
 
@@ -625,17 +614,13 @@ function avatarNode(sender) {
 function timeNode(message, extra) {
   const time = document.createElement("time");
   time.className = `time ${extra}`;
-  time.dateTime = new Date(message.received_at).toISOString();
-  time.textContent = formatTime(message.received_at);
-  time.title = absoluteTime(message.received_at);
+  const at = Number(message.received_at);
+  if (Number.isFinite(at) && at > 0) {
+    time.dateTime = new Date(at).toISOString();
+    time.textContent = formatTime(at);
+    time.title = minuteStamp(at);
+  }
   return time;
-}
-
-function messageMeta(message) {
-  const bits = [message.device_name];
-  if (message.sim) bits.push(`SIM ${message.sim}`);
-  if (message.to_number) bits.push(`接收 ${message.to_number}`);
-  return bits.filter(Boolean).join(" · ");
 }
 
 function previewText(content) {
@@ -646,20 +631,9 @@ function unreadable(message) {
   return message?.content === UNREADABLE;
 }
 
-function addTiny(listNode, label, value) {
-  const wrap = document.createElement("div");
-  wrap.className = "span-2";
-  const term = document.createElement("dt");
-  term.textContent = label;
-  const detail = document.createElement("dd");
-  detail.textContent = value || "";
-  wrap.append(term, detail);
-  listNode.append(wrap);
-}
-
 function queryParams(page) {
   const params = new URLSearchParams();
-  if (deviceSelect.value) params.set("device_id", deviceSelect.value);
+  if (deviceSelect.value) params.set("device", deviceSelect.value);
   const from = String(filters.elements.from.value || "").trim();
   if (from) params.set("from", from);
   const query = String(qInput.value || "").trim();
@@ -867,6 +841,8 @@ function onInboxKey(event) {
     const row = document.getElementById(`msg-${state.selectedId}`);
     const message = messages.get(state.selectedId);
     if (!row || !message || event.target.closest("button, a")) return;
+    // A focused row already handles Enter on its own; don't toggle twice.
+    if (event.target.closest(".message-row")) return;
     event.preventDefault();
     openMessage(row, message);
   } else if (event.key === "c" && state.selectedId) {

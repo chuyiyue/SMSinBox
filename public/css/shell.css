@@ -61,59 +61,108 @@
 }
 
 .sidebar-devices {
-  flex: 1;
+  margin-top: auto;
   min-height: 0;
-  margin-top: 12px;
+  max-height: 40vh;
   padding-top: 12px;
   border-top: 1px solid var(--border);
   overflow: auto;
 }
 
+.sidebar-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 4px 6px 8px;
+}
+
 .sidebar-label {
-  margin: 0 8px 6px;
+  margin: 0;
   color: var(--text-3);
   font-size: var(--fs-xs);
   letter-spacing: 0.06em;
 }
 
+.sidebar-add {
+  width: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  text-decoration: none;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.sidebar-add:hover { color: var(--accent-text); }
+
+.device-list { display: grid; gap: 2px; }
+
 .sidebar .device-link {
-  position: relative;
-  display: block;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  grid-template-areas:
+    "icon name"
+    "icon state";
+  gap: 0 8px;
+  align-items: center;
   width: 100%;
   margin: 2px 0;
-  padding: 8px 10px;
+  padding: 6px 10px;
   min-height: 36px;
   border: 0;
   border-radius: var(--r-md);
   background: transparent;
   color: var(--text-2);
   text-align: left;
+}
+
+.sidebar .device-link .icon { grid-area: icon; color: var(--text-3); }
+
+.sidebar .device-link .device-name {
+  grid-area: name;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.sidebar .device-link[data-presence="online"] { padding-right: 22px; }
-
-.sidebar .device-link[data-presence="online"]::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  right: 10px;
-  width: 6px;
-  height: 6px;
-  margin-top: -3px;
-  border-radius: 50%;
-  background: var(--success);
+.sidebar .device-link .device-state {
+  grid-area: state;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+.sidebar .device-link[data-state="stale"] .device-state { color: var(--warning-text); }
+.sidebar .device-link[data-state="stale"] .icon { color: var(--warning); }
 
 .sidebar .device-link:hover { background: var(--surface-hover); }
 .sidebar .device-link.is-active {
   background: var(--accent-soft);
   color: var(--accent-text);
 }
+.sidebar .device-link.is-active .icon,
+.sidebar .device-link.is-active .device-state { color: var(--accent-text); }
 
 .sidebar-empty { margin: 8px; color: var(--text-3); font-size: var(--fs-sm); }
+
+.sidebar-empty-add {
+  display: inline-flex;
+  margin: 0 8px 4px;
+  padding: 0;
+  min-height: 28px;
+  background: transparent;
+  color: var(--accent-text);
+  border: 0;
+  text-decoration: none;
+  font-size: var(--fs-sm);
+}
+
+.sidebar-empty-add:hover { text-decoration: underline; background: transparent; }
 
 .sidebar-footer {
   display: grid;
@@ -123,15 +172,9 @@
   border-top: 1px solid var(--border);
 }
 
-.sidebar-user {
-  padding: 0 8px 4px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .account-btn { width: 100%; justify-content: flex-start; }
+
+.topbar .icon-btn[data-theme-toggle] { color: var(--text-2); }
 
 .main {
   margin-left: var(--sidebar-width);
@@ -289,11 +332,28 @@
 .auth-card form { display: grid; gap: 14px; margin-top: 20px; }
 .auth-card .button, .auth-card button[type="submit"] { width: 100%; }
 .auth-note { margin: 16px 0 0; color: var(--text-3); font-size: var(--fs-xs); text-align: center; }
+.auth-error { margin: 16px 0 0; }
+.auth-step-title { margin: 0; font-size: var(--fs-lg); }
+.auth-alternatives:empty { display: none; }
+
+/* Password-manager proxy: no pixels, no tab stop, no screen-reader text. */
+.auth-username-proxy {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sidebar-note { margin: 12px 8px 0; color: var(--text-3); font-size: var(--fs-xs); }
 
 @media (min-width: 640px) and (max-width: 1023px) {
   .sidebar { width: 64px; padding-left: 8px; padding-right: 8px; }
   .main { margin-left: 64px; }
-  .brand-name, .nav-label, .sidebar-devices, .sidebar-label, .btn-label, .sidebar-user { 
+  .brand-name, .nav-label, .sidebar-label, .sidebar-add, .sidebar-devices, .btn-label { 
     position: absolute;
     width: 1px;
     height: 1px;
