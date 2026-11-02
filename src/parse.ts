@@ -1,7 +1,11 @@
 import type { SmsInput } from "./types";
 
 export const MAX_CONTENT_LENGTH = 8_000;
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+// Any real SMS can be forwarded late (offline phone, delayed automation), so
+// do not clamp old device timestamps to "now". Only clearly bogus values fall
+// back: unparsable input, dates before 2000, or a clock more than 5 minutes
+// ahead. The fallback is marked in raw_payload as received_at_source=server.
+const MIN_DEVICE_TIME_MS = Date.UTC(2000, 0, 1);
 const FUTURE_SKEW_MS = 5 * 60 * 1000;
 
 export type ParseResult = { ok: true; sms: SmsInput } | { ok: false; error: string };
@@ -16,6 +20,7 @@ export function parseSmsPayload(contentType: string | null, body: string, now: n
   if (content.length > MAX_CONTENT_LENGTH) return { ok: false, error: "短信内容过长" };
 
   const timestamp = pick(fields.map, ["timestamp", "receive_time"]);
+  const received = resolveReceivedAtWithSource(timestamp, now);
   return {
     ok: true,
     sms: {
@@ -24,47 +29,71 @@ export function parseSmsPayload(contentType: string | null, body: string, now: n
       content,
       deviceName: clip(pick(fields.map, ["device"]) ?? "", 64),
       sim: clip(pick(fields.map, ["sim"]) ?? "", 32),
-      receivedAt: resolveReceivedAt(timestamp, now),
+      receivedAt: received.receivedAt,
+      receivedAtSource: received.source,
     },
   };
 }
 
+export function resolveReceivedAtWithSource(
+  raw: string | undefined,
+  now: number,
+): { receivedAt: number; source: "device" | "server" } {
+  const millis = parseDeviceTime(raw);
+  if (millis === null || millis > now + FUTURE_SKEW_MS || millis < MIN_DEVICE_TIME_MS) {
+    return { receivedAt: now, source: "server" };
+  }
+  return { receivedAt: millis, source: "device" };
+}
+
 export function resolveReceivedAt(raw: string | undefined, now: number): number {
-  if (!raw?.trim()) return now;
+  return resolveReceivedAtWithSource(raw, now).receivedAt;
+}
+
+function parseDeviceTime(raw: string | undefined): number | null {
+  if (!raw?.trim()) return null;
   const trimmed = raw.trim();
-  let millis: number;
   if (/^\d{1,16}(\.\d+)?$/.test(trimmed)) {
     const numeric = Number(trimmed);
-    if (!Number.isFinite(numeric)) return now;
-    millis = numeric < 1e12 ? Math.round(numeric * 1000) : Math.round(numeric);
-  } else {
-    let iso = trimmed.includes("T") ? trimmed : trimmed.replace(" ", "T");
-    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(iso)) iso += "Z";
-    millis = Date.parse(iso);
-    if (Number.isNaN(millis)) return now;
+    if (!Number.isFinite(numeric)) return null;
+    return numeric < 1e12 ? Math.round(numeric * 1000) : Math.round(numeric);
   }
-  if (millis < now - WEEK_MS || millis > now + FUTURE_SKEW_MS) return now;
-  return millis;
+  let iso = trimmed.includes("T") ? trimmed : trimmed.replace(" ", "T");
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(iso)) iso += "Z";
+  const millis = Date.parse(iso);
+  return Number.isNaN(millis) ? null : millis;
 }
 
 export function buildRawPayload(body: string, sms: SmsInput): string {
   return JSON.stringify({
     sim: sms.sim,
     device: sms.deviceName,
+    received_at: sms.receivedAt,
+    received_at_source: sms.receivedAtSource,
     body,
   });
 }
 
-export function readRawMeta(raw: string | null): { sim: string; device: string } {
-  if (!raw) return { sim: "", device: "" };
+export function readRawMeta(raw: string | null): {
+  sim: string;
+  device: string;
+  receivedAtSource: "device" | "server" | "unknown";
+} {
+  if (!raw) return { sim: "", device: "", receivedAtSource: "unknown" };
   try {
-    const value = JSON.parse(raw) as { sim?: unknown; device?: unknown };
+    const value = JSON.parse(raw) as { sim?: unknown; device?: unknown; received_at_source?: unknown };
     return {
       sim: typeof value.sim === "string" ? value.sim : "",
       device: typeof value.device === "string" ? value.device : "",
+      // Rows written before the source marker existed cannot be classified
+      // reliably, so say unknown instead of guessing.
+      receivedAtSource:
+        value.received_at_source === "device" || value.received_at_source === "server"
+          ? value.received_at_source
+          : "unknown",
     };
   } catch {
-    return { sim: "", device: "" };
+    return { sim: "", device: "", receivedAtSource: "unknown" };
   }
 }
 

@@ -191,6 +191,7 @@ beforeAll(async () => {
     CONTENT_KEY: "",
     ADMIN_USERNAME,
     ADMIN_PASSWORD,
+    DEVICE_JWT_SECRET: "integration-device-jwt-secret-0001",
   };
 }, 30_000);
 

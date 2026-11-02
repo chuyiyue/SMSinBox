@@ -65,6 +65,17 @@ export async function findUserRecordById(db: D1Database, userId: string): Promis
     .first<UserRecord>();
 }
 
+// Login resolves the single administrator from this list. The password hash is
+// needed because there is no username to look up any more.
+export async function listUserRecords(db: D1Database): Promise<UserRecord[]> {
+  const result = await db
+    .prepare(
+      "SELECT id, username, password_hash, role, disabled_at, created_at FROM users ORDER BY created_at ASC",
+    )
+    .all<UserRecord>();
+  return result.results;
+}
+
 export async function listUsers(db: D1Database): Promise<UserAccount[]> {
   const result = await db
     .prepare("SELECT id, username, role, disabled_at, created_at FROM users ORDER BY created_at ASC")
@@ -402,17 +413,28 @@ export function pushState(hash: string | null | undefined, revokedAt: number | n
 export async function findDeviceByTokenHash(db: D1Database, tokenHash: string): Promise<DeviceRecord | null> {
   return db
     .prepare(
-      `SELECT id, user_id, name, token_hash, secret, last_seen_at, created_at
+      `SELECT id, user_id, name, platform, token_hash, secret, token_version, last_seen_at, created_at
        FROM devices WHERE token_hash = ?`,
     )
     .bind(tokenHash)
     .first<DeviceRecord>();
 }
 
+export async function findDeviceById(db: D1Database, deviceId: string): Promise<DeviceRecord | null> {
+  return db
+    .prepare(
+      `SELECT id, user_id, name, platform, token_hash, secret, token_version, last_seen_at, created_at,
+              push_token_hash, push_revoked_at
+       FROM devices WHERE id = ?`,
+    )
+    .bind(deviceId)
+    .first<DeviceRecord>();
+}
+
 export async function findDeviceByPushTokenHash(db: D1Database, pushTokenHash: string): Promise<DeviceRecord | null> {
   return db
     .prepare(
-      `SELECT id, user_id, name, token_hash, secret, last_seen_at, created_at,
+      `SELECT id, user_id, name, platform, token_hash, secret, token_version, last_seen_at, created_at,
               push_token_hash, push_revoked_at
        FROM devices WHERE push_token_hash = ?`,
     )
@@ -559,7 +581,7 @@ export async function countDevices(db: D1Database, userId: string): Promise<numb
 export async function listDevices(db: D1Database, userId: string): Promise<DeviceView[]> {
   const result = await db
     .prepare(
-      `SELECT id, name, created_at, last_seen_at, secret, push_token_hash, push_revoked_at
+      `SELECT id, name, platform, created_at, last_seen_at, secret, push_token_hash, push_revoked_at
        FROM devices WHERE user_id = ?
        ORDER BY created_at DESC`,
     )
@@ -567,6 +589,7 @@ export async function listDevices(db: D1Database, userId: string): Promise<Devic
     .all<{
       id: string;
       name: string;
+      platform: string | null;
       created_at: number;
       last_seen_at: number | null;
       secret: string | null;
@@ -576,6 +599,7 @@ export async function listDevices(db: D1Database, userId: string): Promise<Devic
   return result.results.map((row) => ({
     id: row.id,
     name: row.name,
+    platform: row.platform,
     created_at: row.created_at,
     last_seen_at: row.last_seen_at,
     has_secret: Boolean(row.secret),
@@ -589,8 +613,10 @@ export async function insertDevice(
     id: string;
     userId: string;
     name: string;
+    platform?: string | null;
     tokenHash: string;
-    secret: string | null;
+    secret?: string | null;
+    tokenVersion?: number;
     createdAt: number;
     pushTokenHash?: string | null;
   },
@@ -598,15 +624,18 @@ export async function insertDevice(
   await db
     .prepare(
       `INSERT INTO devices (
-         id, user_id, name, token_hash, secret, last_seen_at, created_at, push_token_hash, push_revoked_at
-       ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL)`,
+         id, user_id, name, platform, token_hash, secret, token_version, last_seen_at, created_at,
+         push_token_hash, push_revoked_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)`,
     )
     .bind(
       device.id,
       device.userId,
       device.name,
+      device.platform ?? null,
       device.tokenHash,
-      device.secret,
+      device.secret ?? null,
+      device.tokenVersion ?? 0,
       device.createdAt,
       device.pushTokenHash ?? null,
     )
@@ -974,6 +1003,7 @@ async function revealMessage(row: MessageRecord, key: ContentKey): Promise<Messa
     sim: meta.sim,
     reported_device: meta.device,
     received_at: row.received_at,
+    received_at_source: meta.receivedAtSource,
     created_at: row.created_at,
   };
 }

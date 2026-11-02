@@ -1,12 +1,19 @@
 import {
   readBearer,
+  secretsEqual,
   sha256Hex,
   verifyHmacSignature,
 } from "../auth";
+import {
+  looksLikeDeviceJwt,
+  resolveDeviceJwtSecret,
+  verifyDeviceToken,
+} from "../device-jwt";
 import { resolveContentKey, revealCode, sealMessage } from "../crypto";
 import { dedupHash } from "../dedup";
 import {
   consumeRateLimit,
+  findDeviceById,
   findDeviceByPushTokenHash,
   findDeviceByTokenHash,
   findMessageByHash,
@@ -55,19 +62,63 @@ export async function handleSms(
 
   const token = readBearer(request.headers.get("authorization"));
   if (!token) return json({ ok: false, error: "缺少设备 token" }, 401);
+
+  const now = Date.now();
+  const auth = await authenticateDevice(request, env, token, bytes, now);
+  if (auth instanceof Response) return auth;
+  return storeSms(request, env, ctx, auth.device, bytes, auth.rateKey, now);
+}
+
+type DeviceAuth = { device: DeviceRecord; rateKey: string; mode: "jwt" | "legacy" };
+
+// Two credentials coexist during the migration window:
+//   - system-signed JWT (new devices; no per-device secret, no HMAC)
+//   - legacy random Bearer token plus optional per-device HMAC secret
+// The JWT path is checked first. A device row is the source of truth, so
+// deleting the device (or changing token_version/token_hash) revokes it.
+async function authenticateDevice(
+  request: Request,
+  env: Env,
+  token: string,
+  body: Uint8Array,
+  now: number,
+): Promise<DeviceAuth | Response> {
+  const signature = request.headers.get("x-signature");
+  const timestamp = request.headers.get("x-timestamp");
+
+  if (looksLikeDeviceJwt(token)) {
+    const secret = resolveDeviceJwtSecret(env);
+    if (!secret) return json({ ok: false, error: "设备认证尚未配置，请联系管理员" }, 503);
+    const verified = await verifyDeviceToken(token, secret, now);
+    if (!verified.ok) return json({ ok: false, error: verified.error }, 401);
+    const device = await findDeviceById(env.DB, verified.claims.sub);
+    if (!device || device.token_version !== verified.claims.ver) {
+      return json({ ok: false, error: "设备 token 无效" }, 401);
+    }
+    const tokenHash = await sha256Hex(verified.claims.jti);
+    if (!(await secretsEqual(tokenHash, device.token_hash))) {
+      return json({ ok: false, error: "设备 token 已撤销" }, 401);
+    }
+    if (signature || timestamp) {
+      return json({ ok: false, error: "该设备使用系统 JWT，不需要签名" }, 401);
+    }
+    // Rate limits key on the presented credential, not the stored jti hash, so
+    // issuing a fresh device token also starts a fresh per-minute window.
+    return { device, rateKey: await sha256Hex(`jwt:${token}`), mode: "jwt" };
+  }
+
   const tokenHash = await sha256Hex(token);
   const device = await findDeviceByTokenHash(env.DB, tokenHash);
   if (!device) return json({ ok: false, error: "设备 token 无效" }, 401);
 
-  const now = Date.now();
-  const signature = request.headers.get("x-signature");
-  const timestamp = request.headers.get("x-timestamp");
+  // Legacy compatibility: only devices that still store a secret enforce HMAC.
+  // New devices never do, so a misplaced signature is rejected loudly.
   if (device.secret) {
     if (!signature || !timestamp) return json({ ok: false, error: "该设备要求 HMAC 签名" }, 401);
     const valid = await verifyHmacSignature({
       secret: device.secret,
       timestamp,
-      body: bytes,
+      body,
       signature,
       now,
     });
@@ -75,8 +126,7 @@ export async function handleSms(
   } else if (signature || timestamp) {
     return json({ ok: false, error: "该设备未启用签名" }, 401);
   }
-
-  return storeSms(request, env, ctx, device, bytes, tokenHash, now);
+  return { device, rateKey: tokenHash, mode: "legacy" };
 }
 
 export async function handleIngest(
