@@ -261,7 +261,7 @@ export function renderSidebarDevices(devices, activeId = getActiveId()) {
     if (!empty) {
       empty = document.createElement("p");
       empty.className = "sidebar-empty";
-      empty.textContent = "还没有设备";
+      empty.textContent = "还没有设备。";
       box.append(empty);
     }
     if (!add) {

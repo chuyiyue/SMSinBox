@@ -33,7 +33,7 @@
   if (!devices.length) {
     var empty = document.createElement("p");
     empty.className = "sidebar-empty";
-    empty.textContent = "还没有设备";
+    empty.textContent = "还没有设备。";
     box.append(empty);
     var add = document.createElement("a");
     add.className = "sidebar-empty-add";

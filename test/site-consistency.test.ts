@@ -79,7 +79,9 @@ describe("site consistency", () => {
       const nav = html.match(/<nav class="sidebar-nav"[\s\S]*?<\/nav>/)?.[0] ?? "";
       expect(nav).toContain('<span class="nav-label">系统管理</span>');
       expect(nav).not.toContain('<span class="nav-label">用户</span>');
-      expect(html).toContain('<a id="users-tab" href="/users.html" hidden>系统管理</a>');
+      expect(html).toContain('<a id="users-tab" href="/users.html">系统管理</a>');
+      // Single administrator: no role gate hides the entry any more.
+      expect(html).not.toContain('<a id="users-tab" href="/users.html" hidden>');
     }
   });
 
@@ -94,7 +96,9 @@ describe("site consistency", () => {
     }
     expect(html).toContain("<title>系统管理 · SMSinBox</title>");
     expect(html).toContain('<h1 class="topbar-title">系统管理</h1>');
-    expect(html).toContain('id="username-form"');
+    // Merged UI/UX v2: there is no username to change, so no username form.
+    expect(html).not.toContain('id="username-form"');
+    expect(html).not.toContain('name="username"');
     expect(html).toContain('id="password-form"');
     expect(html).toContain('name="current_password"');
     expect(html).toContain('id="session-list"');
@@ -106,7 +110,7 @@ describe("site consistency", () => {
       expect(html).not.toContain(gone);
     }
     expect(js).not.toContain("/api/v1/users");
-    expect(js).toContain("/api/v1/auth/username");
+    expect(js).not.toContain("/api/v1/auth/username");
     expect(js).toContain("/api/v1/auth/password");
     expect(js).toContain("current_password");
     expect(js).toContain("/api/v1/auth/sessions");

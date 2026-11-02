@@ -44,11 +44,21 @@ globalThis.fetch = (url) => {
 };
 
 const store = await import("./public/device-store.js");
-const { STORAGE_KEY, presenceOf, refreshDevices, ensureDevices, noteDeviceSeen, noteMe, getDevices, getMe, hydrateShell, clearShellCache, getActiveId } = store;
+const { STORAGE_KEY, DEVICE_STALE_MS, deviceStateOf, relativeReport, refreshDevices, ensureDevices, noteDeviceSeen, noteMe, getDevices, getMe, hydrateShell, clearShellCache, getActiveId } = store;
 
-if (presenceOf({ last_seen_at: Date.now() }) !== "online") throw new Error("online");
-if (presenceOf({ last_seen_at: Date.now() - 600001 }) !== "idle") throw new Error("idle");
-if (presenceOf({ last_seen_at: null }) !== "") throw new Error("empty presence");
+// Merged UI/UX v2: the sidebar may only claim what the last report time proves.
+// Never render "online" / "offline" from last_seen_at.
+const now = Date.now();
+const recent = deviceStateOf({ last_seen_at: now }, now);
+if (recent.key !== "recent" || recent.stale) throw new Error("recent state");
+if (!recent.text.startsWith("最近上报")) throw new Error("recent text: " + recent.text);
+if (/在线|离线/.test(recent.text)) throw new Error("online/offline wording");
+if (relativeReport(now - 5 * 60_000, now) !== "5 分钟前") throw new Error("relative minutes");
+const stale = deviceStateOf({ last_seen_at: now - DEVICE_STALE_MS - 1 }, now);
+if (stale.key !== "stale" || !stale.stale) throw new Error("stale state");
+const none = deviceStateOf({ last_seen_at: null }, now);
+if (none.key !== "none" || none.text !== "尚未收到") throw new Error("empty presence");
+if (deviceStateOf({}, now).key !== "none") throw new Error("missing last_seen");
 
 const first = refreshDevices();
 const second = refreshDevices();
