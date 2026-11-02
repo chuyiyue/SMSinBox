@@ -260,7 +260,7 @@ Cookie 保持 `HttpOnly`、`Path=/`、无 `Domain`、`SameSite=Lax`，HTTPS 加 
 
 ## 8. 批次 5 + 6 落地（系统管理页与回归）
 
-- `public/users.html` 改为四区：**管理员账号**（改用户名、改密码表单，均需当前密码）、**会话管理**（未过期会话列表、当前标记、撤销单条、撤销其它）、**两步验证**（继续复用 `public/totp-settings.js` 的 setup/enable/disable/recovery）、**系统信息**（静态版本、当前用户、设备数、会话数）。
+- `public/users.html` 改为四区：**管理员账号**（改用户名、改密码表单，均需当前密码）、**会话管理**（未过期会话列表、当前标记、撤销单条、撤销其它）、**两步验证**（继续复用 `public/totp-settings.js` 的 setup/enable/disable/recovery）、**系统信息**（版本号来自 `package.json`、当前用户、设备数、会话数）。
 - 删除 `#add-user`、用户表、`#user-dialog`、`#user-form`，以及 `users.js` 里的创建、改角色、停用、删除逻辑；`/api/v1/users` 仍返回 410。
 - 四个管理页侧栏第 4 项和移动端「更多」的文案改为「系统管理」；`href` 仍是 `/users.html`，持久壳的 `VIEWS` 键不变。
 - `public/device-store.js` 新增 `noteMe()`：改名成功后侧栏、页面账号区和 `sessionStorage` 立即用新用户名，不必再请求一次 `/auth/me`。

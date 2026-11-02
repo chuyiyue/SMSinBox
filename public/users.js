@@ -48,6 +48,7 @@ let sessionList;
 let sessionsError;
 let sessionsStatus;
 let revokeOthers;
+let factVersion;
 let factUser;
 let factDevices;
 let factSessions;
@@ -79,6 +80,7 @@ function startView() {
   sessionsError = document.querySelector("#sessions-error");
   sessionsStatus = document.querySelector("#sessions-status");
   revokeOthers = document.querySelector("#revoke-others");
+  factVersion = document.querySelector("#fact-version");
   factUser = document.querySelector("#fact-user");
   factDevices = document.querySelector("#fact-devices");
   factSessions = document.querySelector("#fact-sessions");
@@ -156,7 +158,7 @@ async function boot(token) {
   me = await loadNav();
   if (token !== viewToken) return;
   paintAccount();
-  await Promise.all([loadSessions(), loadDeviceCount()]);
+  await Promise.all([loadSessions(), loadDeviceCount(), loadSystemInfo()]);
 }
 
 async function refreshPage() {
@@ -168,6 +170,7 @@ async function refreshPage() {
       setSessionsError("加载会话失败");
     }),
     refreshDeviceCount(token),
+    loadSystemInfo(),
   ]);
 }
 
@@ -204,6 +207,21 @@ async function refreshDeviceCount(token) {
   } catch (error) {
     if (isUnauthorized(error)) return;
     factDevices.textContent = "读取失败";
+  }
+}
+
+async function loadSystemInfo() {
+  try {
+    const result = await api("/api/v1/system/info");
+    if (!result.response.ok) {
+      factVersion.textContent = "读取失败";
+      return;
+    }
+    const version = typeof result.data.version === "string" ? result.data.version.trim() : "";
+    factVersion.textContent = version || "未知";
+  } catch (error) {
+    if (isUnauthorized(error)) return;
+    factVersion.textContent = "读取失败";
   }
 }
 

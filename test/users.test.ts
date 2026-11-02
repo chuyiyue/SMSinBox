@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import pkg from "../package.json";
 import { hashPassword } from "../src/auth";
 import { SINGLE_USER_MERGED_KEY } from "../src/db";
 import { handleApi } from "../src/routes/api";
@@ -255,6 +256,25 @@ describe("single admin", () => {
     const loggedIn = await handleApi(loginRequest("root", "secret"), envFor(legacy.db));
     expect(loggedIn.status).toBe(200);
     expect(legacy.calls.some((call) => call.sql.startsWith("DELETE FROM users"))).toBe(false);
+  });
+
+  it("reports the package.json version and keeps the endpoint behind login", async () => {
+    const script = makeDb();
+    const response = await handleApi(authed("/api/v1/system/info"), envFor(script.db));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      version: pkg.version,
+      runtime: "Cloudflare Workers + D1",
+    });
+
+    const anonymous = await handleApi(new Request("https://sms.example/api/v1/system/info"), envFor(makeDb().db));
+    expect(anonymous.status).toBe(401);
+    expect(await anonymous.json()).toMatchObject({ error: "未登录" });
+
+    const wrongMethod = await handleApi(authed("/api/v1/system/info", "POST", {}), envFor(makeDb().db));
+    expect(wrongMethod.status).toBe(405);
+    expect(await wrongMethod.json()).toMatchObject({ error: "方法不允许" });
   });
 
   it("drops a non-admin session and keeps the admin session", async () => {

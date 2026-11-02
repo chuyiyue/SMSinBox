@@ -90,6 +90,7 @@ import { buildTestSms } from "./sms";
 import { openSmtpSocket } from "../smtp";
 import { createInboxStream, resolveCursor, SSE_BATCH } from "../sse";
 import type { UserRecord } from "../types";
+import { APP_VERSION } from "../version";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const USERNAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -214,6 +215,10 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
     if (method !== "DELETE") return methodNotAllowed("DELETE");
     return removeDevice(request, env, deviceMatch[1]);
   }
+  if (path === "/api/v1/system/info") {
+    if (method !== "GET") return methodNotAllowed("GET");
+    return systemInfo(request, env);
+  }
   if (path === "/api/v1/users" || /^\/api\/v1\/users\/[^/]+$/.test(path)) {
     return json({ ok: false, error: "用户管理已关闭" }, 410);
   }
@@ -320,6 +325,12 @@ async function me(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   return json({ ok: true, user: publicUser(user) });
+}
+
+async function systemInfo(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  return json({ ok: true, version: APP_VERSION, runtime: "Cloudflare Workers + D1" });
 }
 
 async function changeUsername(request: Request, env: Env): Promise<Response> {

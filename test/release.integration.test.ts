@@ -3,6 +3,7 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import pkg from "../package.json";
 import { Miniflare } from "miniflare";
 import { bytesToBase64Url, hashPassword, sha256Hex, signHmacHex } from "../src/auth";
 import { LOGIN_FAILURE_LIMIT, loginRateKey } from "../src/db";
@@ -476,6 +477,12 @@ describe("release journey", () => {
     const page = await call("/devices.html");
     expect(page.status).toBe(200);
     expect(await page.text()).toBe("asset");
+  });
+
+  it("serves the package.json version on the system info endpoint", async () => {
+    expect((await call("/api/v1/system/info")).status).toBe(401);
+    const info = await expectStatus(await call("/api/v1/system/info", {}, state.cookie), 200);
+    expect(info).toMatchObject({ ok: true, version: pkg.version, runtime: "Cloudflare Workers + D1" });
   });
 
   it("returns a bearer and a push link once, then hides both", async () => {

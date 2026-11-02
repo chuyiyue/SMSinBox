@@ -115,6 +115,20 @@ describe("site consistency", () => {
     expect(js).toContain("if (!result.response.ok)");
   });
 
+  it("loads the displayed version from package.json instead of hardcoding it", () => {
+    const html = readFileSync("public/users.html", "utf8");
+    const js = readFileSync("public/users.js", "utf8");
+    const version = (JSON.parse(readFileSync("package.json", "utf8")) as { version: string }).version;
+    expect(html).not.toContain(`>${version}<`);
+    expect(html).toContain('<dd id="fact-version">读取中…</dd>');
+    expect(html).not.toContain("静态信息");
+    expect(html).toContain("package.json");
+    expect(js).toContain('/api/v1/system/info');
+    expect(js).toContain('querySelector("#fact-version")');
+    expect(js).toContain("loadSystemInfo");
+    expect(js).toContain("factVersion.textContent");
+  });
+
   it("wires the login second step and the two-factor panel", () => {
     const login = readFileSync("public/login.html", "utf8");
     const loginJs = readFileSync("public/login.js", "utf8");
