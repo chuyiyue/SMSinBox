@@ -218,7 +218,7 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
     return systemInfo(request, env);
   }
   if (/^\/api\/v1\/users(\/|$)/.test(path)) {
-    return json({ ok: false, error: "用户管理已关闭，只有唯一管理员" }, 410);
+    return json({ ok: false, error: "用户管理已关闭" }, 410);
   }
   return json({ ok: false, error: "未找到" }, 404);
 }
@@ -243,83 +243,91 @@ async function login(request: Request, env: Env): Promise<Response> {
   const users = await listUserRecords(env.DB);
   const adminPassword = env.ADMIN_PASSWORD ?? "";
   const hasEnvPassword = adminPassword.length > 0;
-  if (users.length === 0 && !hasEnvPassword) {
-    return json({ ok: false, error: "尚未配置管理员密码。请设置 ADMIN_PASSWORD。" }, 503);
-  }
-
-  const envPasswordOk = hasEnvPassword && (await secretsEqual(password, adminPassword));
-  let user = await findPasswordUser(users, password);
-  if (!user && envPasswordOk) {
-    if (users.length === 0) {
-      user = await bootstrapAdmin(env, users, password);
-      if (!user) return json({ ok: false, error: "无法创建管理员，请重试" }, 500);
-    } else {
-      // ADMIN_USERNAME is deprecated: it is only a read-only hint for picking
-      // the surviving row when more than one account predates the merge.
-      user = chooseEnvPasswordUser(users, env.ADMIN_USERNAME?.trim() ?? "");
-      if (!user) {
-        return json(
-          {
-            ok: false,
-            error: "存在多个账号，无法确定管理员。请先只保留一个 users 行，或用 ADMIN_USERNAME 指向现有管理员。",
-          },
-          409,
-        );
-      }
+  if (users.length === 0) {
+    if (!hasEnvPassword) {
+      return json({ ok: false, error: "尚未配置管理员密码。请设置 ADMIN_PASSWORD。" }, 503);
     }
+    const envPasswordOk = await secretsEqual(password, adminPassword);
+    if (!envPasswordOk) {
+      await recordLoginFailure(env.DB, userKey, now);
+      if (ipKey) await recordLoginFailure(env.DB, ipKey, now);
+      return json({ ok: false, error: "密码错误" }, 401);
+    }
+    const created = await bootstrapAdmin(env, password);
+    if (!created) return json({ ok: false, error: "无法创建管理员，请重试" }, 500);
+    await finishLogin(env, created, { userKey, ipKey, now });
+    return issueSessionFor(request, env, created);
   }
 
-  if (!user) {
+  // Only one row is the administrator. ADMIN_USERNAME is no longer a login
+  // field; it survives as a read-only hint for selecting that row while
+  // production databases still contain pre-merge rows.
+  const designated = pickDesignatedUser(users, env.ADMIN_USERNAME?.trim() ?? "");
+  if (!designated) {
+    return json(
+      {
+        ok: false,
+        error: "存在多个账号，无法确定管理员。请先只保留一个 users 行，或用 ADMIN_USERNAME 指向现有管理员。",
+      },
+      409,
+    );
+  }
+
+  const rowPasswordOk = await verifyPassword(password, designated.password_hash);
+  const envPasswordOk = hasEnvPassword && (await secretsEqual(password, adminPassword));
+  if (!rowPasswordOk && !envPasswordOk) {
     await recordLoginFailure(env.DB, userKey, now);
     if (ipKey) await recordLoginFailure(env.DB, ipKey, now);
-    return json({ ok: false, error: "密码错误" }, 401);
-  }
-  if (user.disabled_at != null) return json({ ok: false, error: "账号已停用" }, 401);
-  if (user.role !== "admin") {
-    // A leftover single row that was a member must not lock the owner out.
-    if (users.length === 1) {
-      await ensureAdmin(env.DB, user.id);
-      user = { ...user, role: "admin", disabled_at: null };
-    } else {
-      return json({ ok: false, error: "仅管理员可以登录" }, 401);
-    }
+    // A password that belongs to another pre-merge row gets a clear refusal
+    // instead of looking like a typo. Other rows never become a login path.
+    const other = await findMatchingUser(users, password, designated.id);
+    if (!other) return json({ ok: false, error: "密码错误" }, 401);
+    return json(
+      { ok: false, error: other.disabled_at != null ? "账号已停用" : "仅管理员可以登录" },
+      401,
+    );
   }
 
-  // ADMIN_PASSWORD stays a recovery path: a successful env-password login
-  // writes that password back into the row so later UI changes win.
-  if (envPasswordOk && !(await verifyPassword(password, user.password_hash))) {
-    const hash = await hashPassword(password);
-    await updatePasswordHash(env.DB, user.id, hash);
-    user = { ...user, password_hash: hash };
+  let user = designated;
+  if (envPasswordOk) {
+    // ADMIN_PASSWORD stays a recovery path: a successful env-password login
+    // writes that password back into the row so later UI changes win, and can
+    // revive the surviving row if it was disabled or demoted.
+    if (!rowPasswordOk) {
+      const hash = await hashPassword(password);
+      await updatePasswordHash(env.DB, user.id, hash);
+      user = { ...user, password_hash: hash };
+    }
+    if (user.role !== "admin" || user.disabled_at != null) {
+      await ensureAdmin(env.DB, user.id);
+      user = { ...user, role: "admin", disabled_at: null };
+    }
+  } else if (user.disabled_at != null) {
+    return json({ ok: false, error: "账号已停用" }, 401);
+  } else if (user.role !== "admin") {
+    return json({ ok: false, error: "仅管理员可以登录" }, 401);
   }
 
   await clearLoginFailures(env.DB, userKey, now);
   if (ipKey) await clearLoginFailures(env.DB, ipKey, now);
-  await clearLoginFailures(env.DB, await loginRateKey("user", user.id), now);
 
-  // Claim any devices/channels still attached to stale user rows, then remove
-  // those rows and sessions. Messages are never touched here.
-  await mergeIntoAdmin(env.DB, user);
-
-  const totp = await findTotpUser(env.DB, user.id);
-  logInfo({ message: "login", user_id: user.id });
-  if (totp?.totp_enabled_at != null && totp.totp_secret != null) {
-    return startTotpChallenge(env, user);
-  }
-  return issueSession(request, env, { ...user, totp_enabled_at: totp?.totp_enabled_at ?? null });
+  await finishLogin(env, user, { userKey, ipKey, now });
+  return issueSessionFor(request, env, user);
 }
 
-async function findPasswordUser(users: UserRecord[], password: string): Promise<UserRecord | null> {
-  let fallback: UserRecord | null = null;
+async function findMatchingUser(
+  users: UserRecord[],
+  password: string,
+  designatedId: string,
+): Promise<UserRecord | null> {
   for (const candidate of users) {
-    if (!(await verifyPassword(password, candidate.password_hash))) continue;
-    if (candidate.role === "admin" && candidate.disabled_at == null) return candidate;
-    fallback ??= candidate;
+    if (candidate.id === designatedId) continue;
+    if (await verifyPassword(password, candidate.password_hash)) return candidate;
   }
-  return fallback;
+  return null;
 }
 
-function chooseEnvPasswordUser(users: UserRecord[], adminUsername: string): UserRecord | null {
+function pickDesignatedUser(users: UserRecord[], adminUsername: string): UserRecord | null {
   if (adminUsername) {
     const named = users.find((candidate) => candidate.username === adminUsername);
     if (named) return named;
@@ -329,11 +337,7 @@ function chooseEnvPasswordUser(users: UserRecord[], adminUsername: string): User
   return admins.length === 1 ? admins[0]! : null;
 }
 
-async function bootstrapAdmin(
-  env: Env,
-  existing: UserRecord[],
-  password: string,
-): Promise<UserRecord | null> {
+async function bootstrapAdmin(env: Env, password: string): Promise<UserRecord | null> {
   const username = env.ADMIN_USERNAME?.trim() || "admin";
   const createdAt = Date.now();
   const user: UserRecord = {
@@ -356,8 +360,31 @@ async function bootstrapAdmin(
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
     const again = await listUserRecords(env.DB);
-    return again.find((candidate) => candidate.username === username) ?? (existing[0] ?? null);
+    return pickDesignatedUser(again, username) ?? again[0] ?? null;
   }
+}
+
+async function finishLogin(
+  env: Env,
+  user: UserRecord,
+  budget: { userKey: string; ipKey: string | null; now: number },
+): Promise<void> {
+  await clearLoginFailures(env.DB, budget.userKey, budget.now);
+  if (budget.ipKey) await clearLoginFailures(env.DB, budget.ipKey, budget.now);
+  // Claim any devices/channels still attached to stale user rows, then remove
+  // those rows and sessions. Messages are never touched here.
+  await mergeIntoAdmin(env.DB, user);
+}
+
+// Session issuance stays in one place so the bootstrap path and the normal
+// path cannot drift apart (including the TOTP challenge).
+async function issueSessionFor(request: Request, env: Env, user: UserRecord): Promise<Response> {
+  const totp = await findTotpUser(env.DB, user.id);
+  logInfo({ message: "login", user_id: user.id });
+  if (totp?.totp_enabled_at != null && totp.totp_secret != null) {
+    return startTotpChallenge(env, user);
+  }
+  return issueSession(request, env, { ...user, totp_enabled_at: totp?.totp_enabled_at ?? null });
 }
 
 async function logout(request: Request, env: Env): Promise<Response> {

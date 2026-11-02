@@ -98,12 +98,30 @@ describe("parseSmsPayload", () => {
     expect(parseSmsPayload("application/json", JSON.stringify({ content: "x".repeat(8001) }), NOW).ok).toBe(false);
   });
 
-  it("uses the server time when the device timestamp is missing or far away", () => {
+  it("falls back to server time only for missing or bogus timestamps", () => {
     const missing = parseSmsPayload("application/json", '{"content":"hi","from":"a"}', NOW);
     expect(missing.ok).toBe(true);
-    if (missing.ok) expect(missing.sms.receivedAt).toBe(NOW);
-    expect(resolveReceivedAt("2020-01-01 00:00:00", NOW)).toBe(NOW);
+    if (missing.ok) {
+      expect(missing.sms.receivedAt).toBe(NOW);
+      expect(missing.sms.receivedAtSource).toBe("server");
+    }
+    // A late forward (offline phone) keeps the device clock. Only unparsable,
+    // pre-2000, or >5 minutes in the future values fall back.
+    expect(resolveReceivedAt("2020-01-01 00:00:00", NOW)).toBe(Date.UTC(2020, 0, 1));
     expect(resolveReceivedAt("not-a-date", NOW)).toBe(NOW);
+    expect(resolveReceivedAt("1999-12-31 23:59:59", NOW)).toBe(NOW);
+    expect(resolveReceivedAt(String(Math.floor((NOW + 6 * 60 * 1000) / 1000)), NOW)).toBe(NOW);
     expect(resolveReceivedAt(String(Math.floor(NOW / 1000)), NOW)).toBe(NOW);
+
+    const late = parseSmsPayload(
+      "application/json",
+      JSON.stringify({ content: "late", timestamp: "2020-01-01 00:00:00" }),
+      NOW,
+    );
+    expect(late.ok).toBe(true);
+    if (late.ok) {
+      expect(late.sms.receivedAt).toBe(Date.UTC(2020, 0, 1));
+      expect(late.sms.receivedAtSource).toBe("device");
+    }
   });
 });

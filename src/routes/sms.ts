@@ -102,9 +102,10 @@ async function authenticateDevice(
     if (signature || timestamp) {
       return json({ ok: false, error: "该设备使用系统 JWT，不需要签名" }, 401);
     }
-    // Rate limits key on the presented credential, not the stored jti hash, so
-    // issuing a fresh device token also starts a fresh per-minute window.
-    return { device, rateKey: await sha256Hex(`jwt:${token}`), mode: "jwt" };
+    // Rate limits use the stored credential hash, the same value deleteDevice
+    // clears, so a deleted device cannot leave a live window behind. A fresh
+    // jti (token rotation) naturally starts a fresh window.
+    return { device, rateKey: tokenHash, mode: "jwt" };
   }
 
   const tokenHash = await sha256Hex(token);

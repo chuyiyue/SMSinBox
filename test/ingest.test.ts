@@ -25,8 +25,10 @@ type DeviceRow = {
   id: string;
   user_id: string;
   name: string;
+  platform: string | null;
   token_hash: string;
   secret: string | null;
+  token_version: number;
   last_seen_at: number | null;
   created_at: number;
   push_token_hash: string | null;
@@ -149,6 +151,9 @@ function createDb() {
             const device = state.devices.find((row) => row.id === args[0] && row.user_id === args[1]);
             return device ? { id: device.id, name: device.name } : null;
           }
+          if (sql.trim().endsWith("WHERE id = ?")) {
+            return state.devices.find((device) => device.id === args[0]) ?? null;
+          }
           if (sql.includes("FROM devices") && sql.includes("WHERE token_hash = ?")) {
             return state.devices.find((device) => device.token_hash === args[0]) ?? null;
           }
@@ -168,6 +173,7 @@ function createDb() {
                 .map((device) => ({
                   id: device.id,
                   name: device.name,
+                  platform: device.platform,
                   created_at: device.created_at,
                   last_seen_at: device.last_seen_at,
                   secret: device.secret,
@@ -200,11 +206,13 @@ function createDb() {
               id: String(args[0]),
               user_id: String(args[1]),
               name: String(args[2]),
-              token_hash: String(args[3]),
-              secret: args[4] == null ? null : String(args[4]),
+              platform: args[3] == null ? null : String(args[3]),
+              token_hash: String(args[4]),
+              secret: args[5] == null ? null : String(args[5]),
+              token_version: Number(args[6]),
               last_seen_at: null,
-              created_at: Number(args[5]),
-              push_token_hash: args[6] == null ? null : String(args[6]),
+              created_at: Number(args[7]),
+              push_token_hash: args[8] == null ? null : String(args[8]),
               push_revoked_at: null,
             });
             return { meta: { changes: 1 } };
@@ -303,6 +311,7 @@ function envFor(db: D1Database, contentKey = ""): Env {
     CONTENT_KEY: contentKey,
     ADMIN_USERNAME: "admin",
     ADMIN_PASSWORD: "secret",
+    DEVICE_JWT_SECRET: "ingest-device-jwt-secret-00000001",
   } as unknown as Env;
 }
 
@@ -362,8 +371,10 @@ async function seedDevice(state: State, token: string, secret: string | null = n
     id: DEVICE_ID,
     user_id: USER_ID,
     name: "pixel",
+    platform: "other",
     token_hash: await sha256Hex(token),
     secret,
+    token_version: 0,
     last_seen_at: null,
     created_at: NOW,
     push_token_hash: null,
@@ -731,17 +742,19 @@ describe("push ingest", () => {
     return new Request(url, { method: "POST", headers: requestHeaders, body });
   }
 
-  async function createDevice(harness: ReturnType<typeof createDb>, secret?: string) {
+  async function createDevice(harness: ReturnType<typeof createDb>) {
     await seedSession(harness.state);
     const response = await handleApi(
-      authed("/api/v1/devices", "POST", secret ? { name: "pixel", secret } : { name: "pixel" }),
+      authed("/api/v1/devices", "POST", { name: "pixel", platform: "android" }),
       envFor(harness.db),
     );
     expect(response.status).toBe(200);
     return response.json() as Promise<{
       token: string;
+      token_type: string;
+      token_expires_at: number;
       push_url: string;
-      device: { id: string; push: string; has_secret: boolean };
+      device: { id: string; push: string; has_secret: boolean; platform: string };
     }>;
   }
 
@@ -749,12 +762,17 @@ describe("push ingest", () => {
     const logs = captureLogs();
     const harness = createDb();
     const created = await createDevice(harness);
-    expect(created.token.startsWith("sms_")).toBe(true);
+    expect(created.token.startsWith("eyJ")).toBe(true);
+    expect(created.token.split(".")).toHaveLength(3);
+    expect(created.token_type).toBe("Bearer");
+    expect(created.token_expires_at).toBeGreaterThan(NOW);
     expect(created.push_url).toMatch(/^https:\/\/sms\.example\/api\/v1\/ingest\/psh_[A-Za-z0-9_-]{20,}$/);
-    expect(created.device.push).toBe("active");
+    expect(created.device).toMatchObject({ push: "active", has_secret: false, platform: "android" });
     const secret = created.push_url.split("/").pop() ?? "";
     expect(harness.state.devices[0]?.push_token_hash).toBe(await sha256Hex(secret));
-    expect(harness.state.devices[0]?.token_hash).toBe(await sha256Hex(created.token));
+    expect(harness.state.devices[0]?.token_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(harness.state.devices[0]?.token_hash).not.toBe(await sha256Hex(created.token));
+    expect(harness.state.devices[0]?.token_version).toBe(0);
     expect(JSON.stringify(harness.state.devices[0])).not.toContain(secret);
     expect(JSON.stringify(harness.state.devices[0])).not.toContain(created.token);
 
@@ -767,6 +785,37 @@ describe("push ingest", () => {
     expect(serialized).not.toContain(created.push_url);
     expect(logs.info.join("")).not.toContain(secret);
     expect(logs.info.join("")).not.toContain(created.token);
+  });
+
+  it("revokes a system JWT by bumping token_version or deleting the device", async () => {
+    const harness = createDb();
+    const created = await createDevice(harness);
+    const good = await handleSms(
+      smsRequest(created.token, smsBody("验证码 111111")),
+      envFor(harness.db),
+      waitCtx().ctx,
+    );
+    expect(good.status).toBe(200);
+
+    harness.state.devices[0]!.token_version = 1;
+    const revoked = await handleSms(
+      smsRequest(created.token, smsBody("验证码 222222")),
+      envFor(harness.db),
+      waitCtx().ctx,
+    );
+    expect(revoked.status).toBe(401);
+    expect(await revoked.json()).toEqual({ ok: false, error: "设备 token 无效" });
+
+    harness.state.devices[0]!.token_version = 0;
+    harness.state.devices = [];
+    const deleted = await handleSms(
+      smsRequest(created.token, smsBody("验证码 333333")),
+      envFor(harness.db),
+      waitCtx().ctx,
+    );
+    expect(deleted.status).toBe(401);
+    expect(await deleted.json()).toEqual({ ok: false, error: "设备 token 无效" });
+    expect(harness.state.messages).toHaveLength(1);
   });
 
   it("stores through the push URL and still accepts the old bearer", async () => {
@@ -821,7 +870,7 @@ describe("push ingest", () => {
 
   it("ignores Authorization, skips HMAC, and deduplicates with the bearer path", async () => {
     const harness = createDb();
-    const created = await createDevice(harness, "hmac-secret-value");
+    const created = await createDevice(harness);
     const other = await handleApi(authed("/api/v1/devices", "POST", { name: "other" }), envFor(harness.db));
     const second = await other.json() as { token: string; device: { id: string } };
     const body = smsBody("验证码 123456");
@@ -844,9 +893,11 @@ describe("push ingest", () => {
     expect(await duplicate.json()).toMatchObject({ duplicate: true, code: "123456" });
     expect(harness.state.messages).toHaveLength(1);
 
+    // New devices use the system JWT and never sign, so the bearer door needs
+    // no X-Signature. The HMAC path is covered for legacy rows below.
     const unsigned = await handleSms(smsRequest(created.token, smsBody("验证码 222222")), envFor(harness.db), waitCtx().ctx);
-    expect(unsigned.status).toBe(401);
-    expect(await unsigned.json()).toEqual({ ok: false, error: "该设备要求 HMAC 签名" });
+    expect(unsigned.status).toBe(200);
+    expect(await unsigned.json()).toMatchObject({ ok: true, code: "222222" });
 
     const crossSite = await workerEntry().fetch(
       posted(created.push_url, smsBody("验证码 333333"), {
@@ -937,9 +988,9 @@ describe("push ingest", () => {
     expect(next.device.push).toBe("active");
     expect(next.push_url).not.toBe(created.push_url);
     expect(harness.state.messages).toHaveLength(2);
-    expect((await findDeviceByTokenHash(harness.db, await sha256Hex(created.token)))?.token_hash).toBe(
-      await sha256Hex(created.token),
-    );
+    // Push rotation never rewrites the bearer credential.
+    expect(harness.state.devices[0]?.token_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(harness.state.devices[0]?.token_version).toBe(0);
 
     const retired = await workerEntry().fetch(posted(created.push_url), envFor(harness.db), waitCtx().ctx as ExecutionContext);
     expect(retired.status).toBe(401);

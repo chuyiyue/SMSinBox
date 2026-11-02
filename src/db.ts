@@ -632,7 +632,7 @@ export async function insertDevice(
       device.id,
       device.userId,
       device.name,
-      device.platform ?? null,
+      device.platform ?? "other",
       device.tokenHash,
       device.secret ?? null,
       device.tokenVersion ?? 0,

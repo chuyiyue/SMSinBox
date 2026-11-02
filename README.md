@@ -43,7 +43,15 @@ npx wrangler deploy
 openssl rand -base64 32 | npx wrangler secret put CONTENT_KEY
 ```
 
-更换或清空这个密钥之后，之前加密的短信无法再解密，收件箱会显示无法解密。设置过 `CONTENT_KEY` 之后，两步验证的 TOTP 密钥也会用它加密；清空或更换后，验证器里的码将无法校验，但仍可用恢复码登录。部署含 `0003_message_encryption.sql`、`0004_users.sql`、`0005_device_push.sql`、`0006_single_user.sql` 或 `0007_totp.sql` 的版本后，同样需要再执行一次数据库迁移。读取推送链接或 TOTP 列的 Worker 必须在对应迁移应用之后部署。顺序、冒烟和回滚见 [docs/RELEASE_IOS_V2.md](docs/RELEASE_IOS_V2.md)。
+设备 JWT 使用独立的签名密钥。推荐单独设置（至少 16 个字符）：
+
+```bash
+openssl rand -base64 32 | npx wrangler secret put DEVICE_JWT_SECRET
+```
+
+没有设置 `DEVICE_JWT_SECRET` 时，程序会退回到 `CONTENT_KEY`（其次 `ADMIN_PASSWORD`）派生的密钥，保证旧部署升级后还能添加设备。更换这个密钥会让所有已签发的设备 JWT 立即失效，旧设备仍可用原来的随机 Bearer 上报。
+
+更换或清空 `CONTENT_KEY` 之后，之前加密的短信无法再解密，收件箱会显示无法解密。设置过 `CONTENT_KEY` 之后，两步验证的 TOTP 密钥也会用它加密；清空或更换后，验证器里的码将无法校验，但仍可用恢复码登录。部署含 `0003_message_encryption.sql`、`0004_users.sql`、`0005_device_push.sql`、`0006_single_user.sql`、`0007_totp.sql` 或 `0008_device_identity.sql` 的版本后，同样需要再执行一次数据库迁移。读取推送链接或 TOTP 列的 Worker 必须在对应迁移应用之后部署。顺序、冒烟和回滚见 [docs/RELEASE_IOS_V2.md](docs/RELEASE_IOS_V2.md)。
 
 之后如果改了 `ADMIN_PASSWORD`，用新密码再登录一次即可。程序会在用户名与密钥一致时更新保存的口令哈希，并把这个账号设为管理员、取消停用。只改密钥、还没用新密码登录之前，旧密码仍然有效。改 `ADMIN_USERNAME` 不会再创建第二个管理员。密钥里的用户名必须就是要留下的那个账号；对不上时登录会停下，不会按创建时间挑一个管理员。登录之后也可以用下面的账号接口改用户名和密码。
 
@@ -163,19 +171,20 @@ iOS 27 及以上从导入的快捷指令展开触发器，打开自动化开关�
 
 ## 管理员账号
 
-没有公开注册，也不能创建第二个管理员。`POST /api/v1/users` 以及按 id 修改、删除用户仍然返回 410。下面的接口只改当前登录的这一位管理员，本批没有新的数据库迁移。网页版入口在「系统管理」页（`/users.html`）的「管理员账号」「会话管理」和「两步验证」三块；接口也可以直接调用。
+没有公开注册，也不能创建第二个管理员。`POST /api/v1/users` 以及按 id 修改、删除用户仍然返回 410。
 
-改用户名和改密码都要带当前密码。当前密码对的是库里的口令哈希。连续 8 次不对，同一个 15 分钟窗口内返回 429，错误是「尝试过多，请稍后再试」，并带 `Retry-After`。对上一次会清掉这个计数。
+登录只需要管理员密码，不再需要用户名。旧客户端继续发送 `username` 字段也能登录，该字段会被忽略；`POST /api/v1/auth/username` 返回 410「用户名已移除，登录只需要密码」。`ADMIN_USERNAME` 只作为旧库多行时挑选管理员的提示，不再参与登录校验。
 
 ```http
-POST /api/v1/auth/username
+POST /api/v1/auth/login
 Content-Type: application/json
-Cookie: smsinbox_session=...
 
-{"current_password":"当前密码","username":"new-name"}
+{"password":"管理员密码"}
 ```
 
-用户名以字母或数字开头，其余只能是字母、数字、`.`、`_`、`-`，最长 64。改名只更新这一行，不新开账号，也不撤销会话。名字被占用时返回 409。
+返回 `{ "ok": true, "user": { "id", "username", "role", "totp_enabled" } }` 并设置会话 Cookie。只带 `password` 的请求和旧版带 `username` 的请求都接受。
+
+改密码要带当前密码。当前密码对的是库里的口令哈希。连续 8 次不对，同一个 15 分钟窗口内返回 429，错误是「尝试过多，请稍后再试」，并带 `Retry-After`。对上一次会清掉这个计数。
 
 ```http
 POST /api/v1/auth/password
@@ -187,7 +196,7 @@ Cookie: smsinbox_session=...
 
 新密码长度为 8 到 256，且不能与当前密码相同。成功后删除该用户的全部会话，包括当前这次，并清掉 Cookie。要用新密码重新登录。
 
-用户名仍然等于 `ADMIN_USERNAME` 时，用环境变量里的 `ADMIN_PASSWORD` 登录会把库里的哈希写回这个密钥。这是忘记网页密码时的恢复办法。要让接口里设的新密码一直有效，请把 `ADMIN_PASSWORD` 更新成同一个值。用户名改掉之后，再用旧的 `ADMIN_USERNAME` 登录不会创建第二个管理员。
+用环境变量里的 `ADMIN_PASSWORD` 登录会把库里的哈希写回这个密钥。这是忘记网页密码时的恢复办法。要让接口里设的新密码一直有效，请把 `ADMIN_PASSWORD` 更新成同一个值。库里有多个旧账号时，`ADMIN_USERNAME` 指向的那一行才会被当成管理员；对不上且无法唯一确定时登录返回 409，不会按创建时间猜。
 
 | 方法 | 路径 | 作用 |
 |---|---|---|
@@ -197,7 +206,7 @@ Cookie: smsinbox_session=...
 | POST | `/api/v1/auth/logout` | 只删除当前会话并清掉 Cookie |
 | GET | `/api/v1/system/info` | 返回 Worker 从 `package.json` 读到的 `version` 和运行环境，需要登录 |
 
-登录防爆破写在同一张 `rate_limits` 表里，窗口是 15 分钟。短信上报仍按设备每分钟 60 次单独计算。同一个用户名密码错误 8 次，或同一个 `CF-Connecting-IP` 错误 30 次，返回 429「登录尝试过多，请稍后再试」。成功登录会清掉当前窗口里这两个计数。键是 `login:user:`、`login:ip:` 或账号口令的 `login:account:` 加上 SHA-256，不存明文用户名，和设备 token 的键分开。不读 `X-Forwarded-For`。跨站请求和还没填用户名密码的请求不计数。
+登录防爆破写在同一张 `rate_limits` 表里，窗口是 15 分钟。短信上报仍按设备每分钟 60 次单独计算。同一个管理员密码错误 8 次，或同一个 `CF-Connecting-IP` 错误 30 次，返回 429「登录尝试过多，请稍后再试」。成功登录会清掉当前窗口里这两个计数。键是 `login:user:`、`login:ip:` 或账号口令的 `login:account:` 加上 SHA-256，不存明文用户名或密码，和设备 token 的键分开。不读 `X-Forwarded-For`。跨站请求和还没填用户名密码的请求不计数。
 
 ### Cookie 与跨站请求
 
