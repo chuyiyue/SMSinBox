@@ -1,7 +1,6 @@
 import {
   bytesToBase64Url,
   hashPassword,
-  randomToken,
   requestIsSecure,
   secretsEqual,
   SESSION_COOKIE,
@@ -16,7 +15,6 @@ import {
   clearLoginFailures,
   countDevices,
   countNotifyChannels,
-  countUsers,
   deleteDevice,
   deleteNotifyChannel,
   deleteOtherUserSessions,
@@ -30,7 +28,6 @@ import {
   findNotifyChannel,
   findOwnedDevice,
   findTotpUser,
-  findUserByUsername,
   findUserRecordById,
   getMessage,
   insertDevice,
@@ -42,6 +39,7 @@ import {
   listMessages,
   listMessagesSince,
   listNotifyChannels,
+  listUserRecords,
   listUserSessions,
   LOGIN_FAILURE_LIMIT,
   LOGIN_IP_FAILURE_LIMIT,
@@ -58,7 +56,6 @@ import {
   setNotifyChannelEnabled,
   touchDevice,
   updatePasswordHash,
-  updateUsername,
 } from "../db";
 import { dedupHash } from "../dedup";
 import { extractCode } from "../extract";
@@ -83,6 +80,7 @@ import {
   redactConfig,
   scheduleNotify,
 } from "../notify";
+import { newDeviceTokenId, resolveDeviceJwtSecret, signDeviceToken } from "../device-jwt";
 import { buildRawPayload } from "../parse";
 import { compileLikeQuery } from "../search";
 import { buildShortcut, shortcutFilename, type ShortcutVariant } from "../shortcut";
@@ -93,7 +91,6 @@ import type { UserRecord } from "../types";
 import { APP_VERSION } from "../version";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const USERNAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const SESSION_ID_RE = /^[0-9a-f]{64}$/;
 
 type WaitCtx = { waitUntil(promise: Promise<unknown>): void };
@@ -118,8 +115,9 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
     return me(request, env);
   }
   if (path === "/api/v1/auth/username") {
-    if (method !== "POST") return methodNotAllowed("POST");
-    return changeUsername(request, env);
+    // Single-admin v2 has no username. Kept as an explicit tombstone so old
+    // pages and clients fail loudly instead of silently editing a display name.
+    return json({ ok: false, error: "用户名已移除，登录只需要密码" }, 410);
   }
   if (path === "/api/v1/auth/password") {
     if (method !== "POST") return methodNotAllowed("POST");
@@ -219,7 +217,7 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
     if (method !== "GET") return methodNotAllowed("GET");
     return systemInfo(request, env);
   }
-  if (path === "/api/v1/users" || /^\/api\/v1\/users\/[^/]+$/.test(path)) {
+  if (/^\/api\/v1\/users(\/|$)/.test(path)) {
     return json({ ok: false, error: "用户管理已关闭" }, 410);
   }
   return json({ ok: false, error: "未找到" }, 404);
@@ -229,81 +227,158 @@ async function login(request: Request, env: Env): Promise<Response> {
   if (isCrossSite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const body = await readJson(request);
   if (!body.ok) return body.response;
-  const credentials = readCredentials(body.value);
-  if (!credentials) return json({ ok: false, error: "请填写用户名和密码" }, 400);
-
-  const adminUsername = env.ADMIN_USERNAME?.trim() ?? "";
-  const adminPassword = env.ADMIN_PASSWORD ?? "";
-  if (!adminUsername || !adminPassword) {
-    if ((await countUsers(env.DB)) === 0) {
-      return json(
-        { ok: false, error: "尚未配置管理员账号。请设置 ADMIN_USERNAME 和 ADMIN_PASSWORD。" },
-        503,
-      );
-    }
-  }
+  // Username fields from older clients are intentionally ignored; there is
+  // exactly one administrator and only the password decides the login.
+  const password = readLoginPassword(body.value);
+  if (password === null) return json({ ok: false, error: "请填写密码" }, 400);
 
   const now = Date.now();
-  const userKey = await loginRateKey("user", credentials.username);
+  // The account key is stable even before the user row is resolved, so failed
+  // passwords cannot reset the window by omitting or changing a username.
+  const userKey = await loginRateKey("user", "admin");
   const ip = clientAddress(request);
   const ipKey = ip ? await loginRateKey("ip", ip) : null;
   if (await loginIsLimited(env, userKey, ipKey, now)) return loginLimited(now);
 
-  const existing = await findUserByUsername(env.DB, credentials.username);
-  const passwordOk = await verifyPassword(credentials.password, existing?.password_hash ?? "");
-  const adminOk =
-    adminUsername.length > 0 &&
-    adminPassword.length > 0 &&
-    credentials.username === adminUsername &&
-    (await secretsEqual(credentials.password, adminPassword));
-  if (!passwordOk && !adminOk) {
-    await recordLoginFailure(env.DB, userKey, now);
-    if (ipKey) await recordLoginFailure(env.DB, ipKey, now);
-    return json({ ok: false, error: "用户名或密码错误" }, 401);
+  const users = await listUserRecords(env.DB);
+  const adminPassword = env.ADMIN_PASSWORD ?? "";
+  const hasEnvPassword = adminPassword.length > 0;
+  if (users.length === 0) {
+    if (!hasEnvPassword) {
+      return json({ ok: false, error: "尚未配置管理员密码。请设置 ADMIN_PASSWORD。" }, 503);
+    }
+    const envPasswordOk = await secretsEqual(password, adminPassword);
+    if (!envPasswordOk) {
+      await recordLoginFailure(env.DB, userKey, now);
+      if (ipKey) await recordLoginFailure(env.DB, ipKey, now);
+      return json({ ok: false, error: "密码错误" }, 401);
+    }
+    const created = await bootstrapAdmin(env, password);
+    if (!created) return json({ ok: false, error: "无法创建管理员，请重试" }, 500);
+    await finishLogin(env, created, { userKey, ipKey, now });
+    return issueSessionFor(request, env, created);
   }
 
-  let user = existing;
-  if (adminOk && !user) {
-    if ((await countUsers(env.DB)) > 0) {
-      return json(
-        { ok: false, error: "已有账号，不会再创建管理员。请把 ADMIN_USERNAME 设成现有管理员的用户名。" },
-        409,
-      );
+  // Only one row is the administrator. ADMIN_USERNAME is no longer a login
+  // field; it survives as a read-only hint for selecting that row while
+  // production databases still contain pre-merge rows.
+  const designated = pickDesignatedUser(users, env.ADMIN_USERNAME?.trim() ?? "");
+  if (!designated) {
+    return json(
+      {
+        ok: false,
+        error: "存在多个账号，无法确定管理员。请先只保留一个 users 行，或用 ADMIN_USERNAME 指向现有管理员。",
+      },
+      409,
+    );
+  }
+
+  const rowPasswordOk = await verifyPassword(password, designated.password_hash);
+  const envPasswordOk = hasEnvPassword && (await secretsEqual(password, adminPassword));
+  if (!rowPasswordOk && !envPasswordOk) {
+    await recordLoginFailure(env.DB, userKey, now);
+    if (ipKey) await recordLoginFailure(env.DB, ipKey, now);
+    // A password that belongs to another pre-merge row gets a clear refusal
+    // instead of looking like a typo. Other rows never become a login path.
+    const other = await findMatchingUser(users, password, designated.id);
+    if (!other) return json({ ok: false, error: "密码错误" }, 401);
+    return json(
+      { ok: false, error: other.disabled_at != null ? "账号已停用" : "仅管理员可以登录" },
+      401,
+    );
+  }
+
+  let user = designated;
+  if (envPasswordOk) {
+    // ADMIN_PASSWORD stays a recovery path: a successful env-password login
+    // writes that password back into the row so later UI changes win, and can
+    // revive the surviving row if it was disabled or demoted.
+    if (!rowPasswordOk) {
+      const hash = await hashPassword(password);
+      await updatePasswordHash(env.DB, user.id, hash);
+      user = { ...user, password_hash: hash };
     }
-    const createdAt = Date.now();
-    const id = crypto.randomUUID();
-    try {
-      await insertUser(env.DB, {
-        id,
-        username: adminUsername,
-        passwordHash: await hashPassword(credentials.password),
-        role: "admin",
-        createdAt,
-      });
-    } catch (error) {
-      if (!isUniqueViolation(error)) throw error;
-    }
-    user = await findUserByUsername(env.DB, adminUsername);
-  } else if (adminOk && user) {
-    if (!passwordOk) await updatePasswordHash(env.DB, user.id, await hashPassword(credentials.password));
     if (user.role !== "admin" || user.disabled_at != null) {
       await ensureAdmin(env.DB, user.id);
-      user = await findUserByUsername(env.DB, adminUsername);
+      user = { ...user, role: "admin", disabled_at: null };
     }
-  }
-  if (!user) return json({ ok: false, error: "用户名或密码错误" }, 401);
-  if (user.disabled_at != null) return json({ ok: false, error: "账号已停用" }, 401);
-  if (user.role !== "admin") return json({ ok: false, error: "仅管理员可以登录" }, 401);
-  if (adminUsername && user.username !== adminUsername) {
-    const designated = await findUserByUsername(env.DB, adminUsername);
-    if (designated) return json({ ok: false, error: "仅管理员可以登录" }, 401);
-  } else if (adminUsername && user.username === adminUsername) {
-    await mergeIntoAdmin(env.DB, user);
+  } else if (user.disabled_at != null) {
+    return json({ ok: false, error: "账号已停用" }, 401);
+  } else if (user.role !== "admin") {
+    return json({ ok: false, error: "仅管理员可以登录" }, 401);
   }
 
   await clearLoginFailures(env.DB, userKey, now);
   if (ipKey) await clearLoginFailures(env.DB, ipKey, now);
 
+  await finishLogin(env, user, { userKey, ipKey, now });
+  return issueSessionFor(request, env, user);
+}
+
+async function findMatchingUser(
+  users: UserRecord[],
+  password: string,
+  designatedId: string,
+): Promise<UserRecord | null> {
+  for (const candidate of users) {
+    if (candidate.id === designatedId) continue;
+    if (await verifyPassword(password, candidate.password_hash)) return candidate;
+  }
+  return null;
+}
+
+function pickDesignatedUser(users: UserRecord[], adminUsername: string): UserRecord | null {
+  if (adminUsername) {
+    const named = users.find((candidate) => candidate.username === adminUsername);
+    if (named) return named;
+  }
+  if (users.length === 1) return users[0]!;
+  const admins = users.filter((candidate) => candidate.role === "admin" && candidate.disabled_at == null);
+  return admins.length === 1 ? admins[0]! : null;
+}
+
+async function bootstrapAdmin(env: Env, password: string): Promise<UserRecord | null> {
+  const username = env.ADMIN_USERNAME?.trim() || "admin";
+  const createdAt = Date.now();
+  const user: UserRecord = {
+    id: crypto.randomUUID(),
+    username,
+    password_hash: await hashPassword(password),
+    role: "admin",
+    disabled_at: null,
+    created_at: createdAt,
+  };
+  try {
+    await insertUser(env.DB, {
+      id: user.id,
+      username: user.username,
+      passwordHash: user.password_hash,
+      role: "admin",
+      createdAt,
+    });
+    return user;
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    const again = await listUserRecords(env.DB);
+    return pickDesignatedUser(again, username) ?? again[0] ?? null;
+  }
+}
+
+async function finishLogin(
+  env: Env,
+  user: UserRecord,
+  budget: { userKey: string; ipKey: string | null; now: number },
+): Promise<void> {
+  await clearLoginFailures(env.DB, budget.userKey, budget.now);
+  if (budget.ipKey) await clearLoginFailures(env.DB, budget.ipKey, budget.now);
+  // Claim any devices/channels still attached to stale user rows, then remove
+  // those rows and sessions. Messages are never touched here.
+  await mergeIntoAdmin(env.DB, user);
+}
+
+// Session issuance stays in one place so the bootstrap path and the normal
+// path cannot drift apart (including the TOTP challenge).
+async function issueSessionFor(request: Request, env: Env, user: UserRecord): Promise<Response> {
   const totp = await findTotpUser(env.DB, user.id);
   logInfo({ message: "login", user_id: user.id });
   if (totp?.totp_enabled_at != null && totp.totp_secret != null) {
@@ -331,26 +406,6 @@ async function systemInfo(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   return json({ ok: true, version: APP_VERSION, runtime: "Cloudflare Workers + D1" });
-}
-
-async function changeUsername(request: Request, env: Env): Promise<Response> {
-  const user = await requireSensitiveUser(request, env);
-  if (user instanceof Response) return user;
-  const body = await readJson(request);
-  if (!body.ok) return body.response;
-  const parsed = readUsernameChange(body.value);
-  if ("error" in parsed) return json({ ok: false, error: parsed.error }, 400);
-  const check = await checkCurrentPassword(env, user.id, parsed.currentPassword);
-  if (check.status !== "ok") return passwordCheckResponse(check.status);
-  if (parsed.username === check.user.username) return json({ ok: true, user: publicUser(check.user) });
-  try {
-    await updateUsername(env.DB, user.id, parsed.username);
-  } catch (error) {
-    if (!isUniqueViolation(error)) throw error;
-    return json({ ok: false, error: "用户名已被占用" }, 409);
-  }
-  logInfo({ message: "username_changed", user_id: user.id });
-  return json({ ok: true, user: publicUser({ ...check.user, username: parsed.username }) });
 }
 
 async function changePassword(request: Request, env: Env): Promise<Response> {
@@ -503,30 +558,54 @@ async function createDevice(request: Request, env: Env): Promise<Response> {
     return json({ ok: false, error: "设备数量已达上限" }, 400);
   }
 
-  const token = randomToken();
-  const pushToken = newPushToken();
+  const secret = resolveDeviceJwtSecret(env);
+  if (!secret) {
+    return json(
+      {
+        ok: false,
+        error: "设备认证尚未配置。请先设置 DEVICE_JWT_SECRET（至少 16 个字符），再添加设备。",
+      },
+      503,
+    );
+  }
+
   const id = crypto.randomUUID();
   const createdAt = Date.now();
+  const version = 0;
+  const issued = await signDeviceToken({
+    secret,
+    deviceId: id,
+    version,
+    tokenId: newDeviceTokenId(),
+    now: createdAt,
+  });
+  const pushToken = newPushToken();
   await insertDevice(env.DB, {
     id,
     userId: user.id,
     name: parsed.name,
-    tokenHash: await sha256Hex(token),
+    platform: parsed.platform,
+    tokenHash: issued.tokenHash,
+    tokenVersion: version,
+    secret: null,
     pushTokenHash: await sha256Hex(pushToken),
-    secret: parsed.secret,
     createdAt,
   });
-  logInfo({ message: "device_created", device_id: id, user_id: user.id, has_secret: parsed.secret !== null });
+  logInfo({ message: "device_created", device_id: id, user_id: user.id, platform: parsed.platform, auth: "jwt" });
   return json({
     ok: true,
-    token,
+    // One-time credential. No per-device signing secret is issued any more.
+    token: issued.token,
+    token_type: "Bearer",
+    token_expires_at: issued.expiresAt,
     push_url: ingestUrl(request, pushToken),
     device: {
       id,
       name: parsed.name,
+      platform: parsed.platform,
       created_at: createdAt,
       last_seen_at: null,
-      has_secret: parsed.secret !== null,
+      has_secret: false,
       push: "active" as const,
     },
   });
@@ -744,6 +823,7 @@ async function testDevice(request: Request, env: Env, ctx: WaitCtx, rawId: strin
       deviceName: device.name,
       sim: "",
       receivedAt: now,
+      receivedAtSource: "server",
     }),
   });
   if ("error" in sealed) return json({ ok: false, error: "内容加密密钥无效" }, 500);
@@ -856,15 +936,12 @@ async function readJson(
   }
 }
 
-function readCredentials(value: unknown): { username: string; password: string } | null {
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
-  if (typeof record.username !== "string" || typeof record.password !== "string") return null;
-  const username = record.username.trim();
-  if (!username || username.length > 64 || record.password.length === 0 || record.password.length > 256) {
-    return null;
-  }
-  return { username, password: record.password };
+function readLoginPassword(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const password = (value as Record<string, unknown>).password;
+  if (typeof password !== "string") return null;
+  if (password.length === 0 || password.length > 256) return null;
+  return password;
 }
 
 function readCurrentPassword(record: Record<string, unknown>): string | { error: string } {
@@ -873,19 +950,6 @@ function readCurrentPassword(record: Record<string, unknown>): string | { error:
   }
   if (record.current_password.length > 256) return { error: "当前密码需要 1 到 256 个字符" };
   return record.current_password;
-}
-
-function readUsernameChange(value: unknown): { currentPassword: string; username: string } | { error: string } {
-  if (!value || typeof value !== "object") return { error: "请求体无效" };
-  const record = value as Record<string, unknown>;
-  const currentPassword = readCurrentPassword(record);
-  if (typeof currentPassword !== "string") return currentPassword;
-  if (typeof record.username !== "string") return { error: "请填写用户名" };
-  const username = record.username.trim();
-  if (!USERNAME_RE.test(username)) {
-    return { error: "用户名需以字母或数字开头，只能包含字母、数字、. _ -，最长 64" };
-  }
-  return { currentPassword, username };
 }
 
 function readPasswordChange(value: unknown): { currentPassword: string; password: string } | { error: string } {
@@ -902,19 +966,30 @@ function readPasswordChange(value: unknown): { currentPassword: string; password
   return { currentPassword, password: record.password };
 }
 
-function readDeviceBody(value: unknown): { name: string; secret: string | null } | { error: string } {
-  if (!value || typeof value !== "object") return { error: "请求体无效" };
+const PLATFORMS = new Set(["ios", "android", "other"]);
+
+function readDeviceBody(value: unknown): { name: string; platform: string } | { error: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { error: "请求体无效" };
   const record = value as Record<string, unknown>;
   if (typeof record.name !== "string") return { error: "请填写设备名称" };
   const name = record.name.trim();
   if (!name || name.length > 64 || /[\u0000-\u001f]/.test(name)) return { error: "设备名称需要 1 到 64 个字符" };
-  if (record.secret === undefined || record.secret === null || record.secret === "") {
-    return { name, secret: null };
+  // Per-device HMAC is gone. Reject a secret instead of silently dropping it,
+  // otherwise a migrated client would keep signing and get confusing 401s.
+  if (record.secret !== undefined && record.secret !== null && record.secret !== "") {
+    return { error: "设备签名已停用，设备统一使用系统签发的 JWT，请去掉 secret 字段" };
   }
-  if (typeof record.secret !== "string") return { error: "签名密钥无效" };
-  const secret = record.secret.trim();
-  if (secret.length < 8 || secret.length > 256) return { error: "签名密钥需要 8 到 256 个字符" };
-  return { name, secret };
+  return { name, platform: readPlatform(record.platform) };
+}
+
+function readPlatform(value: unknown): string {
+  if (value === undefined || value === null) return "other";
+  if (typeof value !== "string") return "other";
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return "other";
+  if (normalized === "iphone" || normalized === "ipad" || normalized === "apple") return "ios";
+  if (PLATFORMS.has(normalized)) return normalized;
+  return /^[a-z0-9_-]{1,16}$/.test(normalized) ? normalized : "other";
 }
 
 function boundedInt(value: string | null, fallback: number, max: number): number {

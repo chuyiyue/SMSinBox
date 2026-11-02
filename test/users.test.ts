@@ -158,12 +158,15 @@ describe("single admin", () => {
     expect(script.calls).toHaveLength(0);
   });
 
-  it("does not create a second admin when the configured username is new", async () => {
+  it("refuses to guess between multiple rows when ADMIN_USERNAME matches none", async () => {
     const script = makeDb();
-    script.state.userTotal = 2;
+    script.state.users = [
+      { ...account(), id: ADMIN_ID, username: "alice", role: "admin" },
+      { ...account(), id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", username: "bob", role: "admin" },
+    ];
     const response = await handleApi(loginRequest("root", "secret"), envFor(script.db));
     expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ error: "已有账号，不会再创建管理员。请把 ADMIN_USERNAME 设成现有管理员的用户名。" });
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining("无法确定管理员") });
     expect(script.calls.some((call) => call.sql.includes("INSERT INTO users"))).toBe(false);
     expect(script.calls.some((call) => call.sql.includes("INSERT INTO sessions"))).toBe(false);
   });
@@ -171,7 +174,7 @@ describe("single admin", () => {
   it("rejects a member password and a disabled account", async () => {
     const hash = await hashPassword("s3cret-pass");
     const member = makeDb();
-    member.state.usernameUser = { ...account(), password_hash: hash };
+    member.state.users = [{ ...account(), password_hash: hash }];
     const denied = await handleApi(loginRequest("alice", "s3cret-pass"), envFor(member.db));
     expect(denied.status).toBe(401);
     expect(await denied.json()).toMatchObject({ error: "仅管理员可以登录" });
@@ -179,7 +182,7 @@ describe("single admin", () => {
     expect(member.calls.some((call) => call.sql.includes("DELETE FROM users"))).toBe(false);
 
     const blocked = makeDb();
-    blocked.state.usernameUser = { ...account(), password_hash: hash, disabled_at: 50 };
+    blocked.state.users = [{ ...account(), password_hash: hash, disabled_at: 50 }];
     const disabled = await handleApi(loginRequest("alice", "s3cret-pass"), envFor(blocked.db));
     expect(disabled.status).toBe(401);
     expect(await disabled.json()).toMatchObject({ error: "账号已停用" });
@@ -188,19 +191,16 @@ describe("single admin", () => {
 
   it("promotes the configured admin and merges other rows without deleting messages", async () => {
     const recovery = makeDb();
-    recovery.state.usernameUser = {
-      id: ADMIN_ID,
-      username: "root",
-      password_hash: "nope",
-      role: "member",
-      disabled_at: 50,
-      created_at: 1,
-    };
-    recovery.state.usernameUserAfter = {
-      ...recovery.state.usernameUser,
-      role: "admin",
-      disabled_at: null,
-    };
+    recovery.state.users = [
+      {
+        id: ADMIN_ID,
+        username: "root",
+        password_hash: "nope",
+        role: "member",
+        disabled_at: 50,
+        created_at: 1,
+      },
+    ];
     const restored = await handleApi(loginRequest("root", "secret"), envFor(recovery.db));
     expect(restored.status).toBe(200);
     expect(await restored.json()).toMatchObject({ user: { role: "admin", username: "root" } });
@@ -237,14 +237,16 @@ describe("single admin", () => {
   it("does not merge again after the marker is set, and still logs in if the table is missing", async () => {
     const marked = makeDb();
     marked.state.schemaMarker = "1";
-    marked.state.usernameUser = {
-      id: ADMIN_ID,
-      username: "root",
-      password_hash: "nope",
-      role: "admin",
-      disabled_at: null,
-      created_at: 1,
-    };
+    marked.state.users = [
+      {
+        id: ADMIN_ID,
+        username: "root",
+        password_hash: "nope",
+        role: "admin",
+        disabled_at: null,
+        created_at: 1,
+      },
+    ];
     const again = await handleApi(loginRequest("root", "secret"), envFor(marked.db));
     expect(again.status).toBe(200);
     expect(marked.calls.some((call) => call.sql.startsWith("UPDATE devices"))).toBe(false);
@@ -252,7 +254,7 @@ describe("single admin", () => {
 
     const legacy = makeDb();
     legacy.state.schemaMissing = true;
-    legacy.state.usernameUser = marked.state.usernameUser;
+    legacy.state.users = marked.state.users;
     const loggedIn = await handleApi(loginRequest("root", "secret"), envFor(legacy.db));
     expect(loggedIn.status).toBe(200);
     expect(legacy.calls.some((call) => call.sql.startsWith("DELETE FROM users"))).toBe(false);

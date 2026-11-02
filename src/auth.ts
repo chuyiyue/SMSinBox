@@ -65,7 +65,9 @@ export function readBearer(header: string | null): string | null {
   const match = /^Bearer\s+(\S+)$/i.exec(header.trim());
   if (!match) return null;
   const token = match[1]!;
-  if (token.length < 16 || token.length > 256) return null;
+  // 1024 leaves room for the system-signed device JWT (~300 chars) while still
+  // refusing absurd headers. Legacy random tokens stay far below this.
+  if (token.length < 16 || token.length > 1024) return null;
   return token;
 }
 

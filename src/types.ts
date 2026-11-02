@@ -5,6 +5,9 @@ export interface SmsInput {
   deviceName: string;
   sim: string;
   receivedAt: number;
+  // "device" when the client supplied a usable timestamp, "server" when we had
+  // to fall back to the ingest time. Never pretend the fallback is device time.
+  receivedAtSource: "device" | "server";
 }
 
 export interface MessageRecord {
@@ -32,6 +35,7 @@ export interface MessageView {
   sim: string;
   reported_device: string;
   received_at: number;
+  received_at_source: "device" | "server" | "unknown";
   created_at: number;
 }
 
@@ -41,8 +45,10 @@ export interface DeviceRecord {
   id: string;
   user_id: string;
   name: string;
+  platform: string | null;
   token_hash: string;
   secret: string | null;
+  token_version: number;
   last_seen_at: number | null;
   created_at: number;
   push_token_hash?: string | null;
@@ -52,8 +58,12 @@ export interface DeviceRecord {
 export interface DeviceView {
   id: string;
   name: string;
+  platform: string | null;
   created_at: number;
   last_seen_at: number | null;
+  // True only for devices created before the system JWT migration. The UI no
+  // longer offers per-device signing; this stays so the migration window is
+  // observable from the API.
   has_secret: boolean;
   push: PushState;
 }

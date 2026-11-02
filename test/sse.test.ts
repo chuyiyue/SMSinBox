@@ -27,6 +27,7 @@ function sample(overrides: Partial<MessageView> = {}): MessageView {
     sim: "1",
     reported_device: "pixel",
     received_at: 2_000,
+    received_at_source: "device",
     created_at: 2_000,
     ...overrides,
   };

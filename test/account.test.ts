@@ -110,6 +110,9 @@ function makeDb(options?: { users?: UserRow[]; sessions?: SessionRow[]; rates?: 
         },
         async all() {
           remember(sql, args);
+          if (sql.includes("FROM users") && sql.includes("ORDER BY created_at")) {
+            return { results: users };
+          }
           if (sql.includes("FROM sessions") && sql.includes("expires_at >")) {
             const rows = sessions
               .filter((item) => item.user_id === args[0] && item.expires_at > Number(args[1]))
@@ -242,66 +245,41 @@ function loginRequest(username: string, password: string, headers?: Record<strin
 }
 
 describe("admin account", () => {
-  it("changes the username only after the current password matches", async () => {
+  it("keeps the username endpoint as a tombstone", async () => {
     const script = makeDb();
-    const missing = await handleApi(authed("/api/v1/auth/username", "POST", { username: "owner" }), envFor(script.db));
-    expect(missing.status).toBe(400);
-    expect(await missing.json()).toMatchObject({ error: "请填写当前密码" });
-
-    const wrong = await handleApi(
-      authed("/api/v1/auth/username", "POST", { current_password: "wrong-pass", username: "owner" }),
-      envFor(script.db),
-    );
-    expect(wrong.status).toBe(401);
-    expect(await wrong.json()).toMatchObject({ error: "当前密码不正确" });
+    for (const body of [{}, { username: "owner" }, { current_password: PASSWORD, username: "owner" }]) {
+      const response = await handleApi(authed("/api/v1/auth/username", "POST", body), envFor(script.db));
+      expect(response.status).toBe(410);
+      expect(await response.json()).toMatchObject({ error: "用户名已移除，登录只需要密码" });
+    }
     expect(script.users[0]?.username).toBe("root");
     expect(script.calls.some((call) => call.sql.startsWith("UPDATE users SET username"))).toBe(false);
     expect(script.calls.some((call) => call.sql.includes("INSERT INTO users"))).toBe(false);
-
-    const same = await handleApi(
-      authed("/api/v1/auth/username", "POST", { current_password: PASSWORD, username: "root" }),
-      envFor(script.db),
-    );
-    expect(same.status).toBe(200);
-    expect(await same.json()).toMatchObject({ user: { id: ADMIN_ID, username: "root", role: "admin" } });
-    expect(script.calls.some((call) => call.sql.startsWith("UPDATE users SET username"))).toBe(false);
-    expect(script.sessions.some((item) => item.id === sessionId)).toBe(true);
-
-    const renamed = await handleApi(
-      authed("/api/v1/auth/username", "POST", {
-        current_password: PASSWORD,
-        username: " Owner ",
-        role: "member",
-      }),
-      envFor(script.db),
-    );
-    const renamedBody = await renamed.json();
-    expect(renamed.status).toBe(200);
-    expect(renamedBody).toMatchObject({ user: { id: ADMIN_ID, username: "Owner", role: "admin" } });
-    expect(JSON.stringify(renamedBody)).not.toContain(passwordHash);
-    expect(script.users).toHaveLength(1);
-    expect(script.users[0]).toMatchObject({ username: "Owner", role: "admin" });
-    expect(script.sessions).toHaveLength(4);
-
-    const invalid = await handleApi(
-      authed("/api/v1/auth/username", "POST", { current_password: PASSWORD, username: "-nope" }),
-      envFor(script.db),
-    );
-    expect(invalid.status).toBe(400);
   });
 
-  it("rejects a taken username without inserting a second account", async () => {
-    const script = makeDb({
-      users: [adminUser(), { ...adminUser(), id: OTHER_USER, username: "owner", password_hash: "other" }],
-    });
-    const response = await handleApi(
-      authed("/api/v1/auth/username", "POST", { current_password: PASSWORD, username: "owner" }),
-      envFor(script.db),
+  it("logs in with the password only and ignores a legacy username field", async () => {
+    const script = makeDb();
+    const legacy = await handleApi(loginRequest("someone-else", PASSWORD), envFor(script.db));
+    expect(legacy.status).toBe(200);
+    expect(await legacy.json()).toMatchObject({ user: { id: ADMIN_ID, role: "admin" } });
+    expect(script.calls.some((call) => call.sql.startsWith("UPDATE users SET username"))).toBe(false);
+    expect(script.users).toHaveLength(1);
+
+    const second = makeDb();
+    const bare = await handleApi(
+      new Request("https://sms.example/api/v1/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password: PASSWORD }),
+      }),
+      envFor(second.db),
     );
-    expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ error: "用户名已被占用" });
-    expect(script.users).toHaveLength(2);
-    expect(script.calls.some((call) => call.sql.includes("INSERT INTO users"))).toBe(false);
+    expect(bare.status).toBe(200);
+
+    const wrong = makeDb();
+    const denied = await handleApi(loginRequest("root", "wrong-pass"), envFor(wrong.db));
+    expect(denied.status).toBe(401);
+    expect(await denied.json()).toMatchObject({ error: "密码错误" });
   });
 
   it("changes the password, revokes every session, and clears the cookie", async () => {
@@ -492,13 +470,13 @@ describe("sessions", () => {
 });
 
 describe("login rate limit", () => {
-  it("locks a username after repeated failures and clears the counter on success", async () => {
+  it("locks the admin password after repeated failures and clears the counter on success", async () => {
     const script = makeDb();
-    const userKey = await loginRateKey("user", "root");
+    const userKey = await loginRateKey("user", "admin");
     for (let attempt = 0; attempt < LOGIN_FAILURE_LIMIT; attempt += 1) {
       const response = await handleApi(loginRequest("root", "nope"), envFor(script.db));
       expect(response.status).toBe(401);
-      expect(await response.json()).toMatchObject({ error: "用户名或密码错误" });
+      expect(await response.json()).toMatchObject({ error: "密码错误" });
     }
     expect(script.rates.find((row) => row.token_hash === userKey)?.count).toBe(LOGIN_FAILURE_LIMIT);
     expect(script.calls.filter((call) => call.sql.includes("INSERT INTO sessions"))).toHaveLength(0);
@@ -568,16 +546,16 @@ describe("login rate limit", () => {
     expect(script.calls.some((call) => call.sql.includes("INSERT INTO rate_limits"))).toBe(false);
   });
 
-  it("does not create a second admin when the configured username is missing", async () => {
+  it("recovers the single existing row with ADMIN_PASSWORD without creating a second admin", async () => {
     const script = makeDb({
-      users: [{ ...adminUser(), id: OTHER_USER, username: "alice" }],
+      users: [{ ...adminUser(), id: OTHER_USER, username: "alice", password_hash: "stale" }],
       sessions: [],
     });
     const response = await handleApi(loginRequest("root", "secret"), envFor(script.db));
-    expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ error: "已有账号，不会再创建管理员。请把 ADMIN_USERNAME 设成现有管理员的用户名。" });
+    expect(response.status).toBe(200);
+    expect(await verifyPassword("secret", script.users[0]?.password_hash ?? "")).toBe(true);
     expect(script.users.map((item) => item.username)).toEqual(["alice"]);
-    expect(script.sessions).toHaveLength(0);
+    expect(script.calls.some((call) => call.sql.includes("INSERT INTO users"))).toBe(false);
     expect((await handleApi(authed("/api/v1/users", "POST", { username: "mina", password: "mina-pass-1" }), envFor(script.db))).status).toBe(410);
   });
 });

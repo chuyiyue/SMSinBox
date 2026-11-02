@@ -23,6 +23,7 @@ const EXPECTED_MIGRATIONS = [
   "0005_device_push.sql",
   "0006_single_user.sql",
   "0007_totp.sql",
+  "0008_device_identity.sql",
 ];
 const TABLES = [
   "schema_meta",
@@ -191,6 +192,7 @@ beforeAll(async () => {
     CONTENT_KEY: "",
     ADMIN_USERNAME,
     ADMIN_PASSWORD,
+    DEVICE_JWT_SECRET: "integration-device-jwt-secret-0001",
   };
 }, 30_000);
 
@@ -209,6 +211,11 @@ describe("release migrations", () => {
     expect(push).toMatch(/ADD COLUMN push_revoked_at/);
     expect(push).toMatch(/CREATE UNIQUE INDEX idx_devices_push_token_hash/);
     expect(push).not.toMatch(/\b(drop|update|delete)\b/i);
+
+    const identity = readFileSync("migrations/0008_device_identity.sql", "utf8");
+    expect(identity).toMatch(/ADD COLUMN platform/);
+    expect(identity).toMatch(/ADD COLUMN token_version/);
+    expect(identity).not.toMatch(/\b(drop|update|delete)\b/i);
 
     await resetSchema("0004_users.sql");
     const before = await env.DB.prepare("PRAGMA table_info(devices)").all<{ name: string }>();
@@ -266,7 +273,25 @@ describe("release migrations", () => {
 
     // The worker under test reads the later additive columns, so finish the
     // schema before exercising login on the legacy rows.
-    await applyFiles(["0006_single_user.sql", "0007_totp.sql"]);
+    await applyFiles(["0006_single_user.sql", "0007_totp.sql", "0008_device_identity.sql"]);
+    const migrated = await env.DB.prepare("PRAGMA table_info(devices)").all<{ name: string; dflt_value: unknown }>();
+    expect(migrated.results.map((column) => column.name)).toEqual([
+      "id",
+      "user_id",
+      "name",
+      "token_hash",
+      "secret",
+      "last_seen_at",
+      "created_at",
+      "push_token_hash",
+      "push_revoked_at",
+      "platform",
+      "token_version",
+    ]);
+    const legacyIdentity = await env.DB.prepare("SELECT platform, token_version FROM devices WHERE id = ?")
+      .bind(LEGACY_DEVICE)
+      .first<{ platform: string; token_version: number }>();
+    expect(legacyIdentity).toEqual({ platform: "other", token_version: 0 });
 
     const login = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
     const cookie = sessionCookie(login);
@@ -494,8 +519,11 @@ describe("release journey", () => {
     state.token = String(created.token);
     state.pushUrl = String(created.push_url);
     state.secret = pushSecret(state.pushUrl);
-    expect(state.token.startsWith("sms_")).toBe(true);
-    expect(created.device).toMatchObject({ name: "iPhone", push: "active", has_secret: false });
+    expect(state.token.startsWith("eyJ")).toBe(true);
+    expect(state.token.split(".")).toHaveLength(3);
+    expect(created).toMatchObject({ token_type: "Bearer" });
+    expect(Number(created.token_expires_at)).toBeGreaterThan(Date.now());
+    expect(created.device).toMatchObject({ name: "iPhone", push: "active", has_secret: false, platform: "other" });
 
     const listed = await expectStatus(await call("/api/v1/devices", {}, state.cookie), 200);
     const text = JSON.stringify(listed);
@@ -582,45 +610,41 @@ describe("release journey", () => {
     expect(asBearer.error).toBe("设备 token 无效");
   });
 
-  it("keeps HMAC on the bearer door and skips it for the push link", async () => {
-    const created = await expectStatus(
-      await call("/api/v1/devices", jsonInit({ name: "Pixel", secret: "signing-secret" }), state.cookie),
-      200,
+  it("rejects per-device secrets on create but still accepts a legacy HMAC row", async () => {
+    const rejected = await call(
+      "/api/v1/devices",
+      jsonInit({ name: "Pixel", secret: "signing-secret" }),
+      state.cookie,
     );
-    state.hmacId = String((created.device as { id: string }).id);
-    state.hmacToken = String(created.token);
-    state.hmacPush = String(created.push_url);
-    expect(created.device).toMatchObject({ has_secret: true, push: "active" });
+    expect((await expectStatus(rejected, 400)).error).toContain("设备签名已停用");
+
+    const admin = await env.DB.prepare("SELECT id FROM users ORDER BY created_at ASC").first<{ id: string }>();
+    const legacyToken = "sms_legacy_hmac_device_token_0001";
+    const legacyId = "99999999-9999-4999-8999-999999999999";
+    await runSql(
+      env.DB,
+      "INSERT INTO devices (id, user_id, name, token_hash, secret, created_at, push_token_hash, push_revoked_at) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)",
+      [legacyId, String(admin?.id), "旧 Pixel", await sha256Hex(legacyToken), "signing-secret", Date.now()],
+    );
 
     const unsigned = await expectStatus(
       await call("/api/v1/sms", {
         method: "POST",
-        headers: { authorization: `Bearer ${state.hmacToken}`, "content-type": "application/json" },
+        headers: { authorization: `Bearer ${legacyToken}`, "content-type": "application/json" },
         body: JSON.stringify({ from: "10000", content: "验证码 222333", device: "Pixel" }),
       }),
       401,
     );
     expect(unsigned.error).toBe("该设备要求 HMAC 签名");
 
-    const openDoor = await expectStatus(
-      await call(new URL(state.hmacPush).pathname, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ from: "10000", content: "验证码 222333", device: "Pixel" }),
-      }),
-      200,
-    );
-    expect(openDoor).toMatchObject({ ok: true, code: "222333" });
-
     const body = JSON.stringify({ from: "10000", content: "验证码 333444", device: "Pixel" });
-    const bytes = new TextEncoder().encode(body);
     const timestamp = String(Math.floor(Date.now() / 1000));
-    const signature = await signHmacHex("signing-secret", timestamp, bytes);
+    const signature = await signHmacHex("signing-secret", timestamp, new TextEncoder().encode(body));
     const signed = await expectStatus(
       await call("/api/v1/sms", {
         method: "POST",
         headers: {
-          authorization: `Bearer ${state.hmacToken}`,
+          authorization: `Bearer ${legacyToken}`,
           "content-type": "application/json",
           "x-timestamp": timestamp,
           "x-signature": signature,
@@ -630,6 +654,22 @@ describe("release journey", () => {
       200,
     );
     expect(signed).toMatchObject({ ok: true, code: "333444" });
+    // A JWT device rejects stray signature headers, so old HMAC clients cannot
+    // silently keep signing a new credential.
+    const jwtSigned = await expectStatus(
+      await call("/api/v1/sms", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${state.token}`,
+          "content-type": "application/json",
+          "x-timestamp": timestamp,
+          "x-signature": "ab".repeat(32),
+        },
+        body: JSON.stringify({ from: "10000", content: "验证码 444555", device: "Android" }),
+      }),
+      401,
+    );
+    expect(jwtSigned.error).toBe("该设备使用系统 JWT，不需要签名");
   });
 
   it("rotates and revokes without deleting messages or the bearer", async () => {
@@ -730,7 +770,10 @@ describe("release journey", () => {
   });
 
   it("clears both rate keys when the device is deleted", async () => {
-    const tokenHash = await sha256Hex(state.token);
+    const row = await env.DB.prepare("SELECT token_hash FROM devices WHERE id = ?")
+      .bind(state.deviceId)
+      .first<{ token_hash: string }>();
+    const tokenHash = String(row?.token_hash);
     const pushHash = await sha256Hex(state.secret);
     expect(await countOf("SELECT COUNT(*) AS total FROM rate_limits WHERE token_hash = ? OR token_hash = ?", [tokenHash, pushHash])).toBeGreaterThan(0);
 
@@ -865,11 +908,13 @@ describe("single user convergence", () => {
     const previous = env.ADMIN_USERNAME;
     try {
       env.ADMIN_USERNAME = "second-admin";
-      const created = await call(
+      const recovered = await call(
         "/api/v1/auth/login",
         jsonInit({ username: "second-admin", password: ADMIN_PASSWORD }),
       );
-      expect((await expectStatus(created, 409)).error).toContain("不会再创建管理员");
+      // The username is ignored; the single existing row is still the admin,
+      // so changing ADMIN_USERNAME cannot lock the owner out or spawn a row.
+      expect((await expectStatus(recovered, 200)).user).toMatchObject({ username: ADMIN_USERNAME, role: "admin" });
       expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
     } finally {
       env.ADMIN_USERNAME = previous;
@@ -882,7 +927,7 @@ describe("admin account", () => {
     await resetSchema();
   });
 
-  it("renames, rotates the password, and revokes sessions without dropping devices", async () => {
+  it("rotates the password, tombstones rename, and revokes sessions without dropping devices", async () => {
     const first = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
     const cookieA = sessionCookie(first);
     const tokenA = /smsinbox_session=([^;]+)/.exec(first.headers.get("set-cookie") ?? "")?.[1] ?? "";
@@ -941,30 +986,18 @@ describe("admin account", () => {
       cookieA,
     );
     expect((await expectStatus(sameSite, 403)).error).toBe("跨站请求被拒绝");
-    const nullOrigin = await call(
+
+    const tombstone = await call(
       "/api/v1/auth/username",
       jsonInit(
         { current_password: ADMIN_PASSWORD, username: "owner" },
-        { origin: "null", "sec-fetch-site": "same-origin" },
+        { origin: ORIGIN, "sec-fetch-site": "same-origin" },
       ),
       cookieA,
     );
-    expect((await expectStatus(nullOrigin, 403)).error).toBe("跨站请求被拒绝");
-
-    const renamed = await expectStatus(
-      await call(
-        "/api/v1/auth/username",
-        jsonInit(
-          { current_password: ADMIN_PASSWORD, username: "owner" },
-          { origin: ORIGIN, "sec-fetch-site": "same-origin" },
-        ),
-        cookieA,
-      ),
-      200,
-    );
-    expect(renamed.user).toMatchObject({ username: "owner", role: "admin" });
+    expect((await expectStatus(tombstone, 410)).error).toBe("用户名已移除，登录只需要密码");
     expect((await expectStatus(await call("/api/v1/auth/me", {}, cookieA), 200)).user).toMatchObject({
-      username: "owner",
+      username: ADMIN_USERNAME,
     });
     expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
 
@@ -992,19 +1025,14 @@ describe("admin account", () => {
 
     const fresh = await call(
       "/api/v1/auth/login",
-      jsonInit({ username: "owner", password: "replacement-pass-1" }),
+      jsonInit({ username: "anything-from-an-old-form", password: "replacement-pass-1" }),
     );
-    expect((await expectStatus(fresh, 200)).user).toMatchObject({ username: "owner", role: "admin" });
-    const oldName = await call(
-      "/api/v1/auth/login",
-      jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
-    );
-    expect((await expectStatus(oldName, 409)).error).toContain("不会再创建管理员");
+    expect((await expectStatus(fresh, 200)).user).toMatchObject({ username: ADMIN_USERNAME, role: "admin" });
     expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
     expect((await call("/api/v1/users", jsonInit({ username: "mina", password: "mina-pass-1" }))).status).toBe(410);
 
-    const userKey = await loginRateKey("user", "owner");
-    const missed = await call("/api/v1/auth/login", jsonInit({ username: "owner", password: "wrong-pass-1" }));
+    const userKey = await loginRateKey("user", "admin");
+    const missed = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: "wrong-pass-1" }));
     expect(missed.status).toBe(401);
     const row = await env.DB.prepare("SELECT count FROM rate_limits WHERE token_hash = ?")
       .bind(userKey)
@@ -1013,7 +1041,7 @@ describe("admin account", () => {
     await runSql(env.DB, "UPDATE rate_limits SET count = ? WHERE token_hash = ?", [LOGIN_FAILURE_LIMIT, userKey]);
     const limited = await call(
       "/api/v1/auth/login",
-      jsonInit({ username: "owner", password: "replacement-pass-1" }),
+      jsonInit({ username: ADMIN_USERNAME, password: "replacement-pass-1" }),
     );
     expect((await expectStatus(limited, 429)).error).toBe("登录尝试过多，请稍后再试");
     expect(limited.headers.get("retry-after")).toBeTruthy();
@@ -1024,10 +1052,21 @@ describe("admin account", () => {
     await runSql(env.DB, "DELETE FROM rate_limits WHERE token_hash = ?", [userKey]);
     const cleared = await call(
       "/api/v1/auth/login",
-      jsonInit({ username: "owner", password: "replacement-pass-1" }),
+      jsonInit({ username: ADMIN_USERNAME, password: "replacement-pass-1" }),
     );
     expect(cleared.status).toBe(200);
     expect(await countOf("SELECT COUNT(*) AS total FROM rate_limits WHERE token_hash = ?", [userKey])).toBe(0);
+
+    // ADMIN_PASSWORD remains the recovery key and resets the stored hash.
+    const recovered = await call(
+      "/api/v1/auth/login",
+      jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
+    );
+    expect(recovered.status).toBe(200);
+    expect(
+      (await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: "replacement-pass-1" }))).status,
+    ).toBe(401);
+    expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
   }, 30_000);
 
   it("lets the configured password replace a hash set through the API", async () => {
@@ -1351,7 +1390,7 @@ describe("two-factor login", () => {
         "/api/v1/auth/login",
         jsonInit({ username: ADMIN_USERNAME, password: `wrong-password-${index}` }),
       );
-      expect((await expectStatus(wrong, 401)).error).toBe("用户名或密码错误");
+      expect((await expectStatus(wrong, 401)).error).toBe("密码错误");
     }
     const limited = await call(
       "/api/v1/auth/login",
@@ -1367,7 +1406,7 @@ describe("two-factor login", () => {
     expect((await expectStatus(blocked, 429)).error).toBe("登录尝试过多，请稍后再试");
     expect(blocked.headers.get("set-cookie")).toBeNull();
 
-    const userKey = await loginRateKey("user", ADMIN_USERNAME);
+    const userKey = await loginRateKey("user", "admin");
     await runSql(env.DB, "DELETE FROM rate_limits WHERE token_hash = ?", [userKey]);
     const right = await call(
       "/api/v1/auth/login",
