@@ -211,7 +211,7 @@ async function handleGetLatestOtp(url: URL, env: Env, token: import("./ext-auth"
     device_id: message.device_id,
     device_name: message.device_name,
     received_at: message.received_at,
-    code_source: "regex",
+    code_source: message.code_source,
     code_status: "recognized",
   });
 }
@@ -253,7 +253,7 @@ async function handleSearchOtp(url: URL, env: Env, token: import("./ext-auth").A
     device_id: m.device_id,
     device_name: m.device_name,
     received_at: m.received_at,
-    code_source: m.code ? "regex" : null,
+    code_source: m.code_source,
     code_status: m.code ? "recognized" : "none",
   }));
 

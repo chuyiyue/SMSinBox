@@ -10,6 +10,9 @@ export interface SmsInput {
   receivedAtSource: "device" | "server";
 }
 
+// How messages.code was produced. NULL when the message has no code.
+export type CodeSource = "regex" | "workers-ai";
+
 export interface MessageRecord {
   id: string;
   device_id: string;
@@ -18,6 +21,7 @@ export interface MessageRecord {
   to_number: string;
   content: string;
   code: string | null;
+  code_source: CodeSource | null;
   raw_payload: string;
   received_at: number;
   created_at: number;
@@ -32,6 +36,7 @@ export interface MessageView {
   to_number: string;
   content: string;
   code: string | null;
+  code_source: CodeSource | null;
   sim: string;
   reported_device: string;
   received_at: number;

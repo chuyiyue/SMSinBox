@@ -4,6 +4,7 @@
 interface __BaseEnv_Env {
 	DB: D1Database;
 	ASSETS: Fetcher;
+	AI?: Ai;
 	RETENTION_DAYS: "90";
 	CONTENT_KEY: string;
 	ADMIN_USERNAME: string;

@@ -11,6 +11,7 @@ import {
   revokeDevicePush,
 } from "../src/db";
 import { ENCRYPTED_PREFIX } from "../src/crypto";
+import { extractCode } from "../src/extract";
 import { MAX_BODY_BYTES } from "../src/http";
 import worker from "../src/index";
 import { handleApi } from "../src/routes/api";
@@ -43,6 +44,7 @@ type MessageRow = {
   content: string;
   content_hash: string;
   code: string | null;
+  code_source: string | null;
   raw_payload: string;
   received_at: number;
   created_at: number;
@@ -194,10 +196,11 @@ function createDb() {
               content: String(args[4]),
               content_hash: String(args[5]),
               code: args[6] == null ? null : String(args[6]),
-              raw_payload: String(args[7]),
-              received_at: Number(args[8]),
-              created_at: Number(args[9]),
-              encrypted: Number(args[10]),
+              code_source: args[7] == null ? null : String(args[7]),
+              raw_payload: String(args[8]),
+              received_at: Number(args[9]),
+              created_at: Number(args[10]),
+              encrypted: Number(args[11]),
             });
             return { meta: { changes: 1 } };
           }
@@ -303,7 +306,7 @@ function createDb() {
   return { db: db as unknown as D1Database, state };
 }
 
-function envFor(db: D1Database, contentKey = ""): Env {
+function envFor(db: D1Database, contentKey = "", ai?: Env["AI"]): Env {
   return {
     DB: db,
     ASSETS: { fetch: async () => new Response("") },
@@ -312,6 +315,7 @@ function envFor(db: D1Database, contentKey = ""): Env {
     ADMIN_USERNAME: "admin",
     ADMIN_PASSWORD: "secret",
     DEVICE_JWT_SECRET: "ingest-device-jwt-secret-00000001",
+    ...(ai === undefined ? {} : { AI: ai }),
   } as unknown as Env;
 }
 
@@ -543,6 +547,117 @@ describe("handleSms bearer", () => {
   });
 });
 
+describe("code recognition on ingest", () => {
+  beforeEach(() => {
+    vi.spyOn(Date, "now").mockReturnValue(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  function aiBinding(run: (...args: unknown[]) => unknown): Env["AI"] {
+    return { run } as unknown as Env["AI"];
+  }
+
+  it("keeps regex authoritative and does not call AI when a code is found", async () => {
+    const harness = createDb();
+    await seedDevice(harness.state, TOKEN);
+    const run = vi.fn(async () => ({ response: "999999" }));
+    const response = await handleSms(
+      smsRequest(TOKEN, smsBody("您的验证码 123456，请勿泄露")),
+      envFor(harness.db, "", aiBinding(run)),
+      waitCtx().ctx,
+    );
+    expect(await response.json()).toMatchObject({ ok: true, code: "123456" });
+    expect(run).not.toHaveBeenCalled();
+    expect(harness.state.messages[0]).toMatchObject({ code: "123456", code_source: "regex" });
+  });
+
+  it("stores an AI candidate that appears verbatim in the body as workers-ai", async () => {
+    const harness = createDb();
+    await seedDevice(harness.state, TOKEN);
+    const run = vi.fn(async () => ({ response: "482913" }));
+    const content = "登录凭据 482913，请勿泄露";
+    expect(extractCode(content)).toBeNull();
+    const response = await handleSms(
+      smsRequest(TOKEN, smsBody(content)),
+      envFor(harness.db, "", aiBinding(run)),
+      waitCtx().ctx,
+    );
+    expect(await response.json()).toMatchObject({ ok: true, code: "482913" });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(harness.state.messages[0]).toMatchObject({ code: "482913", code_source: "workers-ai" });
+  });
+
+  it("drops a hallucinated candidate that is absent from the body", async () => {
+    const harness = createDb();
+    await seedDevice(harness.state, TOKEN);
+    const run = vi.fn(async () => ({ response: "111111" }));
+    const response = await handleSms(
+      smsRequest(TOKEN, smsBody("登录凭据 482913，请勿泄露")),
+      envFor(harness.db, "", aiBinding(run)),
+      waitCtx().ctx,
+    );
+    expect(await response.json()).toMatchObject({ ok: true, code: null });
+    expect(harness.state.messages[0]).toMatchObject({ code: null, code_source: null });
+  });
+
+  it("still stores the message with no code when AI throws", async () => {
+    const harness = createDb();
+    await seedDevice(harness.state, TOKEN);
+    const run = vi.fn(async () => {
+      throw new Error("ai unavailable");
+    });
+    const response = await handleSms(
+      smsRequest(TOKEN, smsBody("登录凭据 482913，请勿泄露")),
+      envFor(harness.db, "", aiBinding(run)),
+      waitCtx().ctx,
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, code: null });
+    expect(harness.state.messages).toHaveLength(1);
+    expect(harness.state.messages[0]).toMatchObject({ code: null, code_source: null });
+  });
+
+  it("still stores the message with no code when AI times out", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const harness = createDb();
+    await seedDevice(harness.state, TOKEN);
+    const run = vi.fn(() => new Promise(() => {}));
+    const pending = handleSms(
+      smsRequest(TOKEN, smsBody("登录凭据 482913，请勿泄露")),
+      envFor(harness.db, "", aiBinding(run)),
+      waitCtx().ctx,
+    );
+    // Let the request actually reach the AI call first: body reads and
+    // WebCrypto need real event-loop turns that fake timers do not drive.
+    for (let i = 0; i < 100 && run.mock.calls.length === 0; i++) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    expect(run).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(4000);
+    const response = await pending;
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, code: null });
+    expect(harness.state.messages[0]).toMatchObject({ code: null, code_source: null });
+  });
+
+  it("skips AI when the binding is not configured", async () => {
+    const harness = createDb();
+    await seedDevice(harness.state, TOKEN);
+    const response = await handleSms(
+      smsRequest(TOKEN, smsBody("登录凭据 482913，请勿泄露")),
+      envFor(harness.db),
+      waitCtx().ctx,
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, code: null });
+    expect(harness.state.messages[0]).toMatchObject({ code: null, code_source: null });
+  });
+});
+
 describe("sms route", () => {
   beforeEach(() => {
     vi.spyOn(Date, "now").mockReturnValue(NOW);
@@ -654,6 +769,7 @@ describe("device push rows", () => {
       content: "验证码 123456",
       content_hash: "hash-1",
       code: "123456",
+      code_source: "regex",
       raw_payload: "{}",
       received_at: NOW,
       created_at: NOW,

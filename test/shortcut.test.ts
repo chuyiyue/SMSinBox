@@ -315,7 +315,7 @@ describe("device test message", () => {
     expect(payload.code).toBe("654321");
     expect(JSON.stringify(payload)).not.toContain("序号");
     const inserted = script.state.binds.find((args) => args.includes("SMSinBox"));
-    expect(inserted?.[10]).toBe(0);
+    expect(inserted?.[11]).toBe(0);
     expect(String(inserted?.[4])).toContain("654321");
     expect(logs.join("")).not.toContain("654321");
     expect(script.state.runs).toBeGreaterThanOrEqual(2);
@@ -336,7 +336,7 @@ describe("device test message", () => {
     );
     await Promise.all(jobs);
     expect(response.status).toBe(200);
-    const inserted = script.state.binds.find((args) => args[10] === 1);
+    const inserted = script.state.binds.find((args) => args[11] === 1);
     expect(String(inserted?.[4]).startsWith(ENCRYPTED_PREFIX)).toBe(true);
     expect(String(inserted?.[6]).startsWith(ENCRYPTED_PREFIX)).toBe(true);
   });
