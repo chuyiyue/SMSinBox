@@ -604,6 +604,90 @@
 .device-id code { color: var(--text-3); background: transparent; border: 0; padding: 0; }
 .device-id button { min-height: 28px; font-size: var(--fs-xs); padding: 0 8px; }
 
+.device-detail-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+.device-detail-header .ui-drawer-title { margin: 0; }
+.device-detail-heading {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.device-detail-meta-line {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.device-detail-shell {
+  display: grid;
+  gap: 16px;
+}
+.device-detail-summary,
+.device-detail-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+.device-detail-status {
+  display: grid;
+  gap: 12px;
+}
+.device-detail-stack {
+  display: grid;
+  gap: 12px;
+}
+.device-detail-value {
+  margin: 0;
+  font-weight: 600;
+}
+.device-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.device-detail-tabs {
+  margin: 0;
+}
+.device-message-list {
+  display: grid;
+  gap: 10px;
+}
+.device-message-item {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.device-message-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+.device-message-body {
+  margin: 0;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.device-message-code {
+  display: flex;
+  justify-content: flex-start;
+}
+.device-detail-back {
+  flex: none;
+}
+
 .api-config { margin-top: 0; }
 .api-config-title { margin: 0 0 4px; font-size: var(--fs-md); }
 .api-config .lede { margin-bottom: 14px; }
