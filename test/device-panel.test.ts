@@ -8,7 +8,6 @@ import {
   platformFromReport,
   pushActions,
   pushConfirm,
-  pushLabel,
   receiveTime,
   shortcutStatusLines,
 } from "../public/device-panel.js";
@@ -27,7 +26,8 @@ describe("device panel secrets", () => {
     const view = describeDevice({ ...DEVICE, push: "active" }, null);
     expect(view).not.toHaveProperty("push_url");
     expect(view).not.toHaveProperty("token");
-    expect(view.pushLabel).toBe("推送链接有效");
+    expect(view).not.toHaveProperty("pushLabel");
+    expect(view).not.toHaveProperty("shortcut");
   });
 
   it("shows the yellow-box credentials only when this response just returned them", () => {
@@ -46,11 +46,7 @@ describe("device panel secrets", () => {
 });
 
 describe("device panel status", () => {
-  it("labels push state and the actions that need confirmation", () => {
-    expect(pushLabel("active")).toBe("推送链接有效");
-    expect(pushLabel("revoked")).toBe("推送链接已撤销");
-    expect(pushLabel("none")).toBe("未生成推送链接");
-    expect(pushLabel(undefined)).toBe("未生成推送链接");
+  it("keeps the push actions that need confirmation", () => {
     expect(pushActions("none").map((item) => item.action)).toEqual(["issue"]);
     expect(pushActions("active").map((item) => item.action)).toEqual(["rotate", "revoke"]);
     expect(pushActions("revoked").map((item) => item.action)).toEqual(["issue", "rotate"]);
@@ -72,18 +68,12 @@ describe("device panel status", () => {
     expect(platformFromReport("Pixel 8")).toEqual({ key: "reported", label: "Pixel 8" });
   });
 
-  it("prefers the latest sms receive time over last_seen_at", () => {
-    expect(receiveTime({ last_seen_at: 50 }, { received_at: 80 })).toEqual({ kind: "message", at: 80 });
-    expect(receiveTime({ last_seen_at: 50 }, null)).toEqual({ kind: "seen-without-message", at: 50 });
-    expect(receiveTime({ last_seen_at: null }, null)).toEqual({ kind: "none", at: null });
-  });
-
   it("shows concise device status values", () => {
     const waiting = describeDevice(DEVICE, null);
     expect(waiting.platform).toEqual({ key: "unknown", label: "尚未上报" });
     expect(waiting.platformBadge).toBe("尚未上报");
     expect(waiting.platformDetail).toBe("尚未上报");
-    expect(waiting.shortcut).toBe("尚未收到短信");
+    expect(waiting.received).toEqual({ kind: "none", at: null });
     expect(waiting.id).toBe(DEVICE.id);
 
     const ios = describeDevice(
@@ -93,16 +83,20 @@ describe("device panel status", () => {
     expect(ios.platform.label).toBe("iOS");
     expect(ios.platformBadge).toBe("iOS");
     expect(ios.received).toEqual({ kind: "message", at: 20 });
-    expect(ios.shortcut).toBe("已收到 iOS 短信");
 
     const tested = describeDevice(DEVICE, {
       device_id: DEVICE.id,
       reported_device: DEVICE.name,
       received_at: 30,
     });
-    expect(tested.shortcut).toBe("已收到短信（我的 iPhone）");
     expect(tested.platformBadge).toBe("其他");
     expect(tested.platformDetail).toContain("我的 iPhone");
+  });
+
+  it("uses the latest received message or last-seen time for stale detection", () => {
+    expect(receiveTime({ last_seen_at: 50 }, { received_at: 80 })).toEqual({ kind: "message", at: 80 });
+    expect(receiveTime({ last_seen_at: 50 }, null)).toEqual({ kind: "seen-without-message", at: 50 });
+    expect(receiveTime({ last_seen_at: null }, null)).toEqual({ kind: "none", at: null });
   });
 
   it("keeps the newest message for each device", () => {
@@ -166,6 +160,17 @@ describe("devices page", () => {
     expect(js).not.toContain("device.push_url");
     expect(js).not.toContain("再显示一次");
     expect(js).not.toMatch(/\/reveal/);
+  });
+
+  it("omits low-value device facts and status rows from every detail view", () => {
+    expect(js).not.toContain('"创建时间"');
+    expect(js).not.toContain('"最近活动"');
+    expect(js).not.toContain('"推送链接",');
+    expect(js).not.toContain('"快捷指令状态"');
+    expect(js).not.toContain('"快捷指令",');
+    expect(js).not.toContain('"推送状态"');
+    expect(js).not.toContain("view.pushLabel");
+    expect(js).not.toContain("view.shortcut");
   });
 
   it("keeps the yellow credential box and the phone breakpoints", () => {

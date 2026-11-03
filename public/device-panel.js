@@ -5,12 +5,6 @@ export function canRevealPushSecret() {
   return false;
 }
 
-export function pushLabel(push) {
-  if (push === "active") return "推送链接有效";
-  if (push === "revoked") return "推送链接已撤销";
-  return "未生成推送链接";
-}
-
 export function pushActions(push) {
   if (push === "active") {
     return [
@@ -93,13 +87,6 @@ export function latestByDevice(messages) {
   return map;
 }
 
-function shortcutConfigLine(platform, received) {
-  if (received.kind === "none") return "尚未收到短信";
-  if (platform.key === "ios") return "已收到 iOS 短信";
-  if (platform.key === "unknown") return "已收到短信";
-  return `已收到短信（${platform.label}）`;
-}
-
 export function describeDevice(device, latest) {
   const push = device?.push === "active" || device?.push === "revoked" ? device.push : "none";
   const platform = platformFromReport(latest?.reported_device);
@@ -110,10 +97,7 @@ export function describeDevice(device, latest) {
     platform,
     platformBadge: platformBadge(platform),
     platformDetail: platformDetail(platform),
-    push,
-    pushLabel: pushLabel(push),
     received,
-    shortcut: shortcutConfigLine(platform, received),
     actions: pushActions(push),
   };
 }
