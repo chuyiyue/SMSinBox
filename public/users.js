@@ -71,6 +71,7 @@ function startView() {
   });
   const cleanupTotp = initTotpSettings();
   const cleanupSettingsNav = initSettingsNav();
+  const cleanupMobileSettingsNav = initMobileSettingsNav();
 
   passwordForm.addEventListener("submit", submitPassword);
   passwordInput.addEventListener("input", () => paintPassword(true));
@@ -110,10 +111,79 @@ function startView() {
     if (viewToken === token) viewToken += 1;
     cleanupTotp();
     cleanupSettingsNav();
+    cleanupMobileSettingsNav();
   };
 }
 
+
+function initMobileSettingsNav() {
+  const settings = document.querySelector(".settings");
+  const nav = document.querySelector(".settings-nav");
+  const mobileHeader = document.querySelector(".settings-mobile-header");
+  const backButton = document.querySelector("#settings-back");
+  const sections = [...document.querySelectorAll(".settings-section")];
+  if (!settings || !nav || !mobileHeader || !backButton || !sections.length) return () => {};
+
+  const updateView = () => {
+    const mobile = window.matchMedia("(max-width: 639px)").matches;
+    const activeId = settings.dataset.mobileSection;
+    if (!mobile) {
+      nav.hidden = false;
+      mobileHeader.hidden = true;
+      for (const section of sections) {
+        section.hidden = false;
+        section.classList.remove("is-visible");
+      }
+      return;
+    }
+
+    if (!activeId) {
+      nav.hidden = false;
+      mobileHeader.hidden = true;
+      for (const section of sections) {
+        section.hidden = true;
+        section.classList.remove("is-visible");
+      }
+      return;
+    }
+
+    nav.hidden = true;
+    mobileHeader.hidden = false;
+    const target = document.getElementById(activeId);
+    const heading = target?.querySelector("h2");
+    if (heading) mobileHeader.querySelector("h2").textContent = heading.textContent;
+    for (const section of sections) {
+      const visible = section.id === activeId;
+      section.hidden = !visible;
+      section.classList.toggle("is-visible", visible);
+    }
+  };
+
+  for (const link of nav.querySelectorAll('a[href^="#"]')) {
+    link.addEventListener("click", (event) => {
+      if (!window.matchMedia("(max-width: 639px)").matches) return;
+      event.preventDefault();
+      const id = link.getAttribute("href")?.slice(1);
+      if (!id) return;
+      settings.dataset.mobileSection = id;
+      updateView();
+    });
+  }
+
+  backButton.addEventListener("click", () => {
+    delete settings.dataset.mobileSection;
+    updateView();
+  });
+
+  updateView();
+  window.addEventListener("resize", updateView);
+  return () => window.removeEventListener("resize", updateView);
+}
+
 function initSettingsNav() {
+  if (window.matchMedia("(max-width: 639px)").matches) {
+    return () => {};
+  }
   const nav = document.querySelector(".settings-nav");
   if (!nav) return () => {};
   const links = [...nav.querySelectorAll('a[href^="#"]')];

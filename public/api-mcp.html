@@ -98,6 +98,7 @@
           <div class="tabs api-tabs" role="tablist" aria-label="API 与 MCP 分区">
             <button id="tab-token" class="tab is-active" type="button" role="tab" aria-selected="true" aria-controls="token-panel" data-tab="tokens">令牌管理</button>
             <button id="tab-mcp" class="tab" type="button" role="tab" aria-selected="false" aria-controls="mcp-panel" data-tab="mcp" tabindex="-1">MCP 接入</button>
+            <button id="tab-permissions" class="tab" type="button" role="tab" aria-selected="false" aria-controls="permissions-panel" data-tab="permissions" tabindex="-1">权限管理</button>
             <button id="tab-docs" class="tab" type="button" role="tab" aria-selected="false" aria-controls="api-panel" data-tab="docs" tabindex="-1">外部 API 文档</button>
           </div>
 
@@ -152,10 +153,20 @@
               </div>
             </div>
 
+            <div class="stack" id="mcp-tools-list"></div>
+
             <details class="fold">
               <summary>如何连接 MCP 客户端</summary>
               <p>在 Claude Desktop 的 <code>claude_desktop_config.json</code> 或 Cursor 的 MCP 设置中添加上述通用 JSON 配置即可。MCP 采用 Streamable HTTP 传输协议，直接向 <code>/mcp</code> 端点发起带 Bearer Token 的 POST 请求。</p>
             </details>
+          </section>
+
+          <section id="permissions-panel" class="panel stack tab-panel" role="tabpanel" aria-labelledby="tab-permissions" data-panel="permissions" hidden>
+            <div class="section-head">
+              <h2>权限管理</h2>
+            </div>
+            <p class="subtle">权限定义来源于后端 <code>EXT_PERMISSIONS</code> 常量与外部 API/MCP 访问控制，当前 Token 的分配统计基于已创建的 Token 列表。</p>
+            <div id="permissions-list" class="stack"></div>
           </section>
 
           <!-- API documentation -->
@@ -224,6 +235,8 @@
                 </div>
               </div>
             </div>
+
+            <div id="api-endpoints-details" class="stack"></div>
 
             <details class="fold">
               <summary>如何调用 REST API</summary>
