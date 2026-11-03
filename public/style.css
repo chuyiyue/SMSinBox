@@ -25,6 +25,23 @@
 
 .device.is-highlighted { box-shadow: var(--shadow-2); }
 
+/* Sidebar device list: keep its header fixed and let a long list scroll. */
+.sidebar .sidebar-devices {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.sidebar .device-list {
+  min-height: 0;
+  max-height: min(40vh, 22rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
 @media (max-width: 640px) {
   .page { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
 }

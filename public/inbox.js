@@ -1,12 +1,11 @@
 import {
   api,
   flashLabel,
-  formatTime,
+  formatDateTime,
   initShell,
   isUnauthorized,
   loadNav,
   logout,
-  minuteStamp,
   receivedStamp,
   renderContent,
   toast,
@@ -90,16 +89,6 @@ function startView() {
     },
     onRefresh() {
       banner.hidden = true;
-      loadMessages().catch(showError);
-    },
-    onDeviceFilter(id) {
-      deviceSelect.value = id;
-      state.page = 1;
-      banner.hidden = true;
-      closeDrawer();
-      // Keep the address bar in step with the sidebar immediately, even if the
-      // request below fails; the sidebar highlight and URL stay in sync.
-      syncUrl();
       loadMessages().catch(showError);
     },
     onEscape() {
@@ -617,8 +606,7 @@ function timeNode(message, extra) {
   const at = Number(message.received_at);
   if (Number.isFinite(at) && at > 0) {
     time.dateTime = new Date(at).toISOString();
-    time.textContent = formatTime(at);
-    time.title = minuteStamp(at);
+    time.textContent = formatDateTime(at);
   }
   return time;
 }
