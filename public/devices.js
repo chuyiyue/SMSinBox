@@ -12,7 +12,7 @@ import {
   showNotice,
   toast,
 } from "./common.js";
-import { ensureDevices, getDevices, noteDeviceSeen, refreshDevices } from "./device-store.js";
+import { deviceStateOf, ensureDevices, getDevices, noteDeviceSeen, refreshDevices } from "./device-store.js";
 import { registerView } from "./shell.js";
 import { credentialBoxes, describeDevice, pushConfirm, shortcutStatusLines } from "./device-panel.js";
 
@@ -27,12 +27,12 @@ let tokenValue;
 let pushWrap;
 let pushUrlValue;
 let devices;
-let dialog;
 let savedBox;
 let doneButton;
 let formError;
 let viewToken = 0;
 const webhookUrl = `${location.origin}/api/v1/sms`;
+const authHeader = "Authorization: Bearer <设备 token>";
 const curlSample = [
   `curl -X POST '${webhookUrl}' \\`,
   "  -H 'Authorization: Bearer <token>' \\",
@@ -41,6 +41,11 @@ const curlSample = [
 ].join("\n");
 let shownDeviceId = "";
 let generation = 0;
+// Expanded cards are kept per device id, so refreshing one card never closes
+// another card and a deep link survives the first cached render.
+const expandedIds = new Set();
+let hashHandled = false;
+let hashListener = null;
 
 function startView() {
   viewToken += 1;
@@ -54,13 +59,12 @@ function startView() {
   pushWrap = document.querySelector("#push-wrap");
   pushUrlValue = document.querySelector("#push-url-value");
   devices = document.querySelector("#devices");
-  dialog = document.querySelector("#device-dialog");
   savedBox = document.querySelector("#token-saved");
   doneButton = document.querySelector("#token-done");
   formError = form.querySelector(".field-error") || document.createElement("p");
   formError.className = "field-error";
   formError.hidden = true;
-  form.querySelector(".modal-actions")?.before(formError);
+  form.after(formError);
   document.querySelector("#sms-url").textContent = webhookUrl;
   document.querySelector("#android-template").textContent = TEMPLATE;
   document.querySelector("#curl-sample").textContent = curlSample;
@@ -75,7 +79,11 @@ function startView() {
   });
   document.querySelector("#add-device").addEventListener("click", openCreate);
   document.querySelector("#copy-sms-url").addEventListener("click", (event) => {
-    flashLabel(event.currentTarget, webhookUrl, "复制");
+    event.stopPropagation();
+    flashLabel(event.currentTarget, webhookUrl, "复制地址");
+  });
+  document.querySelector("#copy-auth").addEventListener("click", (event) => {
+    flashLabel(event.currentTarget, authHeader, "复制");
   });
   document.querySelector("#copy-template").addEventListener("click", (event) => {
     flashLabel(event.currentTarget, TEMPLATE, "复制模板");
@@ -98,25 +106,14 @@ function startView() {
   });
   doneButton.addEventListener("click", () => {
     if (!savedBox.checked) return;
-    dialog.close();
-  });
-  document.querySelector("#device-cancel").addEventListener("click", () => {
-    if (!tokenBox.hidden) return;
-    dialog.close();
-  });
-  dialog.addEventListener("cancel", (event) => {
-    if (!tokenBox.hidden) event.preventDefault();
-  });
-  dialog.addEventListener("click", (event) => {
-    if (event.target !== dialog) return;
-    if (!tokenBox.hidden) return;
-    dialog.close();
-  });
-  dialog.addEventListener("close", () => {
-    document.body.classList.remove("modal-open");
     clearSecrets();
   });
   form.addEventListener("submit", submitDevice);
+  hashListener = () => {
+    hashHandled = false;
+    applyLocationHash();
+  };
+  window.addEventListener("hashchange", hashListener);
   loadDevices().catch((error) => {
     if (token !== viewToken || isUnauthorized(error)) return;
     setError("加载设备失败");
@@ -127,7 +124,8 @@ function startView() {
   return () => {
     if (viewToken === token) viewToken += 1;
     generation += 1;
-    if (dialog?.open) dialog.close();
+    if (hashListener) window.removeEventListener("hashchange", hashListener);
+    hashListener = null;
   };
 }
 
@@ -138,17 +136,11 @@ async function submitDevice(event) {
   showFormError("");
   const payload = new FormData(form);
   const name = String(payload.get("name") || "").trim();
-  const secret = String(payload.get("secret") || "").trim();
   if (!name || name.length > 64) {
     showFormError("设备名称需要 1 到 64 个字符");
     return;
   }
-  if (secret && (secret.length < 8 || secret.length > 256)) {
-    showFormError("签名密钥需要 8 到 256 个字符");
-    return;
-  }
   const body = { name };
-  if (secret) body.secret = secret;
   const button = form.querySelector("button[type=submit]");
   button.disabled = true;
   const previous = button.textContent;
@@ -184,12 +176,10 @@ async function submitDevice(event) {
 
 function openCreate() {
   clearSecrets();
-  form.hidden = false;
   showFormError("");
-  document.querySelector("#device-dialog-title").textContent = "添加设备";
-  if (!dialog.open) dialog.showModal();
-  document.body.classList.add("modal-open");
-  form.querySelector("input[name=name]")?.focus();
+  document.querySelector("#add")?.scrollIntoView({ block: "start", behavior: "smooth" });
+  const input = form.querySelector("input[name=name]");
+  input?.focus({ preventScroll: true });
 }
 
 function fillShortcutStatus() {
@@ -233,15 +223,15 @@ function showCredentials({ deviceId, token, pushUrl }) {
   const warn = tokenBox.querySelector(".callout");
   if (warn) {
     warn.textContent = boxes.showBearer
-      ? "这个 token 只显示这一次，关闭后无法再次查看。"
+      ? "这些凭证只显示这一次，关闭后无法再次查看。"
       : "这条推送链接只显示这一次，关闭后无法再次查看。";
   }
   if (!boxes.showBox) return;
   form.hidden = true;
-  document.querySelector("#device-dialog-title").textContent = "请保存这些密钥";
-  if (!dialog.open) dialog.showModal();
-  document.body.classList.add("modal-open");
-  (boxes.showBearer ? document.querySelector("#copy-token") : document.querySelector("#copy-push-url"))?.focus();
+  document.querySelector("#add")?.scrollIntoView({ block: "start", behavior: "smooth" });
+  (boxes.showBearer ? document.querySelector("#copy-token") : document.querySelector("#copy-push-url"))?.focus({
+    preventScroll: true,
+  });
 }
 
 function clearSecrets() {
@@ -284,13 +274,16 @@ async function loadDevices(options = {}) {
   }
 }
 
+// page_size=1 keeps the request small; the same response also carries the
+// reliable total used for the SMS count shown in the expanded card.
 async function loadLatest(rows) {
   const found = new Map();
   await mapLimit(rows, 4, async (device) => {
     const result = await api(`/api/v1/messages?device_id=${encodeURIComponent(device.id)}&page_size=1`);
     if (!result.response.ok) return;
-    const message = result.data.messages?.[0];
-    if (message) found.set(device.id, message);
+    const message = result.data.messages?.[0] || null;
+    const total = Number(result.data.total);
+    found.set(device.id, { message, total: Number.isFinite(total) ? total : null });
   });
   return found;
 }
@@ -299,9 +292,11 @@ function renderDeviceList(rows, latest) {
   devices.replaceChildren();
   if (rows.length === 0) {
     devices.append(emptyDevices());
+    applyLocationHash();
     return;
   }
   for (const device of rows) devices.append(renderDevice(device, latest.get(device.id) || null));
+  applyLocationHash();
 }
 
 function emptyDevices() {
@@ -320,13 +315,19 @@ function emptyDevices() {
   return wrap;
 }
 
-function renderDevice(device, latest) {
+function renderDevice(device, entry) {
+  const latest = entry?.message || null;
+  const total = Number.isFinite(entry?.total) ? entry.total : null;
   const view = describeDevice(device, latest);
+  const expanded = Boolean(view.id && expandedIds.has(view.id));
   const row = document.createElement("article");
-  row.className = "device";
+  row.className = `device ${expanded ? "is-expanded" : "is-collapsed"}`;
+  if (view.id) row.id = `dev-${view.id}`;
   if (view.id) row.dataset.deviceId = view.id;
   if (view.id && view.id === shownDeviceId) row.classList.add("is-highlighted");
 
+  const bodyId = view.id ? `device-body-${view.id}` : "";
+  const presence = deviceStateOf(device);
   const head = document.createElement("div");
   head.className = "device-head";
   const titleWrap = document.createElement("div");
@@ -338,23 +339,83 @@ function renderDevice(device, latest) {
   badge.className = "badge";
   badge.dataset.platform = view.platform.key;
   badge.textContent = view.platformBadge;
-  titleWrap.append(title, badge);
-  if (view.hmac === "已启用 HMAC") {
-    const lock = document.createElement("span");
-    lock.className = "badge";
-    lock.textContent = view.hmac;
-    titleWrap.append(lock);
-  }
-  const pill = document.createElement("span");
-  pill.className = "status-pill";
-  pill.dataset.push = view.push;
-  pill.textContent = view.pushLabel;
+  const presencePill = document.createElement("span");
+  presencePill.className = "status-pill device-presence";
+  presencePill.dataset.state = presence.key;
+  presencePill.title = presence.text;
+  presencePill.textContent = presenceLabel(presence);
+  titleWrap.append(title, badge, presencePill);
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "device-toggle";
+  toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+  if (bodyId) toggle.setAttribute("aria-controls", bodyId);
+  const toggleLabel = document.createElement("span");
+  toggleLabel.className = "device-toggle-label";
+  toggleLabel.textContent = expanded ? "收起" : "展开";
+  const chevron = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  chevron.setAttribute("class", "icon");
+  chevron.setAttribute("viewBox", "0 0 24 24");
+  chevron.setAttribute("aria-hidden", "true");
+  const chevronPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  chevronPath.setAttribute("d", "M6 9l6 6 6-6");
+  chevron.append(chevronPath);
+  toggle.append(toggleLabel, chevron);
+  toggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setExpanded(row, !expandedIds.has(view.id), view.id);
+  });
+
+  const trail = document.createElement("div");
+  trail.className = "actions device-head-actions";
+  trail.append(toggle);
+  head.append(titleWrap, trail);
+  head.addEventListener("click", (event) => {
+    if (event.target.closest("button, a, input, select, textarea, summary")) return;
+    setExpanded(row, !expandedIds.has(view.id), view.id);
+  });
+
+  const body = document.createElement("div");
+  body.className = "device-body";
+  if (bodyId) body.id = bodyId;
+  body.hidden = !expanded;
+
+  const facts = document.createElement("dl");
+  facts.className = "device-facts";
+  addFact(facts, "平台", view.platformDetail, { wide: true });
+  addFact(facts, "创建时间", formatTime(device.created_at), {
+    title: device.created_at ? absoluteTime(device.created_at) : "",
+  });
+  addFact(facts, "最近活动", receiveText(view.received), {
+    title: view.received.at ? absoluteTime(view.received.at) : "",
+  });
+  if (total !== null) addFact(facts, "短信数量", `${total} 条`);
+  addFact(facts, "推送链接", view.pushHint, { wide: true });
+  addFact(facts, "快捷指令", view.shortcut, { wide: true });
+  addFact(facts, "设备 ID", null, { wide: true, node: idLine(view.id) });
+
+  const actions = document.createElement("div");
+  actions.className = "actions device-actions";
+  actions.append(testButton(device));
+  const guide = document.createElement("a");
+  guide.className = "button secondary";
+  guide.href = "#ios-setup";
+  guide.textContent = "安装说明";
+  guide.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const details = document.querySelector("#setup-details");
+    if (details) details.open = true;
+  });
+  actions.append(guide);
+
   const more = document.createElement("button");
   more.type = "button";
-  more.className = "ghost icon-btn";
+  more.className = "secondary device-more";
   more.setAttribute("aria-label", "更多操作");
-  more.textContent = "⋯";
-  more.addEventListener("click", () => {
+  more.textContent = "管理 ⋯";
+  more.addEventListener("click", (event) => {
+    event.stopPropagation();
     const items = view.actions.map((item) => ({
       label: item.label,
       danger: item.action === "revoke",
@@ -363,43 +424,40 @@ function renderDevice(device, latest) {
     items.push({ label: "删除设备", danger: true, onSelect: () => removeDevice(device, row) });
     openMenu(more, items);
   });
-  const trail = document.createElement("div");
-  trail.className = "actions";
-  trail.append(pill, more);
-  head.append(titleWrap, trail);
+  actions.append(more);
 
-  const facts = document.createElement("dl");
-  facts.className = "device-facts";
-  addFact(facts, "平台", view.platformDetail, { wide: true });
-  addFact(facts, "设备 ID", null, { wide: true, node: idLine(view.id) });
-  addFact(facts, "创建时间", formatTime(device.created_at), {
-    title: device.created_at ? absoluteTime(device.created_at) : "",
-  });
-  addFact(facts, "最近一次短信", receiveText(view.received), {
-    title: view.received.at ? absoluteTime(view.received.at) : "",
-  });
-  addFact(facts, "签名", view.hmac);
-  addFact(facts, "推送链接", view.pushHint, { wide: true });
-  addFact(facts, "快捷指令", view.shortcut, { wide: true });
-
-  const actions = document.createElement("div");
-  actions.className = "actions";
-  actions.append(testButton(device));
-  const guide = document.createElement("a");
-  guide.className = "button secondary";
-  guide.href = "#ios-setup";
-  guide.textContent = "安装说明";
-  actions.append(guide);
-
-  row.append(head);
   if (isStale(view.received)) {
     const note = document.createElement("p");
     note.className = "stale-note";
     note.textContent = "很久没有收到短信";
-    row.append(note);
+    body.append(note);
   }
-  row.append(facts, actions);
+  body.append(facts, actions);
+  row.append(head, body);
   return row;
+}
+
+function presenceLabel(presence) {
+  if (presence.key === "recent") return "在线";
+  if (presence.key === "stale") return "离线";
+  return "尚未上报";
+}
+
+function setExpanded(row, expanded, id) {
+  if (id) {
+    if (expanded) expandedIds.add(id);
+    else expandedIds.delete(id);
+  }
+  row.classList.toggle("is-expanded", expanded);
+  row.classList.toggle("is-collapsed", !expanded);
+  const body = row.querySelector(".device-body");
+  if (body) body.hidden = !expanded;
+  const toggle = row.querySelector(".device-toggle");
+  if (toggle) {
+    toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+    const label = toggle.querySelector(".device-toggle-label");
+    if (label) label.textContent = expanded ? "收起" : "展开";
+  }
 }
 
 function addFact(list, label, value, options = {}) {
@@ -425,6 +483,7 @@ function idLine(id) {
   button.className = "secondary";
   button.textContent = "复制 ID";
   button.addEventListener("click", (event) => {
+    event.stopPropagation();
     flashLabel(event.currentTarget, id, "复制 ID");
   });
   line.append(code, button);
@@ -447,7 +506,8 @@ function testButton(device) {
   test.type = "button";
   test.className = "secondary";
   test.textContent = "发送测试消息";
-  test.addEventListener("click", async () => {
+  test.addEventListener("click", async (event) => {
+    event.stopPropagation();
     test.disabled = true;
     const previous = test.textContent;
     test.textContent = "发送中…";
@@ -507,6 +567,7 @@ async function removeDevice(device, row) {
       return;
     }
     if (shownDeviceId === device.id) shownDeviceId = "";
+    expandedIds.delete(device.id);
     row.classList.add("is-leaving");
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     await new Promise((resolve) => window.setTimeout(resolve, reduce ? 0 : 180));
@@ -580,6 +641,47 @@ function showLoadError(message) {
   });
   wrap.append(text, button);
   devices.append(wrap);
+}
+
+// The sidebar's device contract is /devices.html#dev-<id>.
+function hashDeviceId() {
+  const raw = location.hash || "";
+  if (!raw.startsWith("#dev-")) return "";
+  try {
+    return decodeURIComponent(raw.slice("#dev-".length));
+  } catch {
+    return raw.slice("#dev-".length);
+  }
+}
+
+function applyLocationHash() {
+  const hash = location.hash || "";
+  if (hash === "#add") {
+    if (hashHandled) return;
+    hashHandled = true;
+    openCreate();
+    return;
+  }
+  if (hash === "#ios-setup" || hash === "#setup-details") {
+    const details = document.querySelector("#setup-details");
+    if (details) details.open = true;
+    if (!hashHandled) {
+      hashHandled = true;
+      document.querySelector("#ios-setup")?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }
+    return;
+  }
+  const id = hashDeviceId();
+  if (!id) return;
+  const row = [...devices.querySelectorAll("[data-device-id]")].find(
+    (node) => node.dataset.deviceId === id,
+  );
+  if (!row) return;
+  if (!expandedIds.has(id)) setExpanded(row, true, id);
+  row.classList.add("is-highlighted");
+  if (hashHandled) return;
+  hashHandled = true;
+  row.scrollIntoView({ block: "start", behavior: "smooth" });
 }
 
 async function mapLimit(items, limit, fn) {

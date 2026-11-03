@@ -68,137 +68,176 @@
           </div>
         </header>
         <div class="page">
-          <p id="device-error" class="callout danger" hidden></p>
-          <p id="device-status" class="callout ok" hidden></p>
-          <div id="devices" class="devices cards"></div>
-          <section class="panel" id="ios-setup">
-            <h2>配置说明</h2>
-            <p class="lede">手机上只装一次快捷指令，之后每台设备只贴一条推送链接。本页和下面的下载是配置入口，不含设备密钥，也不能用来上报短信。导入和通知要在你的 iPhone 上确认，这个页面不会替手机执行。</p>
-            <div class="tabs" role="tablist" aria-label="配置平台">
-              <button class="tab is-active" type="button" data-tab="ios" role="tab" aria-selected="true">iOS</button>
-              <button class="tab" type="button" data-tab="android" role="tab" aria-selected="false">Android</button>
-              <button class="tab" type="button" data-tab="api" role="tab" aria-selected="false">通用 API</button>
+          <section class="panel add-device-panel" id="add" aria-labelledby="add-device-title">
+            <div class="add-device-head">
+              <h2 id="add-device-title">添加设备</h2>
+              <p class="lede">每部转发短信的手机是一台设备。添加后会显示一次 Bearer token 和推送链接，请立刻保存。</p>
             </div>
-            <div data-panel="ios">
-              <h3>版本与配置状态</h3>
-              <ul class="status-list" id="shortcut-status">
-                <li>推荐：打开 iCloud 分享链接安装 SMSinBox Next（已签名）。导入后只填写推送链接。</li>
-                <li>备用：设备页可下载未签名的 SMSinBox-iOS.shortcut；iOS 15 及更高版本可能拒绝导入。</li>
-                <li>iCloud：https://www.icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494 。不要使用来路不明的其它分享链接。</li>
-                <li>配置状态：本页看不到手机上的自动化开关。自动化里 content 必须用「信息 › 内容」，不要用「快捷指令输入」。收到 device 为 iOS 的短信后，设备卡片会写成「已收到 iOS 短信」。发送测试消息不会写成 iOS。</li>
-              </ul>
-              <p>推送链接在新建设备或轮换时出现一次，形如 <code>https://&lt;你的域名&gt;/api/v1/ingest/psh_...</code>。请立刻复制。刷新后无法再查看，丢掉就点该设备的「轮换」。不要把链接发到聊天或工单。Workers 的平台访问日志仍可能看到路径。</p>
-              <div class="compare">
-                <article>
-                  <h3>SMSinBox Next / SMSinBox-iOS</h3>
-                  <p>接近全部短信。适合普通号码。优先用 iCloud 分享链接；备用下载导入时只填推送链接。自动化条件用「信息包含一个空格」。<code>content</code> 用「信息 › 内容」。</p>
-                  <p><a href="https://www.icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494" target="_blank" rel="noopener">打开 iCloud 分享链接</a></p>
-                  <a class="button secondary" href="/api/v1/ios/shortcut?variant=all" download="SMSinBox-iOS.shortcut">下载备用未签名文件</a>
-                </article>
-                <article>
-                  <h3>只要验证码</h3>
-                  <p>不要再下载第二份快捷指令。用同一条自动化，把条件改成包含「验证码」，并再加一条包含 <code>code</code>。适合没有空格的短码。</p>
-                </article>
+            <p id="device-error" class="callout danger" hidden></p>
+            <p id="device-status" class="callout ok" hidden></p>
+            <form id="device-form" class="add-device-form">
+              <label class="sr-only" for="device-name">设备名称</label>
+              <input id="device-name" name="name" required maxlength="64" placeholder="设备名称，例如：我的 Pixel" autocomplete="off" />
+              <button type="submit">添加设备</button>
+            </form>
+            <div id="token-box" class="token-box" hidden role="status">
+              <p class="callout warn">这些凭证只显示这一次，关闭后无法再次查看。</p>
+              <div id="bearer-wrap" class="stack" hidden>
+                <strong>Bearer token，只显示这一次</strong>
+                <code id="token-value"></code>
+                <p>请立刻保存。关闭或刷新页面后无法再查看。请求头使用 <code>Authorization: Bearer &lt;token&gt;</code>。Android 和已经装好的旧快捷指令继续用它。丢失后要删除设备并新建。</p>
+                <button id="copy-token" class="secondary" type="button">复制 token</button>
               </div>
-              <div class="limits">
-                <strong>已知限制</strong>
-                <p>推荐用上方 iCloud 已签名分享链接。仓库下载的备用文件未签名；Linux 上无法运行 <code>shortcuts sign</code>，iOS 15 及更高版本经常拒绝未签名文件。被拒绝时按手动步骤新建。不要使用来路不明的其它链接。自动化里 <code>content</code> 必须用「信息 › 内容」。需要关闭「运行前询问」。手机需开机联网，重启后要解锁一次。只转发文本，不支持彩信。</p>
+              <div id="push-wrap" class="stack" hidden>
+                <strong>推送链接，只显示这一次</strong>
+                <code id="push-url-value"></code>
+                <p>贴进已经装好的那一条快捷指令。它等同设备密钥，不要发到聊天或工单。数据库只保存哈希，刷新后不能再显示明文。丢掉请在这台设备上点「轮换」。</p>
+                <button id="copy-push-url" class="secondary" type="button">复制推送链接</button>
               </div>
-              <p class="subtle">导入时只填推送链接。正文为空会通知「未发送：正文为空」并且不发送。读不到发件人时仍会发送，收件箱里的发件人是「（发件人为空）」；把 JSON 的 <code>from</code> 改成这条自动化的「发件人」才能得到号码。返回里有「请求过于频繁」时通知 429，有「推送链接无效」或「推送链接已撤销」时通知 401。没有 JSON，或系统停在「获取 URL 内容」报错，是网络失败或推送链接为空。</p>
-              <div class="ios-steps">
+              <label><input id="token-saved" type="checkbox" /> 我已保存好</label>
+              <div class="add-device-actions">
+                <button id="token-done" type="button" disabled>完成</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="devices-section" aria-labelledby="devices-title">
+            <div class="section-head">
+              <h2 id="devices-title">我的设备</h2>
+              <p class="subtle">点击卡片展开查看时间、配置和推送链接管理。</p>
+            </div>
+            <div id="devices" class="devices cards"></div>
+          </section>
+
+          <section class="panel api-config" id="api-config" aria-labelledby="api-config-title">
+            <h2 id="api-config-title">API 配置</h2>
+            <p class="lede">Android、已有快捷指令或自建脚本都向同一个完整地址上报短信。请求方法固定为 POST，认证使用设备 token。</p>
+            <dl class="api-facts">
+              <div>
+                <dt>请求地址</dt>
+                <dd>
+                  <code id="sms-url"></code>
+                  <button id="copy-sms-url" class="secondary" type="button">复制地址</button>
+                </dd>
+              </div>
+              <div>
+                <dt>请求方法</dt>
+                <dd><code>POST</code></dd>
+              </div>
+              <div>
+                <dt>Authorization</dt>
+                <dd>
+                  <code>Bearer &lt;设备 token&gt;</code>
+                  <button id="copy-auth" class="secondary" type="button">复制</button>
+                </dd>
+              </div>
+              <div>
+                <dt>Content-Type</dt>
+                <dd><code>application/json</code></dd>
+              </div>
+            </dl>
+            <p class="subtle">设备 token 在添加设备时只显示一次；丢失需删除设备后重建。上面的复制按钮复制的是完整请求地址，不是设备 ID。限流 60 次 / 分钟。</p>
+            <details class="fold">
+              <summary>JSON 请求体模板</summary>
+              <div class="code-block">
+                <button id="copy-template" class="secondary copy-corner" type="button">复制模板</button>
+                <pre id="android-template"></pre>
+              </div>
+            </details>
+            <details class="fold">
+              <summary>curl 示例</summary>
+              <div class="code-block">
+                <button id="copy-curl" class="secondary copy-corner" type="button">复制</button>
+                <pre id="curl-sample"></pre>
+              </div>
+            </details>
+          </section>
+
+          <section class="panel setup-panel" id="ios-setup" aria-labelledby="setup-title">
+            <details class="fold setup-details" id="setup-details">
+              <summary id="setup-title">平台配置说明（iOS / Android / 通用 API）</summary>
+              <div class="tabs" role="tablist" aria-label="配置平台">
+                <button class="tab is-active" type="button" data-tab="ios" role="tab" aria-selected="true">iOS</button>
+                <button class="tab" type="button" data-tab="android" role="tab" aria-selected="false">Android</button>
+                <button class="tab" type="button" data-tab="api" role="tab" aria-selected="false">通用 API</button>
+              </div>
+              <div data-panel="ios">
+                <h3>版本与配置状态</h3>
+                <ul class="status-list" id="shortcut-status">
+                  <li>推荐：打开 iCloud 分享链接安装 SMSinBox Next（已签名）。导入后只填写推送链接。</li>
+                  <li>备用：设备页可下载未签名的 SMSinBox-iOS.shortcut；iOS 15 及更高版本可能拒绝导入。</li>
+                  <li>iCloud：https://www.icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494 。不要使用来路不明的其它分享链接。</li>
+                  <li>配置状态：本页看不到手机上的自动化开关。自动化里 content 必须用「信息 › 内容」，不要用「快捷指令输入」。收到 device 为 iOS 的短信后，设备卡片会写成「已收到 iOS 短信」。发送测试消息不会写成 iOS。</li>
+                </ul>
                 <details class="fold">
-                  <summary>iOS 27 及以上</summary>
+                  <summary>导入快捷指令</summary>
                   <ol>
-                    <li>在上面新建设备，复制一次性推送链接。</li>
-                    <li>优先打开上方 iCloud 分享链接安装 SMSinBox Next；或下载备用未签名文件。系统拒绝未签名文件时，用下面的手动步骤。</li>
-                    <li>导入时只填写推送链接。不要把链接发给别人。</li>
-                    <li>打开「快捷指令」→「自动化」，展开这条快捷指令的触发器。</li>
-                    <li>打开自动化开关，关闭「运行前确认」。有「锁定时允许运行」就打开它。这就是立即运行。</li>
-                    <li>全部短信选「信息包含一个空格」。只要验证码时，把条件改成包含「验证码」，并再加一条包含 code。系统不允许空条件，空格也不是真正的全量。</li>
-                    <li>保存。用另一台手机发一条含「验证码 123456」的短信。重启后要先解锁一次。设备旁边的「发送测试消息」只写服务器收件箱，不会让运营商给你的手机发短信。</li>
+                    <li>先在上方添加设备，复制黄框里的推送链接。刷新后无法再看，丢掉就在设备卡片里轮换。</li>
+                    <li>推荐打开 <a href="https://www.icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494" target="_blank" rel="noopener">iCloud 分享链接</a>安装 SMSinBox Next（已签名）。系统拒绝时可下载 <a class="button secondary" href="/api/v1/ios/shortcut?variant=all" download="SMSinBox-iOS.shortcut">备用未签名文件</a>。</li>
+                    <li>导入时只填写推送链接，不要把链接发给别人。备用文件未签名，iOS 15 及更高版本经常拒绝导入。</li>
+                    <li>打开「快捷指令」→「自动化」，选择这条快捷指令的触发器，打开自动化开关，关闭「运行前询问」（或「运行前确认」）。有「锁定时允许运行」就打开它。</li>
+                    <li>条件选「信息包含一个空格」覆盖全部短信；只收验证码时改成包含「验证码」，并再加一条包含 <code>code</code>。短码没有空格，空格条件匹配不到。</li>
+                    <li>保存。手机重启后需先解锁一次，自动化才会继续运行。</li>
                   </ol>
                 </details>
                 <details class="fold">
-                  <summary>iOS 26 及以下</summary>
+                  <summary>测试转发</summary>
                   <ol>
-                    <li>复制刚生成的推送链接。</li>
-                    <li>打开「快捷指令」→「自动化」→ 点「+」→「信息」。</li>
-                    <li>发件人可以选任何人。短码常常不在通讯录里，要靠正文条件。条件选「信息包含一个空格」，或「包含」验证码 / code。空格匹配不到没有空格的短码。</li>
-                    <li>选择「立即运行」，关闭「运行前询问」。</li>
-                    <li>把下载的快捷指令加进这个自动化。系统拒绝未签名文件时，改用手动步骤。</li>
-                    <li>保存。手机重启后要先解锁一次，自动化才会继续跑。</li>
+                    <li>用另一台手机发送一条「验证码 123456」，确认收件箱出现短信。</li>
+                    <li>也可以点设备卡片的「发送测试消息」。它只把测试短信写进服务器收件箱，不会让运营商发短信，也不会让设备平台变成 iOS。</li>
+                    <li>收到后设备卡片的「最近活动」会更新。自动化里 <code>content</code> 必须用「信息 › 内容」，不要用「快捷指令输入」。</li>
+                    <li>返回「请求过于频繁」是 429，「推送链接无效 / 已撤销」是 401，需要轮换链接；网络失败或停在「获取 URL 内容」通常是链接为空或网络问题。</li>
                   </ol>
                 </details>
                 <details class="fold">
                   <summary>手动添加「获取 URL 内容」</summary>
                   <ol>
-                    <li>按上面对应系统版本新建「信息」自动化，选立即运行，并关掉运行前询问或运行前确认。</li>
-                    <li>「信息 › 内容」没有内容时，通知「未发送：正文为空」，然后停止。</li>
-                    <li>「信息 › 发件人」没有内容时，用文本「（发件人为空）」；否则用「信息 › 发件人」。把结果设成变量「发件人」。</li>
-                    <li>添加「文本」，内容填推送链接。</li>
-                    <li>添加「获取 URL 内容」。URL 选上一步的文本，方法 POST，打开显示标头。</li>
-                    <li>标头只加 <code>Content-Type</code>，值是 <code>application/json</code>。不要加 Authorization。</li>
-                    <li>请求体选 JSON：<code>from</code> 用变量「发件人」；<code>content</code> 用「信息 › 内容」（不要用「快捷指令输入」）；<code>timestamp</code> 用当前日期；<code>device</code> 填 iOS。</li>
-                    <li>看返回的文字。包含「请求过于频繁」就通知 429。包含「推送链接」就通知 401，然后到设备页轮换。包含 false 就通知服务器拒绝了这条短信。不包含 ok 就通知网络失败。否则通知「已转发」。</li>
+                    <li>按上面的系统版本新建「信息」自动化，选择「立即运行」并关闭询问。</li>
+                    <li>「信息 › 内容」为空时停止；「信息 › 发件人」为空时用文本「（发件人为空）」，结果设为变量「发件人」。</li>
+                    <li>添加「文本」填入推送链接，再添加「获取 URL 内容」：URL 选文本，方法 POST，打开显示标头。</li>
+                    <li>标头只加 <code>Content-Type: application/json</code>，不要加 Authorization。</li>
+                    <li>请求体选 JSON：<code>from</code> 用变量「发件人」，<code>content</code> 用「信息 › 内容」，<code>timestamp</code> 用当前日期，<code>device</code> 填 iOS。</li>
                   </ol>
                 </details>
                 <details class="fold">
-                  <summary>已有快捷指令</summary>
-                  <p>已经装在手机里的旧快捷指令不用改。它们继续 POST 到 <code>/api/v1/sms</code>，请求头仍是 <code>Authorization: Bearer &lt;token&gt;</code>。Android 也继续用这个地址和 Bearer，见 Android 一节。</p>
+                  <summary>已有快捷指令（Bearer）</summary>
                   <ol>
-                    <li>「文本」：Webhook URL，形如 <code>https://&lt;你的域名&gt;/api/v1/sms</code>。</li>
-                    <li>「文本」：设备 token。</li>
-                    <li>「文本」：<code>Bearer </code>（Bearer 后面有一个空格），再插入 token 文本的输出。</li>
-                    <li>「获取 URL 内容」：URL 选第一个文本，方法 POST。标头 <code>Authorization</code> 选 Bearer 文本，<code>Content-Type</code> 填 <code>application/json</code>。</li>
-                    <li>请求体 JSON 的字段仍是 <code>from</code>、<code>content</code>、<code>timestamp</code>、<code>device</code>。</li>
+                    <li>已经装好的旧快捷指令不用改，继续 POST 到 <code>/api/v1/sms</code>。</li>
+                    <li>请求头使用 <code>Authorization: Bearer &lt;设备 token&gt;</code> 和 <code>Content-Type: application/json</code>。</li>
+                    <li>请求体字段不变：<code>from</code>、<code>content</code>、<code>timestamp</code>、<code>device</code>。设备 token 丢失后需删除设备并重建。</li>
                   </ol>
-                  <p class="subtle">收藏夹里的 <code>?variant=code</code> 仍会下载旧的关键词模板，那不是新的主路径。新的安装只用上面这一份。要不要只收验证码，由手机上的自动化条件决定。</p>
                 </details>
+                <p class="subtle">完整步骤和常见问题见仓库的 <code>docs/ios-setup.md</code>。</p>
               </div>
-              <p class="subtle">共享来的自动化默认是关闭的。完整步骤和常见问题写在仓库的 <code>docs/ios-setup.md</code>。</p>
-            </div>
-            <div data-panel="android" hidden>
-              <h3>Android · SmsForwarder</h3>
-              <ol>
-                <li>安装 <a href="https://github.com/pppscn/SmsForwarder" rel="noopener noreferrer" target="_blank">SmsForwarder</a>，授予短信和通知权限。</li>
-                <li>添加发送通道，类型选 Webhook，方法 POST。</li>
-                <li>URL 填下面的地址。</li>
-                <li>请求头添加 <code>Authorization: Bearer 设备token</code> 和 <code>Content-Type: application/json</code>。</li>
-                <li>请求体使用模板。规则里可以加关键字「验证码」，少收无关短信。</li>
-              </ol>
-              <p class="subtle">Webhook URL</p>
-              <div class="code-block">
-                <button id="copy-sms-url" class="secondary copy-corner" type="button">复制</button>
-                <code id="sms-url"></code>
+              <div data-panel="android" hidden>
+                <h3>Android · SmsForwarder</h3>
+                <ol>
+                  <li>安装 <a href="https://github.com/pppscn/SmsForwarder" rel="noopener noreferrer" target="_blank">SmsForwarder</a>，授予短信和通知权限。</li>
+                  <li>添加发送通道，类型选 Webhook，方法选 POST。</li>
+                  <li>URL 填上方「API 配置」里的完整请求地址（不是设备 ID）。</li>
+                  <li>请求头添加 <code>Authorization: Bearer 设备token</code> 和 <code>Content-Type: application/json</code>。</li>
+                  <li>请求体使用上方 JSON 模板。规则里可加关键字「验证码」，少收无关短信。</li>
+                </ol>
+                <p class="subtle">设备 token 只在添加设备时显示一次；丢失需删除设备后重建。</p>
               </div>
-              <p class="subtle">JSON 请求体</p>
-              <div class="code-block">
-                <button id="copy-template" class="secondary copy-corner" type="button">复制模板</button>
-                <pre id="android-template"></pre>
+              <div data-panel="api" hidden>
+                <h3>通用 API</h3>
+                <ol>
+                  <li>向上方完整地址发送 <code>POST</code> 请求，JSON 请求体至少包含正文内容。</li>
+                  <li>认证使用 <code>Authorization: Bearer &lt;设备 token&gt;</code>，并设置 <code>Content-Type: application/json</code>。</li>
+                  <li>推送链接 <code>/api/v1/ingest/psh_...</code> 不需要 Authorization，适合快捷指令。</li>
+                </ol>
+                <table class="user-table">
+                  <thead><tr><th>字段</th><th>别名</th></tr></thead>
+                  <tbody>
+                    <tr><td data-label="字段">content</td><td data-label="别名">text、msg、body、sms</td></tr>
+                    <tr><td data-label="字段">from</td><td data-label="别名">sender</td></tr>
+                    <tr><td data-label="字段">timestamp</td><td data-label="别名">receive_time</td></tr>
+                    <tr><td data-label="字段">to、device、sim</td><td data-label="别名">没有别名</td></tr>
+                  </tbody>
+                </table>
               </div>
-            </div>
-            <div data-panel="api" hidden>
-              <h3>通用 API</h3>
-              <p>向 <code>POST /api/v1/sms</code> 发送 JSON。限流 60 次 / 分钟。可选请求头 <code>X-Timestamp</code> 与 <code>X-Signature</code>，签名是 <code>HMAC-SHA256(X-Timestamp + 原始请求体, secret)</code> 的十六进制，时间窗口 ±5 分钟。</p>
-              <div class="code-block">
-                <button id="copy-curl" class="secondary copy-corner" type="button">复制</button>
-                <pre id="curl-sample"></pre>
-              </div>
-              <table class="user-table">
-                <thead><tr><th>字段</th><th>别名</th></tr></thead>
-                <tbody>
-                  <tr><td data-label="字段">content</td><td data-label="别名">text、msg、body、sms</td></tr>
-                  <tr><td data-label="字段">from</td><td data-label="别名">sender</td></tr>
-                  <tr><td data-label="字段">timestamp</td><td data-label="别名">receive_time</td></tr>
-                  <tr><td data-label="字段">to、device、sim</td><td data-label="别名">没有别名</td></tr>
-                </tbody>
-              </table>
-              <details class="fold">
-                <summary>可选 HMAC</summary>
-                <p>创建设备时如果填写了签名密钥，之后每次用 Bearer 上报都必须带签名。SmsForwarder 的默认配置不会签名，给它用时密钥请留空。</p>
-                <p>推送链接不要求 HMAC。快捷指令签不了名，所以这条链接故意不校验签名。同一台设备可以同时把 Bearer 留给 Android，把推送链接留给 iOS。装了推送链接，就等于为这台设备多开了一扇不校验 HMAC 的门。</p>
-              </details>
-            </div>
+            </details>
           </section>
         </div>
       </div>
@@ -232,47 +271,6 @@
         <button id="more-close" class="secondary" type="button">关闭</button>
       </div>
     </div>
-    <dialog id="device-dialog" class="modal">
-      <div class="modal-card">
-        <h2 id="device-dialog-title">添加设备</h2>
-        <form id="device-form" class="stack">
-          <label>名称
-            <input name="name" required maxlength="64" placeholder="例如：我的 Pixel" />
-          </label>
-          <p class="subtle">平台会在收到第一条短信后，按上报的 device 字段显示。这里不单独选择。</p>
-          <details class="fold">
-            <summary>高级：HMAC 签名密钥</summary>
-            <label>签名密钥（可选）
-              <input name="secret" maxlength="256" placeholder="留空则只校验 Bearer token" autocomplete="off" />
-            </label>
-            <p class="subtle">SmsForwarder 和快捷指令默认模板不会签名，这两类设备请留空。</p>
-          </details>
-          <div class="modal-actions">
-            <button id="device-cancel" class="secondary" type="button">取消</button>
-            <button type="submit">添加设备</button>
-          </div>
-        </form>
-        <div id="token-box" class="token-box" hidden role="status">
-          <p class="callout warn">这个 token 只显示这一次，关闭后无法再次查看。</p>
-          <div id="bearer-wrap" class="stack" hidden>
-            <strong>Bearer token，只显示这一次</strong>
-            <code id="token-value"></code>
-            <p>请立刻保存。关闭或刷新页面后无法再查看。请求头使用 <code>Authorization: Bearer &lt;token&gt;</code>。Android 和已经装好的旧快捷指令继续用它。丢失后要删除设备并新建。</p>
-            <button id="copy-token" class="secondary" type="button">复制 token</button>
-          </div>
-          <div id="push-wrap" class="stack" hidden>
-            <strong>推送链接，只显示这一次</strong>
-            <code id="push-url-value"></code>
-            <p>贴进已经装好的那一条快捷指令。它等同设备密钥，不要发到聊天或工单。数据库只保存哈希，刷新后不能再显示明文。丢掉请在这台设备上点「轮换」。</p>
-            <button id="copy-push-url" class="secondary" type="button">复制推送链接</button>
-          </div>
-          <label><input id="token-saved" type="checkbox" /> 我已保存好</label>
-          <div class="modal-actions">
-            <button id="token-done" type="button" disabled>完成</button>
-          </div>
-        </div>
-      </div>
-    </dialog>
     <script type="module" src="/devices.js"></script>
   </body>
 </html>
