@@ -137,6 +137,7 @@ describe("devices page", () => {
   const html = readFileSync("public/devices.html", "utf8");
   const js = readFileSync("public/devices.js", "utf8");
   const css = readFileSync("public/style.css", "utf8");
+  const pagesCss = readFileSync("public/css/pages.css", "utf8");
 
   it("keeps the Cloud Mail shell, yellow box, and shortcut status", () => {
     expect(html).toContain('class="app-layout"');
@@ -174,10 +175,9 @@ describe("devices page", () => {
     expect(css).toMatch(/\.token-box \{ background: var\(--warn-bg\);/);
     expect(css).toContain(".device-facts");
     expect(css).toContain(".device.is-highlighted");
-    expect(css).toContain("@media (max-width: 640px)");
+    expect(pagesCss).toContain("@media (max-width: 640px)");
     expect(css).toContain("@media (max-width: 380px)");
     expect(css).toMatch(/\[hidden\] \{ display: none !important; \}/);
-    expect(css).toContain("--sidebar: #1c1915");
-    expect(css).toContain("--paper: #f3ecdf");
+    expect(css).not.toContain("--paper: #f3ecdf");
   });
 });
