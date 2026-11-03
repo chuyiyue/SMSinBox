@@ -4,6 +4,7 @@ import { logInfo } from "./log";
 import { readRawMeta } from "./parse";
 import { messageMatchesQuery } from "./search";
 import type {
+  ApiTokenRecord,
   DeviceRecord,
   DeviceView,
   ListedSession,
@@ -1006,4 +1007,360 @@ async function revealMessage(row: MessageRecord, key: ContentKey): Promise<Messa
     received_at_source: meta.receivedAtSource,
     created_at: row.created_at,
   };
+}
+
+// ─── API Tokens ──────────────────────────────────────────────────────────────
+
+export async function insertApiToken(
+  db: D1Database,
+  token: {
+    id: string;
+    userId: string;
+    name: string;
+    tokenHash: string;
+    tokenPrefix: string;
+    permissions: string; // JSON
+    deviceScope: string; // JSON
+    expiresAt: number | null;
+    createdAt: number;
+  },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO api_tokens (id, user_id, name, token_hash, token_prefix, permissions, device_scope, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(token.id, token.userId, token.name, token.tokenHash, token.tokenPrefix, token.permissions, token.deviceScope, token.expiresAt, token.createdAt)
+    .run();
+}
+
+export async function findApiTokenByHash(db: D1Database, tokenHash: string): Promise<ApiTokenRecord | null> {
+  return db
+    .prepare(
+      `SELECT id, user_id, name, token_hash, token_prefix, permissions, device_scope, expires_at,
+              disabled_at, revoked_at, created_at, last_used_at
+       FROM api_tokens WHERE token_hash = ?`,
+    )
+    .bind(tokenHash)
+    .first<ApiTokenRecord>();
+}
+
+export async function listApiTokens(db: D1Database, userId: string): Promise<ApiTokenRecord[]> {
+  const result = await db
+    .prepare(
+      `SELECT id, user_id, name, token_hash, token_prefix, permissions, device_scope, expires_at,
+              disabled_at, revoked_at, created_at, last_used_at
+       FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC`,
+    )
+    .bind(userId)
+    .all<ApiTokenRecord>();
+  return result.results;
+}
+
+export async function updateApiTokenDisabled(db: D1Database, userId: string, tokenId: string, disabledAt: number | null): Promise<boolean> {
+  const result = await db
+    .prepare("UPDATE api_tokens SET disabled_at = ? WHERE id = ? AND user_id = ?")
+    .bind(disabledAt, tokenId, userId)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+export async function updateApiTokenRevoked(db: D1Database, userId: string, tokenId: string, revokedAt: number): Promise<boolean> {
+  const result = await db
+    .prepare("UPDATE api_tokens SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL")
+    .bind(revokedAt, tokenId, userId)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+export async function deleteApiToken(db: D1Database, userId: string, tokenId: string): Promise<boolean> {
+  const result = await db
+    .prepare("DELETE FROM api_tokens WHERE id = ? AND user_id = ?")
+    .bind(tokenId, userId)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+export async function touchApiTokenLastUsed(db: D1Database, tokenId: string, lastUsedAt: number): Promise<void> {
+  // We update last_used_at on every request. This causes one DB write per request
+  // but is acceptable for external API usage (not on the hot ingest path).
+  await db.prepare("UPDATE api_tokens SET last_used_at = ? WHERE id = ?").bind(lastUsedAt, tokenId).run();
+}
+
+// External API queries with device_scope filtering at SQL level.
+// device_scope: empty array = all devices allowed; non-empty = only those IDs.
+// When scopeDeviceIds is non-empty, SQL IN clause is built dynamically (D1 doesn't support array bindings).
+
+const EXT_MESSAGE_COLUMNS = `m.id, m.device_id, d.name AS device_name, m.from_number, m.to_number,
+              m.content, m.code, m.raw_payload, m.received_at, m.created_at, m.encrypted`;
+
+export async function listExtMessages(
+  db: D1Database,
+  query: {
+    userId: string;
+    scopeDeviceIds: string[]; // empty = all devices
+    deviceId: string | null;
+    from: string | null;
+    since: number | null;
+    until: number | null;
+    like: string | null;
+    text?: string | null;
+    limit: number;
+    offset: number;
+    contentKey: ContentKey;
+  },
+): Promise<{ total: number; messages: MessageView[] }> {
+  const where = ["d.user_id = ?"];
+  const binds: Array<string | number> = [query.userId];
+
+  // Device scope: restrict to authorized devices at SQL level
+  if (query.scopeDeviceIds.length > 0) {
+    const placeholders = query.scopeDeviceIds.map(() => "?").join(", ");
+    where.push(`m.device_id IN (${placeholders})`);
+    binds.push(...query.scopeDeviceIds);
+  }
+  if (query.deviceId) {
+    where.push("m.device_id = ?");
+    binds.push(query.deviceId);
+  }
+  if (query.from) {
+    where.push("m.from_number = ?");
+    binds.push(query.from);
+  }
+  if (query.since != null) {
+    where.push("m.received_at >= ?");
+    binds.push(query.since);
+  }
+  if (query.until != null) {
+    where.push("m.received_at <= ?");
+    binds.push(query.until);
+  }
+
+  const encryptedSearch = query.contentKey.state === "on" && Boolean(query.text);
+  if (encryptedSearch) {
+    const scanned = await db
+      .prepare(
+        `SELECT ${EXT_MESSAGE_COLUMNS}
+         FROM messages m
+         JOIN devices d ON d.id = m.device_id
+         WHERE ${where.join(" AND ")}
+         ORDER BY m.received_at DESC, m.created_at DESC
+         LIMIT ?`,
+      )
+      .bind(...binds, ENCRYPTED_SEARCH_LIMIT)
+      .all<MessageRecord>();
+    const revealed = await revealRows(scanned.results, query.contentKey);
+    const matched = revealed.filter((message) => messageMatchesQuery(message, query.text ?? ""));
+    return {
+      total: matched.length,
+      messages: matched.slice(query.offset, query.offset + query.limit),
+    };
+  }
+
+  if (query.like) {
+    where.push("(m.content LIKE ? ESCAPE ? OR m.from_number LIKE ? ESCAPE ? OR IFNULL(m.code, '') LIKE ? ESCAPE ?)");
+    binds.push(query.like, "\\", query.like, "\\", query.like, "\\");
+  }
+  const whereSql = where.join(" AND ");
+  const totalRow = await db
+    .prepare(`SELECT COUNT(*) AS total FROM messages m JOIN devices d ON d.id = m.device_id WHERE ${whereSql}`)
+    .bind(...binds)
+    .first<{ total: number }>();
+  const listed = await db
+    .prepare(
+      `SELECT ${EXT_MESSAGE_COLUMNS}
+       FROM messages m
+       JOIN devices d ON d.id = m.device_id
+       WHERE ${whereSql}
+       ORDER BY m.received_at DESC, m.created_at DESC
+       LIMIT ? OFFSET ?`,
+    )
+    .bind(...binds, query.limit, query.offset)
+    .all<MessageRecord>();
+  return {
+    total: totalRow?.total ?? 0,
+    messages: await revealRows(listed.results, query.contentKey),
+  };
+}
+
+export async function getExtMessage(
+  db: D1Database,
+  userId: string,
+  messageId: string,
+  scopeDeviceIds: string[], // empty = all devices
+  contentKey: ContentKey,
+): Promise<MessageView | null> {
+  const where = ["m.id = ?", "d.user_id = ?"];
+  const binds: Array<string | number> = [messageId, userId];
+  if (scopeDeviceIds.length > 0) {
+    const placeholders = scopeDeviceIds.map(() => "?").join(", ");
+    where.push(`m.device_id IN (${placeholders})`);
+    binds.push(...scopeDeviceIds);
+  }
+  const row = await db
+    .prepare(
+      `SELECT ${EXT_MESSAGE_COLUMNS}
+       FROM messages m
+       JOIN devices d ON d.id = m.device_id
+       WHERE ${where.join(" AND ")}`,
+    )
+    .bind(...binds)
+    .first<MessageRecord>();
+  return row ? revealMessage(row, contentKey) : null;
+}
+
+export async function getLatestExtOtp(
+  db: D1Database,
+  query: {
+    userId: string;
+    scopeDeviceIds: string[];
+    deviceId: string | null;
+    from: string | null;
+    since: number | null;
+    contentKey: ContentKey;
+  },
+): Promise<MessageView | null> {
+  const where = ["d.user_id = ?", "m.code IS NOT NULL", "m.code != ''"];
+  const binds: Array<string | number> = [query.userId];
+  if (query.scopeDeviceIds.length > 0) {
+    const placeholders = query.scopeDeviceIds.map(() => "?").join(", ");
+    where.push(`m.device_id IN (${placeholders})`);
+    binds.push(...query.scopeDeviceIds);
+  }
+  if (query.deviceId) {
+    where.push("m.device_id = ?");
+    binds.push(query.deviceId);
+  }
+  if (query.from) {
+    where.push("m.from_number = ?");
+    binds.push(query.from);
+  }
+  if (query.since != null) {
+    where.push("m.received_at >= ?");
+    binds.push(query.since);
+  }
+  const row = await db
+    .prepare(
+      `SELECT ${EXT_MESSAGE_COLUMNS}
+       FROM messages m
+       JOIN devices d ON d.id = m.device_id
+       WHERE ${where.join(" AND ")}
+       ORDER BY m.received_at DESC, m.created_at DESC
+       LIMIT 1`,
+    )
+    .bind(...binds)
+    .first<MessageRecord>();
+  return row ? revealMessage(row, query.contentKey) : null;
+}
+
+export async function listExtOtp(
+  db: D1Database,
+  query: {
+    userId: string;
+    scopeDeviceIds: string[];
+    deviceId: string | null;
+    from: string | null;
+    since: number | null;
+    until: number | null;
+    limit: number;
+    offset: number;
+    contentKey: ContentKey;
+  },
+): Promise<{ total: number; messages: MessageView[] }> {
+  const where = ["d.user_id = ?", "m.code IS NOT NULL", "m.code != ''"];
+  const binds: Array<string | number> = [query.userId];
+  if (query.scopeDeviceIds.length > 0) {
+    const placeholders = query.scopeDeviceIds.map(() => "?").join(", ");
+    where.push(`m.device_id IN (${placeholders})`);
+    binds.push(...query.scopeDeviceIds);
+  }
+  if (query.deviceId) {
+    where.push("m.device_id = ?");
+    binds.push(query.deviceId);
+  }
+  if (query.from) {
+    where.push("m.from_number = ?");
+    binds.push(query.from);
+  }
+  if (query.since != null) {
+    where.push("m.received_at >= ?");
+    binds.push(query.since);
+  }
+  if (query.until != null) {
+    where.push("m.received_at <= ?");
+    binds.push(query.until);
+  }
+  const whereSql = where.join(" AND ");
+  const totalRow = await db
+    .prepare(`SELECT COUNT(*) AS total FROM messages m JOIN devices d ON d.id = m.device_id WHERE ${whereSql}`)
+    .bind(...binds)
+    .first<{ total: number }>();
+  const listed = await db
+    .prepare(
+      `SELECT ${EXT_MESSAGE_COLUMNS}
+       FROM messages m
+       JOIN devices d ON d.id = m.device_id
+       WHERE ${whereSql}
+       ORDER BY m.received_at DESC, m.created_at DESC
+       LIMIT ? OFFSET ?`,
+    )
+    .bind(...binds, query.limit, query.offset)
+    .all<MessageRecord>();
+  return {
+    total: totalRow?.total ?? 0,
+    messages: await revealRows(listed.results, query.contentKey),
+  };
+}
+
+export async function listExtDevices(
+  db: D1Database,
+  userId: string,
+  scopeDeviceIds: string[], // empty = all devices
+): Promise<DeviceRecord[]> {
+  if (scopeDeviceIds.length > 0) {
+    const placeholders = scopeDeviceIds.map(() => "?").join(", ");
+    const result = await db
+      .prepare(
+        `SELECT id, user_id, name, platform, token_hash, secret, token_version, last_seen_at, created_at
+         FROM devices WHERE user_id = ? AND id IN (${placeholders})
+         ORDER BY created_at DESC`,
+      )
+      .bind(userId, ...scopeDeviceIds)
+      .all<DeviceRecord>();
+    return result.results;
+  }
+  const result = await db
+    .prepare(
+      `SELECT id, user_id, name, platform, token_hash, secret, token_version, last_seen_at, created_at
+       FROM devices WHERE user_id = ? ORDER BY created_at DESC`,
+    )
+    .bind(userId)
+    .all<DeviceRecord>();
+  return result.results;
+}
+
+export async function getExtDevice(
+  db: D1Database,
+  userId: string,
+  deviceId: string,
+  scopeDeviceIds: string[], // empty = all devices
+): Promise<DeviceRecord | null> {
+  if (scopeDeviceIds.length > 0 && !scopeDeviceIds.includes(deviceId)) {
+    return null;
+  }
+  return db
+    .prepare(
+      `SELECT id, user_id, name, platform, token_hash, secret, token_version, last_seen_at, created_at
+       FROM devices WHERE id = ? AND user_id = ?`,
+    )
+    .bind(deviceId, userId)
+    .first<DeviceRecord>();
+}
+
+export async function getLastMessageTimeForDevice(db: D1Database, deviceId: string): Promise<number | null> {
+  const row = await db
+    .prepare("SELECT MAX(received_at) AS last_at FROM messages WHERE device_id = ?")
+    .bind(deviceId)
+    .first<{ last_at: number | null }>();
+  return row?.last_at ?? null;
 }

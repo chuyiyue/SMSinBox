@@ -135,3 +135,32 @@ export interface NotifyChannelRow {
   enabled: number;
   created_at: number;
 }
+
+export interface ApiTokenRecord {
+  id: string;
+  user_id: string;
+  name: string;
+  token_hash: string;
+  token_prefix: string;
+  permissions: string; // JSON array string
+  device_scope: string; // JSON array string; empty array [] means all devices
+  expires_at: number | null;
+  disabled_at: number | null;
+  revoked_at: number | null;
+  created_at: number;
+  last_used_at: number | null;
+}
+
+export interface ApiTokenView {
+  id: string;
+  name: string;
+  token_prefix: string;
+  permissions: string[];
+  device_scope: string[]; // empty = all devices
+  expires_at: number | null;
+  disabled_at: number | null;
+  revoked_at: number | null;
+  created_at: number;
+  last_used_at: number | null;
+  status: "active" | "disabled" | "revoked" | "expired";
+}
