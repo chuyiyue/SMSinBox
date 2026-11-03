@@ -1,23 +1,63 @@
-// Paint the cached device list before the first frame. Keep STORAGE_KEY,
-// the 7-day stale window, and the button markup aligned with
+// Paint the cached device list and the primary nav before the first frame.
+// Keep STORAGE_KEY, the 7-day stale window, and the button markup aligned with
 // public/device-store.js, public/common.js, and renderSidebarDevices().
 // Device ids stay in data attributes only; they are never printed.
 //
-// Also installs the sidebar chrome (collapse toggle + sprite-backed nav icons)
-// before paint, so the icon rail never flashes.
+// The five primary nav entries are defined once in NAV_ITEMS and rendered here
+// for every page, so the HTML shells no longer carry duplicated sidebar links.
+// Keep NAV_ITEMS aligned with the route map in public/shell.js.
 (function () {
   var STORAGE_KEY = "smsinbox.shell";
   var SIDEBAR_KEY = "smsinbox-sidebar";
   var STALE_MS = 7 * 24 * 60 * 60 * 1000;
 
+  var NAV_ITEMS = [
+    { key: "inbox", title: "收件箱", href: "/", icon: "icon-inbox" },
+    { key: "devices", title: "设备列表", href: "/devices.html", icon: "icon-smartphone" },
+    { key: "notify", title: "推送渠道", href: "/notify.html", icon: "icon-bell" },
+    { key: "api-mcp", title: "API 与 MCP", href: "/api-mcp.html", icon: "icon-terminal" },
+    { key: "users", title: "系统管理", href: "/users.html", icon: "icon-settings" },
+  ];
+  window.SMSINBOX_NAV = NAV_ITEMS;
+
   initSidebarChrome();
   paintCachedDevices();
 
   function initSidebarChrome() {
+    renderNav();
     var collapsed = readCollapsed();
     injectCollapseButton();
     applySidebarState(collapsed, false);
-    injectNavIcons();
+  }
+
+  function renderNav() {
+    var nav = document.querySelector(".sidebar-nav");
+    if (!nav) return;
+    var active = canonicalPath(location.pathname);
+    nav.replaceChildren();
+    for (var index = 0; index < NAV_ITEMS.length; index += 1) {
+      var item = NAV_ITEMS[index];
+      var link = document.createElement("a");
+      link.href = item.href;
+      link.setAttribute("data-nav-key", item.key);
+      link.title = item.title;
+      if (item.href === active) {
+        link.classList.add("active");
+        link.setAttribute("aria-current", "page");
+      }
+      link.innerHTML =
+        '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#' +
+        item.icon +
+        '"/></svg><span class="nav-label">' +
+        item.title +
+        "</span>";
+      nav.append(link);
+    }
+  }
+
+  function canonicalPath(pathname) {
+    if (pathname === "/" || pathname === "/index.html") return "/";
+    return pathname;
   }
 
   function readCollapsed() {
@@ -63,36 +103,6 @@
       applySidebarState(!collapsed, true);
     });
     nav.after(button);
-  }
-
-  function injectNavIcons() {
-    var icons = {
-      "/": "icon-inbox",
-      "/devices.html": "icon-smartphone",
-      "/notify.html": "icon-bell",
-      "/api-mcp.html": "icon-terminal",
-      "/users.html": "icon-settings",
-    };
-    var links = document.querySelectorAll(".sidebar-nav a");
-    for (var index = 0; index < links.length; index += 1) {
-      var link = links[index];
-      var name = icons[link.getAttribute("href")];
-      if (!name) continue;
-      var existing = link.querySelector("svg.icon");
-      if (existing) existing.remove();
-      var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      svg.setAttribute("class", "icon");
-      svg.setAttribute("viewBox", "0 0 24 24");
-      svg.setAttribute("aria-hidden", "true");
-      var use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-      use.setAttribute("href", "/icons.svg#" + name);
-      svg.appendChild(use);
-      link.insertBefore(svg, link.firstChild);
-      var label = link.querySelector(".nav-label");
-      if (label && !link.hasAttribute("title")) {
-        link.setAttribute("title", label.textContent.trim());
-      }
-    }
   }
 
   function paintCachedDevices() {

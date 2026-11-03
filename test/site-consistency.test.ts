@@ -139,6 +139,24 @@ describe("site consistency", () => {
     }
   });
 
+  it("renders the primary nav from a single registry", () => {
+    const boot = readFileSync("public/sidebar-boot.js", "utf8");
+    expect(boot).toContain("var NAV_ITEMS = [");
+    for (const text of ['key: "inbox"', 'title: "收件箱"', 'title: "设备列表"', 'title: "推送渠道"', 'title: "API 与 MCP"', 'title: "系统管理"']) {
+      expect(boot).toContain(text);
+    }
+    for (const icon of ["icon-inbox", "icon-smartphone", "icon-bell", "icon-terminal", "icon-settings"]) {
+      expect(boot).toContain(icon);
+    }
+    expect(boot).toContain("window.SMSINBOX_NAV");
+    expect(boot).toContain("renderNav");
+    for (const file of pages) {
+      const nav = readFileSync(file, "utf8").match(/<nav class="sidebar-nav"[\s\S]*?<\/nav>/)?.[0] ?? "";
+      expect(nav).toContain("<noscript>");
+      expect(nav).toContain("</noscript>");
+    }
+  });
+
   it("renders the four-zone system page and drops the multi-user UI", () => {
     const html = readFileSync("public/users.html", "utf8");
     const js = readFileSync("public/users.js", "utf8");
