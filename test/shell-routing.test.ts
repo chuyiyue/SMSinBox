@@ -23,6 +23,18 @@ describe("shell routing", () => {
   });
 });
 
+// The docs examples keep a literal ${base} placeholder that renderApiDocs
+// substitutes at render time; they must stay plain strings, never template
+// literals (which would throw ReferenceError at module evaluation).
+describe("api-mcp docs examples", () => {
+  it("keeps the ${base} placeholder literal in plain strings", () => {
+    const code = readFileSync(join(process.cwd(), "public", "api-mcp.js"), "utf8");
+    expect(code).toContain('replace("${base}"');
+    expect(code).not.toContain("request: `");
+    expect(code).toContain('\\"${base}/health\\"');
+  });
+});
+
 // A page script that does not parse is a fully dead page (this is how the
 // API & MCP page died: unescaped quotes in its curl examples).
 describe("public scripts parse", () => {

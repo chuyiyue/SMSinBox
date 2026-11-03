@@ -83,7 +83,7 @@ const API_ENDPOINTS = [
     description: "验证 API 是否在线且当前 Token 有效。",
     permission: "无需额外权限；有效 Token 即可",
     params: [],
-    request: `curl -H "Authorization: Bearer <token>" "${base}/health"`,
+    request: "curl -H \"Authorization: Bearer <token>\" \"${base}/health\"",
     response: JSON.stringify({ ok: true, data: { status: "ok", version: "1.2.3", time: 1710000000000 } }, null, 2),
   },
   {
@@ -93,7 +93,7 @@ const API_ENDPOINTS = [
     description: "返回 Token 的名称、权限、设备范围和过期时间。",
     permission: "有效 Token",
     params: [],
-    request: `curl -H "Authorization: Bearer <token>" "${base}/me"`,
+    request: "curl -H \"Authorization: Bearer <token>\" \"${base}/me\"",
     response: JSON.stringify({ ok: true, data: { id: "<token-id>", name: "Cursor Agent", permissions: ["messages:read", "otp:read"], device_scope: [], expires_at: 1710000000000 } }, null, 2),
   },
   {
@@ -111,7 +111,7 @@ const API_ENDPOINTS = [
       { name: "until", required: false, meaning: "只返回收到时间 <= 此毫秒时间戳的短信" },
       { name: "q", required: false, meaning: "按正文、发件人或验证码关键字搜索" },
     ],
-    request: `curl -H "Authorization: Bearer <token>" "${base}/messages?limit=2&device_id=<device-id>&q=验证码"`,
+    request: "curl -H \"Authorization: Bearer <token>\" \"${base}/messages?limit=2&device_id=<device-id>&q=验证码\"",
     response: JSON.stringify({ ok: true, data: [{ id: "<message-id>", device_id: "<device-id>", device_name: "Device Alpha", from: "10086", from_number: "10086", to: "13800000000", to_number: "13800000000", content: "【中国移动】您的验证码是 889900，请勿泄露给他人。", code: "889900", received_at: 1710000000000, created_at: 1710000000000 }], page: { limit: 2, offset: 0, total: 1 } }, null, 2),
   },
   {
@@ -123,7 +123,7 @@ const API_ENDPOINTS = [
     params: [
       { name: "id", required: true, meaning: "短信 UUID，需与当前 Token 授权范围内的消息匹配" },
     ],
-    request: `curl -H "Authorization: Bearer <token>" "${base}/messages/<message-id>"`,
+    request: "curl -H \"Authorization: Bearer <token>\" \"${base}/messages/<message-id>\"",
     response: JSON.stringify({ ok: true, data: { id: "<message-id>", device_id: "<device-id>", device_name: "Device Alpha", from: "10086", from_number: "10086", to: "13800000000", to_number: "13800000000", content: "【中国移动】您的验证码是 889900，请勿泄露给他人。", code: "889900", received_at: 1710000000000, created_at: 1710000000000 } }, null, 2),
   },
   {
@@ -137,7 +137,7 @@ const API_ENDPOINTS = [
       { name: "from", required: false, meaning: "按发件人过滤" },
       { name: "since", required: false, meaning: "只返回收到时间 >= 此毫秒时间戳的验证码" },
     ],
-    request: `curl -H "Authorization: Bearer <token>" "${base}/otp/latest?device_id=<device-id>"`,
+    request: "curl -H \"Authorization: Bearer <token>\" \"${base}/otp/latest?device_id=<device-id>\"",
     response: JSON.stringify({ ok: true, data: { id: "<message-id>", code: "889900", from: "10086", content: "【中国移动】您的验证码是 889900，请勿泄露给他人。", device_id: "<device-id>", device_name: "Device Alpha", received_at: 1710000000000, code_source: "regex", code_status: "recognized" } }, null, 2),
   },
   {
@@ -154,7 +154,7 @@ const API_ENDPOINTS = [
       { name: "since", required: false, meaning: "起始时间戳，毫秒" },
       { name: "until", required: false, meaning: "结束时间戳，毫秒" },
     ],
-    request: `curl -H "Authorization: Bearer <token>" "${base}/otp/search?limit=20&since=1710000000000"`,
+    request: "curl -H \"Authorization: Bearer <token>\" \"${base}/otp/search?limit=20&since=1710000000000\"",
     response: JSON.stringify({ ok: true, data: [{ id: "<message-id>", code: "889900", from: "10086", content: "【中国移动】您的验证码是 889900，请勿泄露给他人。", device_id: "<device-id>", device_name: "Device Alpha", received_at: 1710000000000, code_source: "regex", code_status: "recognized" }], page: { limit: 20, offset: 0, total: 1 } }, null, 2),
   },
   {
@@ -164,7 +164,7 @@ const API_ENDPOINTS = [
     description: "返回当前 Token 授权范围内的设备列表与派生状态。",
     permission: "devices:read",
     params: [],
-    request: `curl -H "Authorization: Bearer <token>" "${base}/devices"`,
+    request: "curl -H \"Authorization: Bearer <token>\" \"${base}/devices\"",
     response: JSON.stringify({ ok: true, data: [{ id: "<device-id>", name: "Device Alpha", platform: "ios", created_at: 1700000000000, last_seen_at: 1710000000000, status: "online" }] }, null, 2),
   },
   {
@@ -176,7 +176,7 @@ const API_ENDPOINTS = [
     params: [
       { name: "id", required: true, meaning: "设备 UUID，需在当前 Token 授权范围内" },
     ],
-    request: `curl -H "Authorization: Bearer <token>" "${base}/devices/<device-id>/status"`,
+    request: "curl -H \"Authorization: Bearer <token>\" \"${base}/devices/<device-id>/status\"",
     response: JSON.stringify({ ok: true, data: { id: "<device-id>", name: "Device Alpha", platform: "ios", last_seen_at: 1710000000000, status: "online", last_message_at: 1710000000000 } }, null, 2),
   },
 ];
