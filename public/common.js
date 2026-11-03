@@ -371,15 +371,9 @@ function paintLabel(button, name) {
     icon.setAttribute("class", "icon");
     icon.setAttribute("viewBox", "0 0 24 24");
     icon.setAttribute("aria-hidden", "true");
-    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-    rect.setAttribute("x", "7");
-    rect.setAttribute("y", "2");
-    rect.setAttribute("width", "10");
-    rect.setAttribute("height", "20");
-    rect.setAttribute("rx", "2");
-    const dotPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    dotPath.setAttribute("d", "M11 18h2");
-    icon.append(rect, dotPath);
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", "/icons.svg#icon-smartphone");
+    icon.append(use);
     title = document.createElement("span");
     title.className = "device-name";
     const state = document.createElement("span");

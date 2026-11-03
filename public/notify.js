@@ -7,37 +7,37 @@ const KINDS = [
     kind: "telegram",
     label: "Telegram",
     hint: "Bot 与 Chat",
-    icon: '<path d="M21 4L3 11l6 2 2 6 3-4 5 4 2-15z"/>',
+    icon: '<use href="/icons.svg#icon-send"/>',
   },
   {
     kind: "wecom",
     label: "企业微信",
     hint: "群机器人",
-    icon: '<path d="M5 6h14v9H8l-3 3V6z"/>',
+    icon: '<use href="/icons.svg#icon-message-square"/>',
   },
   {
     kind: "bark",
     label: "Bark",
     hint: "iOS 通知",
-    icon: '<path d="M6 8a6 6 0 1 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+    icon: '<use href="/icons.svg#icon-bell"/>',
   },
   {
     kind: "email",
     label: "邮件",
     hint: "Webhook 或 SMTP",
-    icon: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/>',
+    icon: '<use href="/icons.svg#icon-mail"/>',
   },
   {
     kind: "feishu",
     label: "飞书",
     hint: "群机器人",
-    icon: '<path d="M4 6h16v10H9l-5 4V6z"/><path d="M8 10h8M8 13h5"/>',
+    icon: '<use href="/icons.svg#icon-message-square-text"/>',
   },
   {
     kind: "dingtalk",
     label: "钉钉",
     hint: "群机器人",
-    icon: '<path d="M4 5h16v11H8l-4 3V5z"/><path d="M8 9h8M8 12h6"/>',
+    icon: '<use href="/icons.svg#icon-message-square-text"/>',
   },
 ];
 

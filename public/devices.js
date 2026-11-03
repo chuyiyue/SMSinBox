@@ -670,9 +670,9 @@ function renderDevice(device, entry) {
   chevron.setAttribute("class", "icon");
   chevron.setAttribute("viewBox", "0 0 24 24");
   chevron.setAttribute("aria-hidden", "true");
-  const chevronPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  chevronPath.setAttribute("d", "M6 9l6 6 6-6");
-  chevron.append(chevronPath);
+  const chevronUse = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  chevronUse.setAttribute("href", "/icons.svg#icon-chevron-down");
+  chevron.append(chevronUse);
   toggle.append(toggleLabel, chevron);
   toggle.addEventListener("click", (event) => {
     event.stopPropagation();

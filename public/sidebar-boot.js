@@ -239,7 +239,7 @@
     var wrap = document.createElement("span");
     wrap.setAttribute("aria-hidden", "true");
     wrap.innerHTML =
-      '<svg class="icon" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>';
+      '<svg class="icon" viewBox="0 0 24 24"><use href="/icons.svg#icon-smartphone"/></svg>';
     return wrap.firstChild;
   }
 
