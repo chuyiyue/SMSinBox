@@ -631,7 +631,7 @@
 .setup-details > summary::marker { color: var(--text-3); }
 
 @media (max-width: 640px) {
-  .page { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+  .page { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
   .add-device-form button { width: 100%; }
   .api-facts { grid-template-columns: 1fr; }
   .device-head { align-items: flex-start; }

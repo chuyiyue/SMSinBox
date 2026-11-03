@@ -133,9 +133,10 @@ describe("site consistency", () => {
       const nav = html.match(/<nav class="sidebar-nav"[\s\S]*?<\/nav>/)?.[0] ?? "";
       expect(nav).toContain('<span class="nav-label">系统管理</span>');
       expect(nav).not.toContain('<span class="nav-label">用户</span>');
-      expect(html).toContain('<a id="users-tab" href="/users.html">系统管理</a>');
-      // Single administrator: no role gate hides the entry any more.
-      expect(html).not.toContain('<a id="users-tab" href="/users.html" hidden>');
+      // The admin entry now lives in the shared sidebar footer, not a mobile sheet.
+      expect(html).toContain('<a class="account-btn" href="/users.html"');
+      expect(html).toContain('aria-label="系统管理"');
+      expect(html).toContain('<span class="account-name btn-label" id="sidebar-account-name">管理员</span>');
     }
   });
 
