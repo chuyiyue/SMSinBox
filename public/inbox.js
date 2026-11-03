@@ -58,6 +58,7 @@ let endNote;
 let sentinel;
 let announcer;
 let clearButton;
+let filterToggle;
 let chips;
 let observer = null;
 let media = null;
@@ -82,6 +83,7 @@ function startView() {
   sentinel = document.querySelector("#list-sentinel");
   announcer = document.querySelector("#live-announcer");
   clearButton = document.querySelector("#clear-filters");
+  filterToggle = document.querySelector("#open-filters");
   chips = document.querySelector("#filter-chips");
   initShell({
     onLogout() {
@@ -108,6 +110,7 @@ function startView() {
     state.page = 1;
     loadMessages().catch(showError);
   });
+  filterToggle.addEventListener("click", openFilterSheet);
   document.querySelector("#search-note-close")?.addEventListener("click", () => {
     state.dismissedQuery = qInput.value.trim();
     searchNote.hidden = true;
@@ -116,6 +119,7 @@ function startView() {
     event.preventDefault();
     state.page = 1;
     loadMessages().catch(showError);
+    if (media.matches) closeDrawer();
   });
   deviceSelect.addEventListener("change", () => {
     state.page = 1;
@@ -499,7 +503,9 @@ function buildDetail(message) {
     full.textContent = "复制全文";
     full.addEventListener("click", async (event) => {
       event.stopPropagation();
-      await flashLabel(full, message.content || "", "复制全文");
+      const copied = await flashLabel(full, message.content || "", "复制全文");
+      if (copied) toast("短信全文已复制");
+      else toast("复制失败，请手动复制", { tone: "danger" });
     });
     actions.append(full);
     wrap.append(actions);
@@ -555,8 +561,27 @@ function codeChip(code, source) {
     event.stopPropagation();
     const copied = await flashLabel(value, code, code);
     if (copied) toast(`验证码 ${code} 已复制`);
+    else toast("复制失败，请手动复制", { tone: "danger" });
   });
   return chip;
+}
+
+function openFilterSheet() {
+  const parent = filters.parentElement;
+  const nextSibling = filters.nextSibling;
+  const body = document.createElement("div");
+  body.className = "inbox-filter-sheet";
+  body.append(filters);
+  filterToggle.setAttribute("aria-expanded", "true");
+  const drawer = openDrawer({
+    title: "筛选",
+    bodyHTML: body,
+    onClose() {
+      parent.insertBefore(filters, nextSibling);
+      filterToggle.setAttribute("aria-expanded", "false");
+    },
+  });
+  drawer.classList.add("ui-drawer--filters");
 }
 
 function codeSourceLabel(source) {

@@ -54,6 +54,7 @@
 .filter-search .q-count { right: 10px; }
 .filter-clear { flex: none; }
 .filter-summary { margin: 0 0 9px auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mobile-filter-toggle { display: none; }
 
 .new-pill {
   position: sticky;
@@ -427,8 +428,11 @@
 
 @media (max-width: 639px) {
   .filterbar { gap: var(--space-2); }
+  .filterbar > .filters { display: none; }
+  .mobile-filter-toggle { display: inline-flex; }
   .filters {
     display: grid;
+    width: 100%;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--space-2);
   }
@@ -436,6 +440,22 @@
   .filter-search { grid-column: 1 / -1; min-width: 0; }
   .filter-clear { grid-column: 1 / -1; justify-self: start; }
   .filter-summary { margin-top: var(--space-1); }
+  .ui-drawer--filters {
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .ui-drawer--filters .ui-drawer-panel {
+    width: 100%;
+    height: auto;
+    max-height: min(85dvh, 720px);
+    border: 0;
+    border-top: 1px solid var(--border);
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    animation-name: filter-sheet-in;
+  }
+  .ui-drawer--filters .ui-drawer-body {
+    padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom));
+  }
 
   .message-row-line {
     grid-template-columns: 36px minmax(0, 1fr);
@@ -445,6 +465,15 @@
       "avatar chip";
     gap: 2px var(--space-2);
     padding: var(--space-3);
+  }
+
+  @keyframes filter-sheet-in {
+    from { transform: translateY(24px); opacity: 0; }
+    to { transform: none; opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ui-drawer--filters .ui-drawer-panel { animation: none; }
   }
   .message-device { display: none; }
   .time-end { display: none; }
