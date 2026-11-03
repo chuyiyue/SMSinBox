@@ -185,10 +185,96 @@
 .session-row button { flex: none; }
 .session-empty { padding: 16px 4px; color: var(--text-3); font-size: var(--fs-sm); }
 
-.channel-card .masked { color: var(--text-2); font-family: var(--font-mono); font-size: var(--fs-sm); overflow-wrap: anywhere; }
-.channel-top { display: flex; gap: 12px; align-items: flex-start; }
-.channel-top .icon { color: var(--text-3); margin-top: 2px; }
-.channel-top .switch { margin-left: auto; flex: none; }
+/* Notify page: channel card grid and config dialog. */
+.channel-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.channel-card {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  padding: var(--space-5);
+}
+
+.channel-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.channel-icon {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.channel-icon .icon { width: 20px; height: 20px; }
+
+.channel-title {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.channel-name { font-size: var(--fs-md); font-weight: 600; overflow-wrap: anywhere; }
+
+.channel-hint { color: var(--text-3); font-size: var(--fs-xs); }
+
+.channel-card-head .ui-status { flex: none; }
+
+.channel-card .ui-status-dot[data-status="idle"] { background: var(--text-3); }
+
+.channel-mask {
+  margin: 0;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+.channel-test {
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+.channel-test-empty { color: var(--text-3); }
+
+.channel-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+}
+
+.channel-actions .switch { flex: none; }
+
+@media (min-width: 640px) {
+  .channel-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (min-width: 1080px) {
+  .channel-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
 .page-intro { margin-bottom: 16px; }
 .page-intro .lede { margin-bottom: 4px; }
 
