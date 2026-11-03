@@ -3,22 +3,17 @@
 // public/device-store.js, public/common.js, and renderSidebarDevices().
 // Device ids stay in data attributes only; they are never printed.
 //
-// The five primary nav entries are defined once in NAV_ITEMS and rendered here
-// for every page, so the HTML shells no longer carry duplicated sidebar links.
-// Keep NAV_ITEMS aligned with the route map in public/shell.js.
+// The primary nav entries come from the single module registry in
+// public/registry.js (loaded before this script on every page) and are
+// rendered here for every page, so the HTML shells carry no sidebar links.
+// The registry also feeds the route map in public/shell.js.
 (function () {
   var STORAGE_KEY = "smsinbox.shell";
   var SIDEBAR_KEY = "smsinbox-sidebar";
   var SIDEBAR_DEVICES_KEY = "smsinbox-sidebar-devices";
   var STALE_MS = 7 * 24 * 60 * 60 * 1000;
 
-  var NAV_ITEMS = [
-    { key: "inbox", title: "收件箱", href: "/", icon: "icon-inbox" },
-    { key: "devices", title: "设备列表", href: "/devices.html", icon: "icon-smartphone" },
-    { key: "notify", title: "推送渠道", href: "/notify.html", icon: "icon-bell" },
-    { key: "api-mcp", title: "API 与 MCP", href: "/api-mcp.html", icon: "icon-terminal" },
-    { key: "users", title: "系统管理", href: "/users.html", icon: "icon-settings" },
-  ];
+  var NAV_ITEMS = window.SMSINBOX_MODULES || [];
   window.SMSINBOX_NAV = NAV_ITEMS;
 
   initSidebarChrome();
