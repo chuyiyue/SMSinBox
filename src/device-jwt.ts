@@ -8,8 +8,8 @@
 // unusable immediately.
 //
 // Legacy devices created before this module keep their random Bearer token
-// (hashed in the same column) and optional per-device HMAC secret. That path
-// stays in src/routes/sms.ts for the migration window.
+// (hashed in the same column). That path stays in src/routes/sms.ts for the
+// migration window.
 
 import { base64UrlToBytes, bytesToBase64Url, equalBytes, sha256Hex } from "./auth";
 

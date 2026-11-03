@@ -59,7 +59,6 @@ export interface DeviceCardModel {
   push: "none" | "active" | "revoked";
   pushLabel: string;
   pushHint: string;
-  hmac: string;
   received: ReceiveTime;
   shortcut: string;
   actions: PushAction[];
@@ -71,7 +70,6 @@ export function describeDevice(
         id?: string | null;
         name?: string | null;
         push?: string | null;
-        has_secret?: boolean | null;
         last_seen_at?: number | null;
       }
     | null

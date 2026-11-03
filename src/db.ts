@@ -414,7 +414,7 @@ export function pushState(hash: string | null | undefined, revokedAt: number | n
 export async function findDeviceByTokenHash(db: D1Database, tokenHash: string): Promise<DeviceRecord | null> {
   return db
     .prepare(
-      `SELECT id, user_id, name, platform, token_hash, secret, token_version, last_seen_at, created_at
+      `SELECT id, user_id, name, platform, token_hash, token_version, last_seen_at, created_at
        FROM devices WHERE token_hash = ?`,
     )
     .bind(tokenHash)
@@ -424,7 +424,7 @@ export async function findDeviceByTokenHash(db: D1Database, tokenHash: string): 
 export async function findDeviceById(db: D1Database, deviceId: string): Promise<DeviceRecord | null> {
   return db
     .prepare(
-      `SELECT id, user_id, name, platform, token_hash, secret, token_version, last_seen_at, created_at,
+      `SELECT id, user_id, name, platform, token_hash, token_version, last_seen_at, created_at,
               push_token_hash, push_revoked_at
        FROM devices WHERE id = ?`,
     )
@@ -435,7 +435,7 @@ export async function findDeviceById(db: D1Database, deviceId: string): Promise<
 export async function findDeviceByPushTokenHash(db: D1Database, pushTokenHash: string): Promise<DeviceRecord | null> {
   return db
     .prepare(
-      `SELECT id, user_id, name, platform, token_hash, secret, token_version, last_seen_at, created_at,
+      `SELECT id, user_id, name, platform, token_hash, token_version, last_seen_at, created_at,
               push_token_hash, push_revoked_at
        FROM devices WHERE push_token_hash = ?`,
     )
@@ -582,7 +582,7 @@ export async function countDevices(db: D1Database, userId: string): Promise<numb
 export async function listDevices(db: D1Database, userId: string): Promise<DeviceView[]> {
   const result = await db
     .prepare(
-      `SELECT id, name, platform, created_at, last_seen_at, secret, push_token_hash, push_revoked_at
+      `SELECT id, name, platform, created_at, last_seen_at, push_token_hash, push_revoked_at
        FROM devices WHERE user_id = ?
        ORDER BY created_at DESC`,
     )
@@ -593,7 +593,6 @@ export async function listDevices(db: D1Database, userId: string): Promise<Devic
       platform: string | null;
       created_at: number;
       last_seen_at: number | null;
-      secret: string | null;
       push_token_hash: string | null;
       push_revoked_at: number | null;
     }>();
@@ -603,7 +602,6 @@ export async function listDevices(db: D1Database, userId: string): Promise<Devic
     platform: row.platform,
     created_at: row.created_at,
     last_seen_at: row.last_seen_at,
-    has_secret: Boolean(row.secret),
     push: pushState(row.push_token_hash, row.push_revoked_at),
   }));
 }
@@ -616,18 +614,19 @@ export async function insertDevice(
     name: string;
     platform?: string | null;
     tokenHash: string;
-    secret?: string | null;
     tokenVersion?: number;
     createdAt: number;
     pushTokenHash?: string | null;
   },
 ): Promise<void> {
+  // `devices.secret` is intentionally not written any more: per-device HMAC
+  // signing is gone, and the column is kept only for backward compatibility.
   await db
     .prepare(
       `INSERT INTO devices (
-         id, user_id, name, platform, token_hash, secret, token_version, last_seen_at, created_at,
+         id, user_id, name, platform, token_hash, token_version, last_seen_at, created_at,
          push_token_hash, push_revoked_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)`,
     )
     .bind(
       device.id,
@@ -635,7 +634,6 @@ export async function insertDevice(
       device.name,
       device.platform ?? "other",
       device.tokenHash,
-      device.secret ?? null,
       device.tokenVersion ?? 0,
       device.createdAt,
       device.pushTokenHash ?? null,
@@ -1321,7 +1319,7 @@ export async function listExtDevices(
     const placeholders = scopeDeviceIds.map(() => "?").join(", ");
     const result = await db
       .prepare(
-        `SELECT id, user_id, name, platform, token_hash, secret, token_version, last_seen_at, created_at
+        `SELECT id, user_id, name, platform, token_hash, token_version, last_seen_at, created_at
          FROM devices WHERE user_id = ? AND id IN (${placeholders})
          ORDER BY created_at DESC`,
       )
@@ -1331,7 +1329,7 @@ export async function listExtDevices(
   }
   const result = await db
     .prepare(
-      `SELECT id, user_id, name, platform, token_hash, secret, token_version, last_seen_at, created_at
+      `SELECT id, user_id, name, platform, token_hash, token_version, last_seen_at, created_at
        FROM devices WHERE user_id = ? ORDER BY created_at DESC`,
     )
     .bind(userId)
@@ -1350,7 +1348,7 @@ export async function getExtDevice(
   }
   return db
     .prepare(
-      `SELECT id, user_id, name, platform, token_hash, secret, token_version, last_seen_at, created_at
+      `SELECT id, user_id, name, platform, token_hash, token_version, last_seen_at, created_at
        FROM devices WHERE id = ? AND user_id = ?`,
     )
     .bind(deviceId, userId)

@@ -128,7 +128,6 @@ export function describeDevice(device, latest) {
     push,
     pushLabel: pushLabel(push),
     pushHint: pushLinkHint(push),
-    hmac: device?.has_secret ? "已启用 HMAC" : "未启用 HMAC",
     received,
     shortcut: shortcutConfigLine(platform, received),
     actions: pushActions(push),
