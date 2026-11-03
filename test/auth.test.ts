@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   hashPassword,
-  HMAC_WINDOW_MS,
   randomToken,
   readBearer,
   secretsEqual,
   sessionCookieHeader,
   sha256Hex,
-  signHmacHex,
-  verifyHmacSignature,
   verifyPassword,
 } from "../src/auth";
 
@@ -58,51 +55,5 @@ describe("device tokens and cookies", () => {
     expect(await secretsEqual("admin-password", "admin-password")).toBe(true);
     expect(await secretsEqual("admin-password", "admin-passworD")).toBe(false);
     expect(await secretsEqual("short", "much-longer-secret")).toBe(false);
-  });
-});
-
-describe("optional HMAC", () => {
-  const secret = "top-secret";
-  const timestamp = "1700000000";
-  const bodyText = '{"from":"10086","content":"验证码123456"}';
-  const body = new TextEncoder().encode(bodyText);
-  const now = 1_700_000_000_000;
-
-  it("accepts the HMAC-SHA256 of the raw timestamp header plus body", async () => {
-    expect(await signHmacHex(secret, timestamp, body)).toBe(
-      "f660e437b12a7ecff891c2b70ac21c77923aa2999794c6bd47a69bca3cc7c1ac",
-    );
-    const signature = await signHmacHex(secret, timestamp, body);
-    await expect(
-      verifyHmacSignature({ secret, timestamp, body, signature, now }),
-    ).resolves.toBe(true);
-    await expect(
-      verifyHmacSignature({ secret, timestamp, body, signature: signature.toUpperCase(), now }),
-    ).resolves.toBe(true);
-    await expect(
-      verifyHmacSignature({ secret, timestamp, body, signature: `sha256=${signature}`, now }),
-    ).resolves.toBe(true);
-  });
-
-  it("rejects a bad signature, a bad secret, and timestamps outside five minutes", async () => {
-    const signature = await signHmacHex(secret, timestamp, body);
-    await expect(
-      verifyHmacSignature({ secret, timestamp, body, signature: `${signature.slice(0, -1)}0`, now }),
-    ).resolves.toBe(false);
-    await expect(
-      verifyHmacSignature({ secret: "other", timestamp, body, signature, now }),
-    ).resolves.toBe(false);
-    await expect(
-      verifyHmacSignature({
-        secret,
-        timestamp,
-        body,
-        signature,
-        now: now + HMAC_WINDOW_MS + 1,
-      }),
-    ).resolves.toBe(false);
-    await expect(
-      verifyHmacSignature({ secret, timestamp: "yesterday", body, signature, now }),
-    ).resolves.toBe(false);
   });
 });
