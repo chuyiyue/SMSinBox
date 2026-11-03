@@ -13,7 +13,8 @@ body {
   color: var(--text);
   font-family: var(--font-sans);
   font-size: var(--fs-base);
-  line-height: 1.55;
+  line-height: var(--lh-normal);
+  -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
 }
 
@@ -22,9 +23,9 @@ body.drawer-open,
 body.modal-open { overflow: hidden; }
 
 h1, h2, h3, .brand-name, .empty-title, .auth-title {
-  font-family: var(--font-serif);
-  font-weight: 500;
-  line-height: 1.25;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  line-height: var(--lh-tight);
   letter-spacing: -0.01em;
 }
 
@@ -50,7 +51,8 @@ button, .button, a.button {
   text-decoration: none;
   cursor: pointer;
   touch-action: manipulation;
-  transition: background 120ms var(--ease), transform 120ms var(--ease), border-color 120ms var(--ease);
+  transition: background var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
 }
 
 button:hover, .button:hover, a.button:hover { background: var(--accent-button-hover); }
@@ -80,7 +82,7 @@ button.danger, .danger {
   border-color: transparent;
 }
 
-button.danger:hover { background: #8c2e20; }
+button.danger:hover { background: var(--danger-text); }
 
 button:disabled, .button:disabled {
   opacity: 0.5;
@@ -121,7 +123,11 @@ a { color: var(--accent-text); }
   stroke-linejoin: round;
 }
 
-code, .mono, .chip, pre {
+/* The bundled mark.svg is still terracotta; render it monochrome so the old
+   warm accent never leaks into the neutral shell. */
+.mark img { filter: grayscale(1); opacity: 0.9; }
+
+code, .mono, .chip, .code-chip, pre {
   font-family: var(--font-mono);
 }
 

@@ -274,7 +274,7 @@ dialog.modal::backdrop { background: var(--overlay); }
   padding: 24px;
 }
 
-.modal-card h2, .modal h2 { font-family: var(--font-serif); }
+.modal-card h2, .modal h2 { font-family: var(--font-sans); }
 
 .modal-actions, .actions {
   display: flex;
@@ -338,7 +338,7 @@ dialog.modal::backdrop { background: var(--overlay); }
 }
 
 .toast a { color: inherit; font-weight: 600; }
-.toast.is-danger { background: var(--danger); color: #fff; }
+.toast.is-danger { background: var(--danger); color: var(--on-danger); }
 .toast-close {
   min-height: 28px;
   padding: 0 8px;
@@ -366,8 +366,8 @@ dialog.modal::backdrop { background: var(--overlay); }
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #fff;
-  transition: transform 120ms var(--ease);
+  background: var(--switch-knob);
+  transition: transform var(--dur-fast) var(--ease);
 }
 
 .switch[aria-checked="true"] { background: var(--accent-button); }
@@ -488,6 +488,164 @@ kbd {
   background: var(--bg-sunken);
 }
 
+/* ---------------------------------------------------------------------------
+   Shared workbench components (Phase 1). Each one is used by at least the
+   inbox now; other pages adopt them in Phase 2.
+   ------------------------------------------------------------------------- */
+
+/* FilterBar */
+.filterbar,
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: end;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.filters { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: end; }
+.filters label { min-width: 140px; }
+
+/* CodeChip: tap to copy with an inline "copied" state. */
+.code-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+
+.code-chip:hover { background: var(--surface-hover); border-color: var(--border-strong); }
+.code-chip .icon { width: 13px; height: 13px; opacity: 0.55; }
+.code-chip.is-copied {
+  background: var(--success-soft);
+  border-color: transparent;
+  color: var(--success-text);
+}
+.code-chip.is-copied .icon { display: none; }
+
+/* StatusIndicator: a dot plus optional text. */
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+.status-indicator::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+
+.status-indicator[data-status="ok"] { color: var(--success-text); }
+.status-indicator[data-status="ok"]::before { background: var(--success); }
+.status-indicator[data-status="warn"] { color: var(--warning-text); }
+.status-indicator[data-status="warn"]::before { background: var(--warning); }
+.status-indicator[data-status="danger"] { color: var(--danger-text); }
+.status-indicator[data-status="danger"]::before { background: var(--danger); }
+.status-indicator[data-status="idle"] { color: var(--text-3); }
+.status-indicator[data-status="idle"]::before { background: var(--text-3); }
+
+/* EmptyState */
+.empty-state .icon,
+.empty-state-icon {
+  width: 32px;
+  height: 32px;
+  color: var(--text-3);
+  opacity: 0.7;
+}
+
+.empty-state .empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: center;
+  margin-top: var(--space-1);
+}
+
+/* DetailDrawer: right-hand panel with overlay, Esc and focus management. */
+.detail-drawer,
+.message-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-drawer);
+  display: flex;
+  justify-content: flex-end;
+  background: var(--overlay);
+}
+
+.detail-drawer-panel,
+.message-drawer-panel {
+  width: min(480px, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  color: var(--text);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-3);
+  animation: drawer-in var(--dur-base) var(--ease);
+}
+
+.detail-drawer-head,
+.message-drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.detail-drawer-head h2,
+.message-drawer-head .sender {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.detail-drawer-body,
+.message-drawer-panel > #drawer-body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-5);
+  overflow: auto;
+}
+
+.detail-drawer .drag-bar,
+.message-drawer .drag-bar { display: none; }
+
+/* ConfigDialog / ConfirmDialog sit on the shared modal primitive. */
+.config-dialog .modal-card { width: min(560px, 100%); }
+.confirm-dialog .modal-card { width: min(420px, 100%); }
+.config-dialog form { display: grid; gap: var(--space-3); }
+.config-dialog .modal-actions { margin-top: var(--space-5); }
+
+@keyframes drawer-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
 @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes breathe { 50% { opacity: 0.35; } }
@@ -512,12 +670,17 @@ kbd {
     bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom) + 12px);
     transform: translateX(-50%);
   }
-  button.chip { min-height: 36px; }
+  button.chip, .code-chip { min-height: 36px; }
   .segment { min-height: 44px; }
+  .detail-drawer-panel,
+  .message-drawer-panel { width: 100%; border-left: 0; }
+  .detail-drawer-body,
+  .message-drawer-panel > #drawer-body { padding: var(--space-4); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .skeleton { animation: none; }
   .message-row.is-fresh { animation: none; }
   .switch::after { transition: none; }
+  .detail-drawer-panel, .message-drawer-panel { animation: none; }
 }
