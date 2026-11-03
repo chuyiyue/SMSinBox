@@ -321,20 +321,42 @@ async function renderSidebarProfile() {
   paintSidebarProfile(user);
 }
 
-function paintSidebarProfile(user) {
+export function paintSidebarProfile(user) {
   const footer = document.querySelector(".sidebar-footer");
   if (!footer) return;
-  const name = (user && (user.username || user.name)) || "管理员";
+  const profileUsername =
+    user && typeof user.profile_username === "string" ? user.profile_username.trim() : "";
+  const name = profileUsername || (user && (user.username || user.name)) || "管理员";
   const avatar = footer.querySelector(".account-avatar");
   const label = footer.querySelector(".account-name");
   const accountBtn = footer.querySelector(".account-btn");
-  if (avatar) avatar.textContent = initialOf(name);
+  if (avatar) paintSidebarAvatar(avatar, name, profileUsername);
   if (label) label.textContent = name;
   const title = `${name} · 系统管理`;
   if (accountBtn) {
     accountBtn.title = title;
     accountBtn.setAttribute("aria-label", title);
   }
+}
+
+function paintSidebarAvatar(avatar, name, profileUsername) {
+  const initial = initialOf(name);
+  if (!profileUsername) {
+    avatar.textContent = initial;
+    return;
+  }
+  // The profile username is a GitHub handle; its avatar lives at a fixed URL.
+  const img = document.createElement("img");
+  img.alt = "";
+  img.src = `https://github.com/${encodeURIComponent(profileUsername)}.png?s=96`;
+  img.addEventListener(
+    "error",
+    () => {
+      avatar.textContent = initial;
+    },
+    { once: true },
+  );
+  avatar.replaceChildren(img);
 }
 
 function initialOf(name) {

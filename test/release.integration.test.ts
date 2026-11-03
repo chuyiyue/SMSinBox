@@ -551,6 +551,38 @@ describe("release journey", () => {
     expect(info).toMatchObject({ ok: true, version: pkg.version, runtime: "Cloudflare Workers + D1" });
   });
 
+  it("stores the display-only profile username in schema_meta and clears it again", async () => {
+    expect((await call("/api/v1/auth/profile", jsonInit({ username: "octocat" }))).status).toBe(401);
+    const initial = await expectStatus(await call("/api/v1/auth/me", {}, state.cookie), 200);
+    expect(initial.user).toMatchObject({ profile_username: "" });
+
+    const bad = await call("/api/v1/auth/profile", jsonInit({ username: "-octocat" }), state.cookie);
+    expect((await expectStatus(bad, 400)).error).toContain("连字符");
+
+    const saved = await expectStatus(
+      await call("/api/v1/auth/profile", jsonInit({ username: "octocat" }), state.cookie),
+      200,
+    );
+    expect(saved).toMatchObject({ ok: true, profile_username: "octocat" });
+    const row = await env.DB.prepare("SELECT value FROM schema_meta WHERE key = ?")
+      .bind("profile_username")
+      .first<{ value: string }>();
+    expect(row?.value).toBe("octocat");
+    const me = await expectStatus(await call("/api/v1/auth/me", {}, state.cookie), 200);
+    expect(me.user).toMatchObject({ username: ADMIN_USERNAME, profile_username: "octocat" });
+    expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
+
+    const cleared = await expectStatus(
+      await call("/api/v1/auth/profile", jsonInit({ username: "" }), state.cookie),
+      200,
+    );
+    expect(cleared).toMatchObject({ ok: true, profile_username: "" });
+    const gone = await env.DB.prepare("SELECT value FROM schema_meta WHERE key = ?")
+      .bind("profile_username")
+      .first<{ value: string }>();
+    expect(gone).toBeNull();
+  });
+
   it("returns a bearer and a push link once, then hides both", async () => {
     const created = await expectStatus(
       await call("/api/v1/devices", jsonInit({ name: "iPhone" }), state.cookie),
@@ -1062,15 +1094,6 @@ describe("admin account", () => {
     );
     expect((await expectStatus(sameSite, 403)).error).toBe("跨站请求被拒绝");
 
-    const tombstone = await call(
-      "/api/v1/auth/username",
-      jsonInit(
-        { current_password: ADMIN_PASSWORD, username: "owner" },
-        { origin: ORIGIN, "sec-fetch-site": "same-origin" },
-      ),
-      cookieA,
-    );
-    expect((await expectStatus(tombstone, 410)).error).toBe("用户名已移除，登录只需要密码");
     expect((await expectStatus(await call("/api/v1/auth/me", {}, cookieA), 200)).user).toMatchObject({
       username: ADMIN_USERNAME,
     });

@@ -186,7 +186,9 @@ iOS 27 及以上从导入的快捷指令展开触发器，打开自动化开关�
 
 没有公开注册，也不能创建第二个管理员。`POST /api/v1/users` 以及按 id 修改、删除用户仍然返回 410。
 
-登录只需要管理员密码，不再需要用户名。旧客户端继续发送 `username` 字段也能登录，该字段会被忽略；`POST /api/v1/auth/username` 返回 410「用户名已移除，登录只需要密码」。`ADMIN_USERNAME` 只作为旧库多行时挑选管理员的提示，不再参与登录校验。
+登录只需要管理员密码，不再需要用户名。旧客户端继续发送 `username` 字段也能登录，该字段会被忽略；旧的 `POST /api/v1/auth/username` 接口已经删除。`ADMIN_USERNAME` 只作为旧库多行时挑选管理员的提示，不再参与登录校验。
+
+系统管理页可以另设一个展示用的「用户名」（昵称）：它保存在 `schema_meta` 的 `profile_username` 里，只用来显示账号名并按 `https://github.com/<用户名>.png` 取 GitHub 头像渲染侧栏头像，不参与登录。通过 `POST /api/v1/auth/profile` 保存（空字符串清除），`GET /api/v1/auth/me` 会带回 `profile_username`。
 
 ```http
 POST /api/v1/auth/login

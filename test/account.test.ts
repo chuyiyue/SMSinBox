@@ -59,6 +59,9 @@ function makeDb(options?: { users?: UserRow[]; sessions?: SessionRow[]; rates?: 
     { id: EXPIRED_SESSION, user_id: ADMIN_ID, expires_at: now - 1_000, created_at: now - 30_000 },
   ];
   const rates = options?.rates ?? [];
+  // Seeded with the single-user merge marker so logins keep short-circuiting
+  // the merge exactly like the old "any schema_meta read returns 1" stub did.
+  const meta = new Map<string, string>([["single_user_merged_at", "1"]]);
   const calls: Array<{ sql: string; args: unknown[] }> = [];
 
   function remember(sql: string, args: unknown[]) {
@@ -76,7 +79,10 @@ function makeDb(options?: { users?: UserRow[]; sessions?: SessionRow[]; rates?: 
         },
         async first() {
           remember(sql, args);
-          if (sql.includes("schema_meta")) return { value: "1" };
+          if (sql.includes("FROM schema_meta")) {
+            const value = meta.get(String(args[0]));
+            return value === undefined ? null : { value };
+          }
           if (sql.includes("SELECT count FROM rate_limits")) {
             const row = rates.find((item) => item.token_hash === args[0] && item.window_start === args[1]);
             return row ? { count: row.count } : null;
@@ -196,6 +202,11 @@ function makeDb(options?: { users?: UserRow[]; sessions?: SessionRow[]; rates?: 
               created_at: Number(args[4]),
             });
             changes = 1;
+          } else if (sql.startsWith("INSERT INTO schema_meta")) {
+            meta.set(String(args[0]), String(args[1]));
+            changes = 1;
+          } else if (sql.startsWith("DELETE FROM schema_meta")) {
+            changes = meta.delete(String(args[0])) ? 1 : 0;
           } else {
             throw new Error(`unhandled run: ${sql}`);
           }
@@ -210,7 +221,7 @@ function makeDb(options?: { users?: UserRow[]; sessions?: SessionRow[]; rates?: 
       }
     },
   };
-  return { db: db as unknown as D1Database, calls, users, sessions, rates };
+  return { db: db as unknown as D1Database, calls, users, sessions, rates, meta };
 }
 
 function envFor(db: D1Database): Env {
@@ -245,16 +256,79 @@ function loginRequest(username: string, password: string, headers?: Record<strin
 }
 
 describe("admin account", () => {
-  it("keeps the username endpoint as a tombstone", async () => {
+  it("no longer serves the legacy username endpoint", async () => {
     const script = makeDb();
     for (const body of [{}, { username: "owner" }, { current_password: PASSWORD, username: "owner" }]) {
       const response = await handleApi(authed("/api/v1/auth/username", "POST", body), envFor(script.db));
-      expect(response.status).toBe(410);
-      expect(await response.json()).toMatchObject({ error: "用户名已移除，登录只需要密码" });
+      expect(response.status).toBe(404);
     }
     expect(script.users[0]?.username).toBe("root");
     expect(script.calls.some((call) => call.sql.startsWith("UPDATE users SET username"))).toBe(false);
     expect(script.calls.some((call) => call.sql.includes("INSERT INTO users"))).toBe(false);
+  });
+
+  it("round-trips the profile username through schema_meta and me", async () => {
+    const script = makeDb();
+    const before = await handleApi(authed("/api/v1/auth/me"), envFor(script.db));
+    expect(before.status).toBe(200);
+    expect(await before.json()).toMatchObject({ user: { profile_username: "" } });
+
+    const saved = await handleApi(
+      authed("/api/v1/auth/profile", "POST", { username: "octocat" }),
+      envFor(script.db),
+    );
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ ok: true, profile_username: "octocat" });
+    expect(script.meta.get("profile_username")).toBe("octocat");
+    // The nickname never touches the login username on the users row.
+    expect(script.users[0]?.username).toBe("root");
+    expect(script.calls.some((call) => call.sql.startsWith("UPDATE users SET username"))).toBe(false);
+
+    const after = await handleApi(authed("/api/v1/auth/me"), envFor(script.db));
+    expect(await after.json()).toMatchObject({ user: { profile_username: "octocat" } });
+
+    const single = await handleApi(
+      authed("/api/v1/auth/profile", "POST", { username: "a" }),
+      envFor(script.db),
+    );
+    expect(single.status).toBe(200);
+    expect(script.meta.get("profile_username")).toBe("a");
+
+    const cleared = await handleApi(
+      authed("/api/v1/auth/profile", "POST", { username: "" }),
+      envFor(script.db),
+    );
+    expect(cleared.status).toBe(200);
+    expect(await cleared.json()).toMatchObject({ ok: true, profile_username: "" });
+    expect(script.meta.has("profile_username")).toBe(false);
+    const clearedMe = await handleApi(authed("/api/v1/auth/me"), envFor(script.db));
+    expect(await clearedMe.json()).toMatchObject({ user: { profile_username: "" } });
+  });
+
+  it("rejects invalid profile usernames and requires a session to set one", async () => {
+    const script = makeDb();
+    for (const username of ["-octocat", "octocat-", "octo cat", "octo_cat", "a".repeat(40), "用户名"]) {
+      const response = await handleApi(
+        authed("/api/v1/auth/profile", "POST", { username }),
+        envFor(script.db),
+      );
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        error: "用户名需为 1 到 39 位字母、数字或连字符，且不能以连字符开头或结尾",
+      });
+    }
+    expect(script.meta.has("profile_username")).toBe(false);
+
+    const anonymous = await handleApi(
+      new Request("https://sms.example/api/v1/auth/profile", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username: "octocat" }),
+      }),
+      envFor(script.db),
+    );
+    expect(anonymous.status).toBe(401);
+    expect(script.meta.has("profile_username")).toBe(false);
   });
 
   it("logs in with the password only and ignores a legacy username field", async () => {
