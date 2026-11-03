@@ -64,7 +64,7 @@
   function markAccountEntry() {
     var button = document.querySelector(".account-btn");
     if (!button) return;
-    var on = canonicalPath(location.pathname) === "/users.html";
+    var on = canonicalPath(location.pathname) === "/users";
     button.classList.toggle("active", on);
     if (on) {
       button.setAttribute("aria-current", "page");
@@ -74,8 +74,8 @@
   }
 
   function canonicalPath(pathname) {
-    if (pathname === "/" || pathname === "/index.html") return "/";
-    return pathname;
+    if (pathname === "/" || pathname === "/index.html" || pathname === "/index") return "/";
+    return pathname.endsWith(".html") ? pathname.slice(0, -".html".length) : pathname;
   }
 
   function readCollapsed() {
