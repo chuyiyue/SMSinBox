@@ -3,11 +3,13 @@ import {
   absoluteTime,
   api,
   closeDrawer,
+  errorState,
   flashLabel,
   formatTime,
   initShell,
   isUnauthorized,
   loadNav,
+  loadingState,
   logout,
   openDrawer,
   openMenu,
@@ -911,36 +913,24 @@ async function runPush(device, action) {
 }
 
 function showSkeletons() {
-  devices.replaceChildren();
-  for (let index = 0; index < 3; index += 1) {
-    const card = document.createElement("div");
-    card.className = "device skeleton";
-    card.setAttribute("aria-hidden", "true");
-    devices.append(card);
-  }
+  devices.replaceChildren(loadingState({ count: 3, className: "device skeleton", ariaHidden: true }));
 }
 
 function showLoadError(message) {
   const keep = Boolean(devices.querySelector(".device:not(.skeleton)"));
   setError(keep ? message : "");
   if (keep) return;
-  devices.replaceChildren();
-  const wrap = document.createElement("div");
-  wrap.className = "empty-state";
-  const text = document.createElement("p");
-  text.textContent = message;
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "secondary";
-  button.textContent = "重试";
-  button.addEventListener("click", () => {
-    loadDevices().catch((error) => {
-      if (isUnauthorized(error)) return;
-      setError("加载设备失败");
-    });
-  });
-  wrap.append(text, button);
-  devices.append(wrap);
+  devices.replaceChildren(
+    errorState({
+      message,
+      onRetry: () => {
+        loadDevices().catch((error) => {
+          if (isUnauthorized(error)) return;
+          setError("加载设备失败");
+        });
+      },
+    }),
+  );
 }
 
 // The sidebar's device contract is /devices.html#dev-<id>.

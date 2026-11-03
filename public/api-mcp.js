@@ -4,6 +4,7 @@ import {
   formatTime,
   initShell,
   openModal,
+  showNotice,
   toast,
 } from "./common.js";
 import { ensureDevices, getDevices } from "./device-store.js";
@@ -759,9 +760,7 @@ async function deleteToken(token) {
 }
 
 function showError(msg) {
-  if (!pageErrorEl) return;
-  pageErrorEl.textContent = msg;
-  pageErrorEl.hidden = !msg;
+  showNotice(pageErrorEl, msg);
 }
 
 function escapeHtml(str) {

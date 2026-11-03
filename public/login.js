@@ -1,4 +1,4 @@
-import { api, safeNext } from "./common.js";
+import { api, safeNext, showNotice } from "./common.js";
 import { takeFlash } from "./ui.js";
 
 const form = document.querySelector("#login-form");
@@ -182,8 +182,7 @@ function waitText(seconds) {
 }
 
 function showError(message) {
-  error.textContent = message;
-  error.hidden = false;
+  showNotice(error, message);
 }
 
 function hideError() {
@@ -193,8 +192,7 @@ function hideError() {
 }
 
 function showTotpError(message) {
-  totpError.textContent = message;
-  totpError.hidden = false;
+  showNotice(totpError, message);
 }
 
 function setBusy(busy) {
