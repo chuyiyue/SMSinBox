@@ -856,6 +856,7 @@ export async function listMessages(
     userId: string;
     deviceId: string | null;
     from: string | null;
+    since: number | null;
     like: string | null;
     text: string | null;
     limit: number;
@@ -872,6 +873,10 @@ export async function listMessages(
   if (query.from) {
     where.push("m.from_number = ?");
     binds.push(query.from);
+  }
+  if (query.since != null) {
+    where.push("m.received_at >= ?");
+    binds.push(query.since);
   }
   // Ciphertext cannot be matched with SQL LIKE. Scan a bounded recent window and filter after decrypt.
   if (query.contentKey.state === "on" && query.text) {

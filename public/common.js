@@ -497,7 +497,7 @@ function appendLinked(parent, text) {
 
 let drawerState = null;
 
-export function openDrawer({ title = "", bodyHTML = "" } = {}) {
+export function openDrawer({ title = "", bodyHTML = "", onClose = null } = {}) {
   closeDrawer();
   const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const root = document.createElement("div");
@@ -545,19 +545,20 @@ export function openDrawer({ title = "", bodyHTML = "" } = {}) {
     closeDrawer();
   };
   document.addEventListener("keydown", onKey, true);
-  drawerState = { root, trigger, onKey };
+  drawerState = { root, trigger, onKey, onClose };
   (panel.querySelector("button, input, select, textarea, a[href]") || close).focus();
   return root;
 }
 
 export function closeDrawer() {
   if (!drawerState) return;
-  const { root, trigger, onKey } = drawerState;
+  const { root, trigger, onKey, onClose } = drawerState;
   drawerState = null;
   document.removeEventListener("keydown", onKey, true);
   root.remove();
   document.body.classList.remove("drawer-open");
   if (trigger?.isConnected) trigger.focus();
+  onClose?.();
 }
 
 function codeSourceLabel(source) {
@@ -579,7 +580,9 @@ export function CodeChip(code, source) {
   copy.textContent = "复制";
   copy.addEventListener("click", async (event) => {
     event.stopPropagation();
-    await flashLabel(copy, value, "复制");
+    const copied = await flashLabel(copy, value, "复制");
+    if (copied) toast(`验证码 ${value} 已复制`);
+    else toast("复制失败，请手动复制", { tone: "danger" });
   });
   box.append(chip, copy);
   const label = codeSourceLabel(source);
