@@ -71,10 +71,6 @@
           </p>
 
           <div class="settings">
-            <div class="settings-mobile-header" hidden>
-              <button id="settings-back" class="ghost" type="button" aria-label="返回设置列表">返回</button>
-              <h2>设置</h2>
-            </div>
             <nav class="settings-nav" aria-label="系统管理设置">
               <a href="#account-panel">
                 <span class="setting-item-meta">
@@ -107,6 +103,18 @@
                 <h2 id="account-title">管理员账号</h2>
                 <p id="account-error" class="callout danger" hidden></p>
                 <p id="account-status" class="callout ok" hidden></p>
+
+                <form id="profile-form" class="stack" novalidate>
+                  <h3>用户名</h3>
+                  <label>GitHub 用户名
+                    <input id="profile-username" name="username" type="text" maxlength="39" autocomplete="off" autocapitalize="none" spellcheck="false" />
+                  </label>
+                  <p class="subtle">仅用于显示与 GitHub 头像，不用于登录。</p>
+                  <p id="profile-error" class="field-error" hidden></p>
+                  <div class="actions">
+                    <button id="profile-submit" type="submit">保存用户名</button>
+                  </div>
+                </form>
 
                 <form id="password-form" class="stack" novalidate>
                   <h3>改密码</h3>

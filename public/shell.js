@@ -14,7 +14,7 @@ import { closeMenu } from "./ui.js";
 // public/registry.js (imported above and also loaded before sidebar-boot.js
 // on every page): href -> the view script the shell lazy-loads for it.
 const VIEWS = Object.fromEntries(
-  (globalThis.SMSINBOX_MODULES || []).map((item) => [item.href, item.script]),
+  (globalThis.SMSINBOX_MODULES || []).map((item) => [canonicalPath(item.href), item.script]),
 );
 
 // Exported so tests can assert the generated route map without a DOM.
@@ -31,8 +31,10 @@ let cleanupView = null;
 let lastKey = "";
 
 export function canonicalPath(pathname) {
-  if (pathname === "/" || pathname === "/index.html") return "/";
-  return pathname;
+  if (pathname === "/" || pathname === "/index.html" || pathname === "/index") return "/";
+  // The asset server redirects /x.html to /x (html_handling), so views must
+  // be keyed by the extensionless path or a full page load never matches.
+  return pathname.endsWith(".html") ? pathname.slice(0, -".html".length) : pathname;
 }
 
 export function registerView(path, start) {
@@ -240,5 +242,14 @@ function markActiveNav(path) {
     link.classList.toggle("active", on);
     if (on) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
+  }
+  // System management is not a nav entry; its entry point is the sidebar
+  // account button, which carries the current-page state instead.
+  const account = document.querySelector(".account-btn");
+  if (account) {
+    const on = path === "/users.html";
+    account.classList.toggle("active", on);
+    if (on) account.setAttribute("aria-current", "page");
+    else account.removeAttribute("aria-current");
   }
 }

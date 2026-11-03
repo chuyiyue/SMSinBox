@@ -94,21 +94,28 @@ describe("site consistency", () => {
   it("keeps the inbox filter bar, code chips and empty state on shared components", () => {
     const html = readFileSync("public/index.html", "utf8");
     const inbox = readFileSync("public/inbox.js", "utf8");
+    const common = readFileSync("public/common.js", "utf8");
     const css = readFileSync("public/css/pages.css", "utf8");
 
-    // The device, number and search controls live in one FilterBar.
+    // The device and number controls live in one filter form; the search box
+    // sits in the FilterBar beside the icon-only filter toggle and stays
+    // bound to that form, so it remains visible when the form is sheeted.
     expect(html).toContain('class="filterbar"');
-    expect(html).toMatch(/<form id="filters" class="filters"[\s\S]*name="device_id"[\s\S]*name="from"[\s\S]*name="q"[\s\S]*<\/form>/);
+    expect(html).toMatch(/<form id="filters" class="filters"[\s\S]*name="device_id"[\s\S]*name="from"[\s\S]*<\/form>/);
+    expect(html).toMatch(/id="open-filters"[^>]*aria-label="筛选"[\s\S]*?icons\.svg#icon-filter[\s\S]*?name="q" form="filters"/);
 
     // First-run and filtered-empty views use the shared EmptyState helper.
     expect(inbox).toContain("emptyState({");
     expect(inbox).not.toContain("function emptyState(");
 
-    // Rows and the drawer share CodeChip's monospace value and source badge.
+    // Rows and the drawer share CodeChip's monospace value; the recognition
+    // source is never labelled on a message.
     expect(inbox).toContain("CodeChip(message.code");
-    expect(inbox).toContain("ui-codechip-source");
-    expect(inbox).toContain('"正则识别"');
-    expect(inbox).toContain('"AI 识别"');
+    expect(inbox).not.toContain("ui-codechip-source");
+    expect(inbox).not.toContain('"正则识别"');
+    expect(inbox).not.toContain('"AI 识别"');
+    expect(common).not.toContain("ui-codechip-source");
+    expect(common).not.toContain("codeSourceLabel");
     expect(css).toContain(".message-codechip");
 
     // Live arrivals may update the list but must not rebuild an open drawer.
@@ -140,17 +147,21 @@ describe("site consistency", () => {
     expect(common).toContain('"/devices.html"');
     expect(common).toContain("还没有设备。");
     expect(common).not.toContain("sidebar-empty-add");
-    expect(shellCss).toContain(".sidebar-add-row");
-    expect(readFileSync("public/sidebar-boot.js", "utf8")).toContain("relocateAddDeviceLink");
+    expect(common).not.toContain('key: "all"');
+    expect(shellCss).not.toContain(".sidebar-add-row");
+    expect(readFileSync("public/sidebar-boot.js", "utf8")).not.toContain("relocateAddDeviceLink");
     expect(css).toMatch(/\.sidebar \.device-list \{[\s\S]*?max-height:[^;]+;[\s\S]*?overflow-y: auto;/);
     expect(css).toMatch(/\.sidebar \.sidebar-devices \{[\s\S]*?border-top:/);
   });
 
-  it("places the collapse control beside the brand and keeps the add link aligned", () => {
+  it("places the collapse control beside the brand and keeps the device header controls aligned", () => {
     const boot = readFileSync("public/sidebar-boot.js", "utf8");
     const css = readFileSync("public/css/shell.css", "utf8");
     expect(boot).toContain('row.className = "sidebar-brand-row"');
-    expect(boot).toContain('row.className = "sidebar-add-row"');
+    expect(css).toMatch(/\.sidebar-label-row \{[\s\S]*?margin: 0 12px 6px;/);
+    expect(css).toMatch(/\.sidebar-section-toggle \{[\s\S]*?flex: 1 1 50%;/);
+    expect(css).toMatch(/\.sidebar-add \{[\s\S]*?flex: 1 1 50%;[\s\S]*?justify-content: center;/);
+    expect(css).toMatch(/\.sidebar \.device-link \{[\s\S]*?padding: 6px 12px;/);
     expect(boot).toContain('button.setAttribute("aria-expanded", collapsed ? "false" : "true")');
     expect(css).toContain(":root[data-sidebar=\"collapsed\"] .sidebar-brand-row");
     expect(css).toContain(".sidebar-collapse { display: none; }");
@@ -170,6 +181,15 @@ describe("site consistency", () => {
     }
   });
 
+  it("drives the sidebar avatar from the profile username's GitHub avatar", () => {
+    const common = readFileSync("public/common.js", "utf8");
+    expect(common).toContain("profile_username");
+    expect(common).toContain("https://github.com/${encodeURIComponent(profileUsername)}.png?s=96");
+    const css = readFileSync("public/css/shell.css", "utf8");
+    expect(css).toContain(".account-avatar img");
+    expect(css).toContain("object-fit: cover");
+  });
+
   it("renders the primary nav from a single registry", () => {
     const registry = readFileSync("public/registry.js", "utf8");
     expect(registry).toContain("window.SMSINBOX_MODULES");
@@ -184,6 +204,12 @@ describe("site consistency", () => {
     }
     expect(registryHrefs(registry)).toEqual(["/", "/devices.html", "/notify.html", "/api-mcp.html", "/users.html"]);
 
+    // All five modules stay registered for routing, but system management is
+    // the one module kept out of the nav: it is entered via the account
+    // button in the sidebar footer instead.
+    expect(registry).toMatch(/key: "users"[^}]*nav: false/);
+    expect(registry.match(/, nav: false \}/g)).toHaveLength(1);
+
     // The boot renders the nav from the registry instead of its own list.
     const boot = readFileSync("public/sidebar-boot.js", "utf8");
     expect(boot).toContain("window.SMSINBOX_MODULES");
@@ -191,12 +217,23 @@ describe("site consistency", () => {
     expect(boot).not.toContain('key: "inbox"');
     expect(boot).toContain("window.SMSINBOX_NAV");
     expect(boot).toContain("renderNav");
+    // The nav (and SMSINBOX_NAV) only takes modules shown in the nav.
+    expect(boot).toContain("item.nav !== false");
+
+    // The account button carries the current-page state on /users.html,
+    // marked at boot and re-marked by the shell on in-app navigation.
+    expect(boot).toContain("markAccountEntry");
+    const shellCss = readFileSync("public/css/shell.css", "utf8");
+    expect(shellCss).toContain(".account-btn.active");
 
     // The shell generates its route map from the registry, not a literal map.
     const shell = readFileSync("public/shell.js", "utf8");
     expect(shell).toContain("SMSINBOX_MODULES");
     expect(shell).not.toContain('"/devices.html": "/devices.js"');
     expect(shell).not.toContain('"/users.html": "/users.js"');
+    // ...and re-marks the account button as the current entry on /users.html.
+    expect(shell).toContain('document.querySelector(".account-btn")');
+    expect(shell).toContain('path === "/users.html"');
 
     // No page hardcodes nav links or a noscript fallback any more.
     for (const file of pages) {
@@ -236,9 +273,12 @@ describe("site consistency", () => {
     }
     expect(html).toContain("<title>系统管理 · SMSinBox</title>");
     expect(html).toContain('<h1 class="topbar-title">系统管理</h1>');
-    // Merged UI/UX v2: there is no username to change, so no username form.
+    // The only username surface is the display-only profile nickname form;
+    // there is still no form that changes a login username.
     expect(html).not.toContain('id="username-form"');
-    expect(html).not.toContain('name="username"');
+    expect(html).toContain('id="profile-form"');
+    expect(html).toContain('id="profile-username"');
+    expect(html).toContain("仅用于显示与 GitHub 头像，不用于登录");
     expect(html).toContain('id="password-form"');
     expect(html).toContain('name="current_password"');
     expect(html).toContain('id="session-list"');
@@ -251,12 +291,24 @@ describe("site consistency", () => {
     }
     expect(js).not.toContain("/api/v1/users");
     expect(js).not.toContain("/api/v1/auth/username");
+    expect(js).toContain("/api/v1/auth/profile");
     expect(js).toContain("/api/v1/auth/password");
     expect(js).toContain("current_password");
     expect(js).toContain("/api/v1/auth/sessions");
     expect(js).toContain("/api/v1/auth/sessions/revoke-others");
     expect(js).toContain("initTotpSettings");
     expect(js).toContain("if (!result.response.ok)");
+
+    // Mobile shows all four sections expanded in one scroll: there is no
+    // list-to-detail folding, no back header, and no section is CSS-hidden.
+    expect(html).not.toContain("settings-mobile-header");
+    expect(html).not.toContain('id="settings-back"');
+    expect(js).not.toContain("initMobileSettingsNav");
+    expect(js).not.toContain("mobileSection");
+    const css = readFileSync("public/css/pages.css", "utf8");
+    expect(css).toContain(".settings-nav { display: none; }");
+    expect(css).not.toContain(".settings-section.is-visible");
+    expect(css).not.toMatch(/\.settings-section\s*\{[^}]*display:\s*none/);
   });
 
   it("loads the displayed version from package.json instead of hardcoding it", () => {

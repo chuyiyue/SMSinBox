@@ -121,7 +121,6 @@
   padding-right: 0;
 }
 :root[data-sidebar="collapsed"] .sidebar-devices { display: none; }
-:root[data-sidebar="collapsed"] .sidebar-add-row { display: none; }
 
 .sidebar-devices {
   margin-top: auto;
@@ -135,17 +134,17 @@
 .sidebar-label-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 0 4px 6px 8px;
+  margin: 0 12px 6px;
 }
 
 .sidebar-section-toggle {
   display: inline-flex;
+  flex: 1 1 50%;
   align-items: center;
   gap: 4px;
-  padding: 2px 4px;
-  margin: -2px -4px;
+  min-width: 0;
+  height: 30px;
+  padding: 2px 12px;
   background: transparent;
   border: 0;
   border-radius: var(--r-sm);
@@ -184,9 +183,15 @@
 }
 
 .sidebar-add {
-  width: 30px;
-  min-width: 30px;
+  display: flex;
+  flex: 1 1 50%;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  min-width: 0;
+  height: 30px;
   min-height: 30px;
+  padding: 0;
   border-radius: var(--r-sm);
   color: var(--text-3);
   text-decoration: none;
@@ -195,14 +200,6 @@
 }
 
 .sidebar-add:hover { color: var(--accent-text); }
-
-.sidebar-add-row {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  min-height: 34px;
-  margin-right: 4px;
-}
 
 .device-list { display: grid; gap: 2px; }
 
@@ -216,18 +213,13 @@
   align-items: center;
   width: 100%;
   margin: 2px 0;
-  padding: 6px 10px;
+  padding: 6px 12px;
   min-height: 36px;
   border: 0;
   border-radius: var(--r-md);
   background: transparent;
   color: var(--text-2);
   text-align: left;
-}
-
-.sidebar .device-link[data-key="all"] {
-  display: flex;
-  align-items: center;
 }
 
 .sidebar .device-link .ui-status-dot {
@@ -289,6 +281,14 @@
 
 .account-btn:hover { background: var(--sidebar-bg-hover); color: var(--sidebar-text-strong); }
 
+/* Current-page state for the account button: it is the system-management
+   entry (the module no longer renders in the nav), so it reuses the nav
+   active colors rather than inventing its own. */
+.account-btn.active {
+  background: var(--sidebar-active-bg);
+  color: var(--sidebar-active-ink);
+}
+
 .account-avatar {
   width: 30px;
   height: 30px;
@@ -300,6 +300,14 @@
   color: var(--sidebar-text-strong);
   font-weight: 600;
   font-size: var(--fs-sm);
+}
+
+.account-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 .account-name {
@@ -334,6 +342,15 @@
 }
 
 .topbar .icon-btn[data-theme-toggle] { color: var(--text-2); }
+
+/* Topbar icon buttons are standalone controls: give them the same bordered
+   surface container as .secondary instead of floating bare (overrides .ghost). */
+.topbar .icon-btn {
+  background: var(--surface);
+  border-color: var(--border-strong);
+}
+
+.topbar .icon-btn:hover { background: var(--surface-hover); }
 
 .main {
   margin-left: var(--sidebar-width);
@@ -501,7 +518,6 @@
   .sidebar { width: 64px; padding-left: 2px; padding-right: 2px; }
   .main { margin-left: 64px; }
   .sidebar-brand-row { gap: 0; padding: 2px 0 0; }
-  .sidebar-add-row { display: none; }
   .brand-name, .nav-label, .sidebar-label, .sidebar-add, .sidebar-devices, .btn-label { 
     position: absolute;
     width: 1px;
@@ -567,7 +583,6 @@
   :root[data-sidebar="collapsed"] .sidebar { padding: 16px 12px 12px; }
   :root[data-sidebar="collapsed"] .sidebar-brand-row { gap: 4px; padding: 2px 4px 0 8px; }
   :root[data-sidebar="collapsed"] .brand { justify-content: flex-start; padding: 0; }
-  :root[data-sidebar="collapsed"] .sidebar-add-row { display: flex; }
   :root[data-sidebar="collapsed"] .brand-name,
   :root[data-sidebar="collapsed"] .nav-label,
   :root[data-sidebar="collapsed"] .sidebar-label,

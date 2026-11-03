@@ -195,7 +195,7 @@ export function renderSidebarDevices(devices, activeId = getActiveId()) {
   const box = document.querySelector("#sidebar-devices");
   if (!box) return;
   const active = String(activeId || "");
-  const rows = [{ id: "", key: "all", name: "全部设备", device: null }];
+  const rows = [];
   for (const device of devices || []) {
     if (!device?.id) continue;
     rows.push({
@@ -221,15 +221,9 @@ export function renderSidebarDevices(devices, activeId = getActiveId()) {
     }
     // The id only lives in the data attribute; text and title stay human.
     button.classList.toggle("is-active", row.id === active);
-    if (row.device) {
-      button.title = row.name;
-      paintLabel(button, row.name);
-      paintState(button, row.device);
-    } else {
-      button.removeAttribute("title");
-      button.removeAttribute("data-state");
-      button.textContent = row.name;
-    }
+    button.title = row.name;
+    paintLabel(button, row.name);
+    paintState(button, row.device);
     const current = buttons();
     if (current[index] !== button) box.insertBefore(button, current[index] || box.querySelector(".sidebar-empty"));
   });
@@ -321,20 +315,42 @@ async function renderSidebarProfile() {
   paintSidebarProfile(user);
 }
 
-function paintSidebarProfile(user) {
+export function paintSidebarProfile(user) {
   const footer = document.querySelector(".sidebar-footer");
   if (!footer) return;
-  const name = (user && (user.username || user.name)) || "管理员";
+  const profileUsername =
+    user && typeof user.profile_username === "string" ? user.profile_username.trim() : "";
+  const name = profileUsername || (user && (user.username || user.name)) || "管理员";
   const avatar = footer.querySelector(".account-avatar");
   const label = footer.querySelector(".account-name");
   const accountBtn = footer.querySelector(".account-btn");
-  if (avatar) avatar.textContent = initialOf(name);
+  if (avatar) paintSidebarAvatar(avatar, name, profileUsername);
   if (label) label.textContent = name;
   const title = `${name} · 系统管理`;
   if (accountBtn) {
     accountBtn.title = title;
     accountBtn.setAttribute("aria-label", title);
   }
+}
+
+function paintSidebarAvatar(avatar, name, profileUsername) {
+  const initial = initialOf(name);
+  if (!profileUsername) {
+    avatar.textContent = initial;
+    return;
+  }
+  // The profile username is a GitHub handle; its avatar lives at a fixed URL.
+  const img = document.createElement("img");
+  img.alt = "";
+  img.src = `https://github.com/${encodeURIComponent(profileUsername)}.png?s=96`;
+  img.addEventListener(
+    "error",
+    () => {
+      avatar.textContent = initial;
+    },
+    { once: true },
+  );
+  avatar.replaceChildren(img);
 }
 
 function initialOf(name) {
@@ -520,13 +536,7 @@ export function closeDrawer() {
   onClose?.();
 }
 
-function codeSourceLabel(source) {
-  if (source === "regex") return "正则识别";
-  if (source === "workers-ai") return "AI 识别";
-  return "";
-}
-
-export function CodeChip(code, source) {
+export function CodeChip(code) {
   const value = String(code ?? "");
   const box = document.createElement("span");
   box.className = "ui-codechip";
@@ -544,13 +554,6 @@ export function CodeChip(code, source) {
     else toast("复制失败，请手动复制", { tone: "danger" });
   });
   box.append(chip, copy);
-  const label = codeSourceLabel(source);
-  if (label) {
-    const badge = document.createElement("span");
-    badge.className = "ui-codechip-source";
-    badge.textContent = label;
-    box.append(badge);
-  }
   return box;
 }
 

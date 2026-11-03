@@ -13,7 +13,12 @@
   var SIDEBAR_DEVICES_KEY = "smsinbox-sidebar-devices";
   var STALE_MS = 7 * 24 * 60 * 60 * 1000;
 
-  var NAV_ITEMS = window.SMSINBOX_MODULES || [];
+  // Only modules marked for the nav render here; a module with nav: false
+  // (users / 系统管理) stays routable but is entered through the sidebar
+  // account button, so SMSINBOX_NAV mirrors exactly what is rendered.
+  var NAV_ITEMS = (window.SMSINBOX_MODULES || []).filter(function (item) {
+    return item.nav !== false;
+  });
   window.SMSINBOX_NAV = NAV_ITEMS;
 
   initSidebarChrome();
@@ -21,6 +26,7 @@
 
   function initSidebarChrome() {
     renderNav();
+    markAccountEntry();
     var collapsed = readCollapsed();
     injectCollapseButton();
     applySidebarState(collapsed, false);
@@ -52,9 +58,24 @@
     }
   }
 
+  // The account button is the system-management entry now that the module
+  // no longer renders in the nav; give it the same current-page marking the
+  // nav links get. shell.js re-marks it on in-app navigation.
+  function markAccountEntry() {
+    var button = document.querySelector(".account-btn");
+    if (!button) return;
+    var on = canonicalPath(location.pathname) === "/users";
+    button.classList.toggle("active", on);
+    if (on) {
+      button.setAttribute("aria-current", "page");
+    } else {
+      button.removeAttribute("aria-current");
+    }
+  }
+
   function canonicalPath(pathname) {
-    if (pathname === "/" || pathname === "/index.html") return "/";
-    return pathname;
+    if (pathname === "/" || pathname === "/index.html" || pathname === "/index") return "/";
+    return pathname.endsWith(".html") ? pathname.slice(0, -".html".length) : pathname;
   }
 
   function readCollapsed() {
@@ -102,22 +123,6 @@
     row.className = "sidebar-brand-row";
     brand.parentNode.insertBefore(row, brand);
     row.append(brand, button);
-    relocateAddDeviceLink();
-  }
-
-  function relocateAddDeviceLink() {
-    var section = document.querySelector(".sidebar-devices");
-    var add = document.querySelector(".sidebar-add");
-    if (!section || !add) return;
-    var row = document.createElement("div");
-    row.className = "sidebar-add-row";
-    row.append(add);
-    var footer = document.querySelector(".sidebar-footer");
-    if (footer) {
-      footer.before(row);
-    } else {
-      section.after(row);
-    }
   }
 
   function initDevicesCollapse() {
@@ -187,7 +192,6 @@
     } else {
       active = String(data.activeId || "");
     }
-    box.append(button("", "all", "全部设备", active === "", null));
     if (!devices.length) {
       var empty = document.createElement("p");
       empty.className = "sidebar-empty";

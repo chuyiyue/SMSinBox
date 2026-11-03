@@ -408,7 +408,7 @@ async function loadDeviceMessagePanel(panel, deviceId) {
       if (message.code) {
         const chipWrap = document.createElement("div");
         chipWrap.className = "device-message-code";
-        chipWrap.append(CodeChip(message.code, message.code_source));
+        chipWrap.append(CodeChip(message.code));
         item.append(chipWrap);
       }
       wrapper.append(item);

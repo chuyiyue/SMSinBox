@@ -64,7 +64,13 @@
 .filter-search .q-count { right: 10px; }
 .filter-clear { flex: none; }
 .filter-summary { margin: 0 0 9px auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.mobile-filter-toggle { display: none; }
+.mobile-filter-toggle {
+  display: none;
+  flex: none;
+  width: 38px;
+  min-width: 38px;
+  padding: 0;
+}
 
 .new-pill {
   position: sticky;
@@ -169,7 +175,7 @@
 .message-row.is-read .preview { color: var(--text-3); }
 .chip-slot { grid-area: chip; justify-self: end; align-self: center; margin-top: 2px; }
 
-/* Row code chip: same type and source badge as the drawer CodeChip, but the
+/* Row code chip: same type as the drawer CodeChip, but the
    whole chip is the copy target so it stays compact in the list. */
 .message-codechip {
   display: inline-flex;
@@ -195,7 +201,6 @@
   color: var(--success-text);
   border-color: transparent;
 }
-.message-codechip .ui-codechip-source { padding: 1px 6px; font-size: 0.6875rem; line-height: 1.4; }
 
 /* Detail drawer: meta block, then code / body sections, then raw JSON. */
 .message-detail-inner { display: grid; gap: var(--space-4); }
@@ -417,7 +422,7 @@
     gap: var(--space-2);
   }
   .filters .filter-field { min-width: 0; }
-  .filter-search { grid-column: 1 / -1; min-width: 0; }
+  .filterbar > .filter-search { flex: 1 1 auto; min-width: 0; }
   .filter-clear { grid-column: 1 / -1; justify-self: start; }
   .filter-summary { margin-top: var(--space-1); }
   .ui-drawer--filters {
@@ -465,67 +470,14 @@
   .session-row button { width: 100%; }
 
   .settings { grid-template-columns: 1fr; }
-  .settings-nav {
-    position: static;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    padding: 6px;
-    overflow-x: auto;
-    box-shadow: none;
-  }
-  .settings-nav a { min-height: 32px; white-space: nowrap; padding: 0 10px; }
-  .settings-mobile-header { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; }
-  .settings-mobile-header h2 { margin: 0; font-size: var(--fs-lg); }
-  .settings-mobile-header #settings-back { min-height: 32px; }
-  .settings-nav {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 8px;
-    overflow: visible;
-    box-shadow: none;
-  }
-  .settings-nav a {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    min-height: 56px;
-    padding: 10px 12px;
-    white-space: normal;
-  }
-  .setting-item-meta {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
-    min-width: 0;
-    flex: 1;
-  }
-  .setting-item-title { font-weight: 600; }
-  .setting-item-desc {
-    display: block;
-    font-size: var(--fs-xs);
-    color: var(--text-3);
-  }
-  .setting-item-arrow {
-    display: inline-flex;
-    font-size: 1.5rem;
-    line-height: 1;
-    color: var(--text-3);
-  }
-  .settings-body { display: block; }
+  .settings-nav { display: none; }
   .settings-section {
-    display: none;
     padding: var(--space-4);
     border: 1px solid var(--border);
     border-radius: var(--r-lg);
     background: var(--surface);
   }
-  .settings-section.is-visible { display: block; }
 }
-
-.settings-mobile-header { display: none; }
 .setting-item-meta { display: flex; flex-direction: column; gap: 2px; }
 .setting-item-title { font-weight: 600; }
 .setting-item-desc, .setting-item-arrow { display: none; }
