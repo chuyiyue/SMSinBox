@@ -46,9 +46,19 @@ describe("site consistency", () => {
 
   it("keeps shared colors on tokens and failed loads out of the empty state", () => {
     const css = readFileSync("public/style.css", "utf8");
-    expect(css).toContain("--danger-bg: #fde8e4");
-    expect(css).toContain("--ok-bg: #e7f5ef");
-    expect(css).toContain("--warn-bg: #fff7e8");
+    // Status banner colors live in the theme tokens: light literals in the
+    // light block, soft-token derivations in the dark blocks. style.css only
+    // consumes them and must not redefine them.
+    const tokens = readFileSync("public/css/tokens.css", "utf8");
+    expect(tokens).toContain("--danger-bg: #fde8e4");
+    expect(tokens).toContain("--ok-bg: #e7f5ef");
+    expect(tokens).toContain("--warn-bg: #fff7e8");
+    expect(tokens).toContain("--danger-bg: var(--danger-soft)");
+    expect(tokens).toContain("--ok-bg: var(--success-soft)");
+    expect(tokens).toContain("--warn-bg: var(--warning-soft)");
+    expect(css).not.toContain("--danger-bg:");
+    expect(css).not.toContain("--ok-bg:");
+    expect(css).not.toContain("--warn-bg:");
     expect(css).toContain("background: var(--danger-bg)");
     expect(css).toContain("background: var(--warn-bg)");
     expect(css).toContain(".device, .record");
@@ -193,6 +203,25 @@ describe("site consistency", () => {
       const nav = readFileSync(file, "utf8").match(/<nav class="sidebar-nav"[\s\S]*?<\/nav>/)?.[0] ?? "";
       expect(nav).not.toContain("<noscript>");
       expect(nav).not.toContain("href=");
+    }
+  });
+
+  it("defines every referenced icon symbol in the shared sprite", () => {
+    const sprite = readFileSync("public/icons.svg", "utf8");
+    const defined = new Set([...sprite.matchAll(/<symbol id="(icon-[a-z-]+)"/g)].map((m) => m[1]));
+    const referenced = new Set();
+    const sources = [...pages, "public/login.html", "public/registry.js", "public/sidebar-boot.js", "public/common.js", "public/inbox.js", "public/devices.js", "public/notify.js"];
+    for (const file of sources) {
+      const text = readFileSync(file, "utf8");
+      for (const m of text.matchAll(/icons\.svg#(icon-[a-z-]+)/g)) referenced.add(m[1]);
+      for (const m of text.matchAll(/icon: "(icon-[a-z-]+)"/g)) referenced.add(m[1]);
+    }
+    // The sprite is the single icon source: no referenced id may be missing,
+    // and pages/scripts must not carry inline hand-drawn icon geometry.
+    expect([...referenced].sort()).toEqual([...defined].sort());
+    for (const file of [...pages, "public/login.html"]) {
+      const html = readFileSync(file, "utf8");
+      expect(html).not.toMatch(/<svg[^>]*>\s*<(path|circle|rect|polyline|line)/);
     }
   });
 

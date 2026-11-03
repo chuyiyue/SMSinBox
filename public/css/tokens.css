@@ -62,6 +62,12 @@
   --danger-soft: #fee2e2;
   --on-danger: #ffffff;
 
+  /* Status banner backgrounds (credential box, error box). Light values are
+     the historical literals; dark themes derive them from the soft tokens. */
+  --danger-bg: #fde8e4;
+  --ok-bg: #e7f5ef;
+  --warn-bg: #fff7e8;
+
   --switch-knob: #ffffff;
   --toast-bg: #18181b;
   --toast-ink: #fafafa;
@@ -175,7 +181,9 @@
   --danger: #f87171;
   --danger-text: #fca5a5;
   --danger-soft: rgba(248, 113, 113, 0.14);
-  --warn-bg: rgba(251, 191, 36, 0.14);
+  --danger-bg: var(--danger-soft);
+  --ok-bg: var(--success-soft);
+  --warn-bg: var(--warning-soft);
   --on-danger: #171717;
 
   --switch-knob: #fafafa;
@@ -242,7 +250,9 @@
     --danger: #f87171;
     --danger-text: #fca5a5;
     --danger-soft: rgba(248, 113, 113, 0.14);
-    --warn-bg: rgba(251, 191, 36, 0.14);
+    --danger-bg: var(--danger-soft);
+    --ok-bg: var(--success-soft);
+    --warn-bg: var(--warning-soft);
     --on-danger: #171717;
 
     --switch-knob: #fafafa;

@@ -659,7 +659,7 @@ function avatarNode(sender) {
   node.setAttribute("aria-hidden", "true");
   if (!sender || sender === "未知发件人" || /^\d+$/.test(sender)) {
     node.innerHTML =
-      '<svg class="icon" viewBox="0 0 24 24"><path d="M5 6h14v10H8l-3 3z"/></svg>';
+      '<svg class="icon" viewBox="0 0 24 24"><use href="/icons.svg#icon-message-square"/></svg>';
     return node;
   }
   let hash = 0;

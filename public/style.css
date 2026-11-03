@@ -4,13 +4,6 @@
 @import url("/css/shell.css");
 @import url("/css/pages.css");
 
-/* Names kept for the credential box and the shared shell checks. */
-:root {
-  --danger-bg: #fde8e4;
-  --ok-bg: #e7f5ef;
-  --warn-bg: #fff7e8;
-}
-
 [hidden] { display: none !important; }
 
 .token-box { background: var(--warn-bg); }
