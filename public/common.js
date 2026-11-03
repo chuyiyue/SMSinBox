@@ -195,7 +195,7 @@ export function renderSidebarDevices(devices, activeId = getActiveId()) {
   const box = document.querySelector("#sidebar-devices");
   if (!box) return;
   const active = String(activeId || "");
-  const rows = [{ id: "", key: "all", name: "全部设备", device: null }];
+  const rows = [];
   for (const device of devices || []) {
     if (!device?.id) continue;
     rows.push({
@@ -221,15 +221,9 @@ export function renderSidebarDevices(devices, activeId = getActiveId()) {
     }
     // The id only lives in the data attribute; text and title stay human.
     button.classList.toggle("is-active", row.id === active);
-    if (row.device) {
-      button.title = row.name;
-      paintLabel(button, row.name);
-      paintState(button, row.device);
-    } else {
-      button.removeAttribute("title");
-      button.removeAttribute("data-state");
-      button.textContent = row.name;
-    }
+    button.title = row.name;
+    paintLabel(button, row.name);
+    paintState(button, row.device);
     const current = buttons();
     if (current[index] !== button) box.insertBefore(button, current[index] || box.querySelector(".sidebar-empty"));
   });

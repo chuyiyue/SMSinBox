@@ -123,22 +123,6 @@
     row.className = "sidebar-brand-row";
     brand.parentNode.insertBefore(row, brand);
     row.append(brand, button);
-    relocateAddDeviceLink();
-  }
-
-  function relocateAddDeviceLink() {
-    var section = document.querySelector(".sidebar-devices");
-    var add = document.querySelector(".sidebar-add");
-    if (!section || !add) return;
-    var row = document.createElement("div");
-    row.className = "sidebar-add-row";
-    row.append(add);
-    var footer = document.querySelector(".sidebar-footer");
-    if (footer) {
-      footer.before(row);
-    } else {
-      section.after(row);
-    }
   }
 
   function initDevicesCollapse() {
@@ -208,7 +192,6 @@
     } else {
       active = String(data.activeId || "");
     }
-    box.append(button("", "all", "全部设备", active === "", null));
     if (!devices.length) {
       var empty = document.createElement("p");
       empty.className = "sidebar-empty";
