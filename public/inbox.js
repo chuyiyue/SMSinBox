@@ -1,12 +1,11 @@
 import {
   api,
   flashLabel,
-  formatTime,
+  formatDateTime,
   initShell,
   isUnauthorized,
   loadNav,
   logout,
-  minuteStamp,
   receivedStamp,
   renderContent,
   toast,
@@ -617,8 +616,7 @@ function timeNode(message, extra) {
   const at = Number(message.received_at);
   if (Number.isFinite(at) && at > 0) {
     time.dateTime = new Date(at).toISOString();
-    time.textContent = formatTime(at);
-    time.title = minuteStamp(at);
+    time.textContent = formatDateTime(at);
   }
   return time;
 }

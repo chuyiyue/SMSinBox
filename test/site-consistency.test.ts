@@ -75,6 +75,21 @@ describe("site consistency", () => {
     expect(readFileSync("public/devices.js", "utf8")).toContain("refreshDevices");
   });
 
+  it("shows inbox item and detail times in absolute device-receive format", () => {
+    const common = readFileSync("public/common.js", "utf8");
+    const inbox = readFileSync("public/inbox.js", "utf8");
+    expect(common).toContain("export function formatDateTime(ms)");
+    expect(common).toContain("export function formatTime(ms)");
+    expect(common).toMatch(/export function receivedStamp\(ms\)[\s\S]*?formatDateTime\(ms\)/);
+
+    const timeNode = inbox.match(/function timeNode\([\s\S]*?\n\}/)?.[0] ?? "";
+    expect(timeNode).toContain("Number(message.received_at)");
+    expect(timeNode).toContain("time.textContent = formatDateTime(at)");
+    expect(timeNode).not.toContain("formatTime(");
+    expect(timeNode).not.toContain("created_at");
+    expect(inbox).toContain("receivedStamp(message.received_at)");
+  });
+
   it("labels the admin entry as system management on every page", () => {
     for (const file of pages) {
       const html = readFileSync(file, "utf8");

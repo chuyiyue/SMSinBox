@@ -91,9 +91,9 @@ export function absoluteTime(ms) {
   return zone ? `${text}（${zone}）` : text;
 }
 
-// The inbox detail only ever shows the device receive time, to the minute,
+// Inbox rows and details use only the device receive time, to the minute,
 // in the browser's own timezone. Never build it from created_at.
-export function minuteStamp(ms) {
+export function formatDateTime(ms) {
   const date = new Date(Number(ms));
   if (Number.isNaN(date.getTime())) return "";
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(
@@ -101,8 +101,13 @@ export function minuteStamp(ms) {
   )}`;
 }
 
+// Kept for callers that adopted the earlier helper name.
+export function minuteStamp(ms) {
+  return formatDateTime(ms);
+}
+
 export function receivedStamp(ms) {
-  const text = minuteStamp(ms);
+  const text = formatDateTime(ms);
   return text ? `收到时间 ${text}` : "";
 }
 
