@@ -92,7 +92,7 @@ describe("site consistency", () => {
 
   it("links sidebar devices to their device-page card and scrolls long device lists", () => {
     const common = readFileSync("public/common.js", "utf8");
-    const css = readFileSync("public/style.css", "utf8");
+    const css = readFileSync("public/css/pages.css", "utf8");
     expect(common).toContain('`/devices.html#dev-${encodeURIComponent(id)}`');
     expect(common).toContain('"/devices.html"');
     expect(common).toContain("还没有设备。");
