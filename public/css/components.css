@@ -684,3 +684,141 @@ kbd {
   .switch::after { transition: none; }
   .detail-drawer-panel, .message-drawer-panel { animation: none; }
 }
+
+/* ---------------------------------------------------------------------------
+   Shared UI primitives: drawer, code chip with source, status dot.
+   ------------------------------------------------------------------------- */
+
+.ui-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-drawer);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ui-drawer-overlay {
+  position: absolute;
+  inset: 0;
+  background: var(--overlay);
+}
+
+.ui-drawer-panel {
+  position: relative;
+  width: min(480px, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  color: var(--text);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-3);
+  animation: drawer-in var(--dur-base) var(--ease);
+}
+
+.ui-drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.ui-drawer-title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ui-drawer-body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-5);
+  overflow: auto;
+}
+
+/* Detail meta rows rendered inside the drawer body. */
+.ui-drawer-meta {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.ui-drawer-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: var(--fs-sm);
+}
+
+.ui-drawer-meta-label { color: var(--text-3); }
+.ui-drawer-meta-value { color: var(--text); font-weight: 600; overflow-wrap: anywhere; }
+
+/* CodeChip: monospace value + copy button + optional source badge. */
+.ui-codechip {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ui-codechip-code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-md);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  border-radius: var(--r-sm);
+  padding: 4px 10px;
+  line-height: 1.3;
+}
+
+.ui-codechip-copy { min-height: 30px; padding: 0 10px; font-size: var(--fs-sm); }
+
+.ui-codechip-copy.is-copied {
+  background: var(--success-soft);
+  color: var(--success-text);
+  border-color: transparent;
+}
+
+.ui-codechip-source {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: var(--bg-sunken);
+}
+
+/* StatusDot */
+.ui-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.ui-status-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+
+.ui-status-dot[data-status="ok"] { background: var(--success); }
+.ui-status-dot[data-status="warn"] { background: var(--warning); }
+.ui-status-dot[data-status="bad"] { background: var(--danger); }
+
+@media (max-width: 639px) {
+  .ui-drawer-panel { width: 100%; border-left: 0; }
+  .ui-drawer-body { padding: var(--space-4); }
+  .ui-codechip-copy { min-height: 36px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-drawer-panel { animation: none; }
+}
