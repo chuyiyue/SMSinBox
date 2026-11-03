@@ -41,10 +41,12 @@ const state = {
   dismissedQuery: null,
   listGen: 0,
   selectedId: "",
+  range: "all",
   read: loadReadSet(),
 };
 
 let filters;
+let rangeButtons;
 let list;
 let summary;
 let errorBox;
@@ -85,6 +87,18 @@ function startView() {
   clearButton = document.querySelector("#clear-filters");
   filterToggle = document.querySelector("#open-filters");
   chips = document.querySelector("#filter-chips");
+  rangeButtons = document.querySelectorAll("[data-range]");
+  rangeButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const next = button.dataset.range;
+      if (!next || state.range === next) return;
+      state.range = next;
+      paintRangeButtons();
+      state.page = 1;
+      loadMessages().catch(showError);
+    });
+  });
+  paintRangeButtons();
   initShell({
     onLogout() {
       stopRealtime();
@@ -107,6 +121,8 @@ function startView() {
     setActiveId("");
     filters.elements.from.value = "";
     qInput.value = "";
+    state.range = "all";
+    paintRangeButtons();
     state.page = 1;
     loadMessages().catch(showError);
   });
@@ -175,6 +191,7 @@ function resetInbox() {
   state.dismissedQuery = null;
   state.listGen += 1;
   state.selectedId = "";
+  state.range = "all";
   messages.clear();
 }
 
@@ -591,7 +608,7 @@ function codeSourceLabel(source) {
 }
 
 function inboxEmptyState() {
-  const filtered = Boolean(deviceSelect.value || filters.elements.from.value.trim() || qInput.value.trim());
+  const filtered = Boolean(deviceSelect.value || filters.elements.from.value.trim() || qInput.value.trim() || state.range !== "all");
   if (filtered) {
     const button = document.createElement("button");
     button.type = "button";
@@ -679,6 +696,14 @@ function unreadable(message) {
   return message?.content === UNREADABLE;
 }
 
+function rangeSince() {
+  if (state.range === "all") return null;
+  if (state.range === "today") return new Date().setHours(0, 0, 0, 0);
+  if (state.range === "7d") return Date.now() - 7 * 864e5;
+  if (state.range === "30d") return Date.now() - 30 * 864e5;
+  return null;
+}
+
 function queryParams(page) {
   const params = new URLSearchParams();
   if (deviceSelect.value) params.set("device", deviceSelect.value);
@@ -686,6 +711,8 @@ function queryParams(page) {
   if (from) params.set("from", from);
   const query = String(qInput.value || "").trim();
   if (query && !queryTooLong()) params.set("q", query);
+  const since = rangeSince();
+  if (since != null) params.set("since", String(since));
   params.set("page", String(page));
   params.set("page_size", String(PAGE_SIZE));
   return params;
@@ -699,6 +726,14 @@ function syncUrl() {
   const url = next ? `/?${next}` : "/";
   if (`${location.pathname}${location.search}` !== url) history.replaceState({ shell: 1 }, "", url);
   syncShellHistory();
+}
+
+function paintRangeButtons() {
+  rangeButtons?.forEach((button) => {
+    const active = button.dataset.range === state.range;
+    button.setAttribute("aria-pressed", String(active));
+    button.classList.toggle("is-active", active);
+  });
 }
 
 function paintChips() {
@@ -727,7 +762,22 @@ function paintChips() {
       loadMessages().catch(showError);
     }));
   }
+  if (state.range !== "all") {
+    chips.append(filterChip("时间", rangeLabel(state.range), () => {
+      state.range = "all";
+      paintRangeButtons();
+      state.page = 1;
+      loadMessages().catch(showError);
+    }));
+  }
   clearButton.hidden = chips.childElementCount === 0;
+}
+
+function rangeLabel(range) {
+  if (range === "today") return "今天";
+  if (range === "7d") return "近 7 天";
+  if (range === "30d") return "近 30 天";
+  return "全部";
 }
 
 function filterChip(label, value, onRemove) {

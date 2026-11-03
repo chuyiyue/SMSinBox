@@ -22,6 +22,16 @@
   min-width: 140px;
 }
 
+.filters .filter-range {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.filters .segmented {
+  width: 100%;
+  min-width: 220px;
+}
+
 .filter-label {
   color: var(--text-3);
   font-size: var(--fs-xs);

@@ -538,6 +538,15 @@ async function list(request: Request, env: Env, url: URL): Promise<Response> {
   if (deviceId && !UUID_RE.test(deviceId)) return json({ ok: false, error: "设备编号无效" }, 400);
   const from = url.searchParams.get("from")?.trim() ?? "";
   if (from.length > 80) return json({ ok: false, error: "号码过长" }, 400);
+  const sinceRaw = url.searchParams.get("since");
+  let since: number | null = null;
+  if (sinceRaw !== null) {
+    const normalized = sinceRaw.trim();
+    if (!/^\d+$/.test(normalized)) return json({ ok: false, error: "since 参数无效" }, 400);
+    const parsed = Number(normalized);
+    if (!Number.isSafeInteger(parsed) || parsed < 0) return json({ ok: false, error: "since 参数无效" }, 400);
+    since = parsed;
+  }
   const like = compileLikeQuery(url.searchParams.get("q"));
   if (!like.ok) return json({ ok: false, error: like.error }, 400);
 
@@ -547,6 +556,7 @@ async function list(request: Request, env: Env, url: URL): Promise<Response> {
     userId: user.id,
     deviceId: deviceId || null,
     from: from || null,
+    since,
     like: like.pattern,
     text: like.pattern ? (url.searchParams.get("q")?.trim() ?? null) : null,
     limit: pageSize,
