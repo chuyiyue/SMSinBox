@@ -68,38 +68,42 @@
           </div>
         </header>
         <div class="page">
-          <section class="panel add-device-panel" id="add" aria-labelledby="add-device-title">
-            <div class="add-device-head">
-              <h2 id="add-device-title">添加设备</h2>
-              <p class="lede">每部转发短信的手机是一台设备。添加后会显示一次 Bearer token 和推送链接，请立刻保存。</p>
-            </div>
+          <div class="page-notices">
             <p id="device-error" class="callout danger" hidden></p>
             <p id="device-status" class="callout ok" hidden></p>
-            <form id="device-form" class="add-device-form">
-              <label class="sr-only" for="device-name">设备名称</label>
-              <input id="device-name" name="name" required maxlength="64" placeholder="设备名称，例如：我的 Pixel" autocomplete="off" />
-              <button type="submit">添加设备</button>
-            </form>
-            <div id="token-box" class="token-box" hidden role="status">
-              <p class="callout warn">这些凭证只显示这一次，关闭后无法再次查看。</p>
-              <div id="bearer-wrap" class="stack" hidden>
-                <strong>Bearer token，只显示这一次</strong>
-                <code id="token-value"></code>
-                <p>请立刻保存。关闭或刷新页面后无法再查看。请求头使用 <code>Authorization: Bearer &lt;token&gt;</code>。Android 和已经装好的旧快捷指令继续用它。丢失后要删除设备并新建。</p>
-                <button id="copy-token" class="secondary" type="button">复制 token</button>
+          </div>
+          <template id="add-device-template">
+            <section class="add-device-panel">
+              <div class="add-device-head">
+                <h2 id="add-device-title">添加设备</h2>
+                <p class="lede">每部转发短信的手机是一台设备。添加后会显示一次 Bearer token 和推送链接，请立刻保存。</p>
               </div>
-              <div id="push-wrap" class="stack" hidden>
-                <strong>推送链接，只显示这一次</strong>
-                <code id="push-url-value"></code>
-                <p>贴进已经装好的那一条快捷指令。它等同设备密钥，不要发到聊天或工单。数据库只保存哈希，刷新后不能再显示明文。丢掉请在这台设备上点「轮换」。</p>
-                <button id="copy-push-url" class="secondary" type="button">复制推送链接</button>
+              <form id="device-form" class="add-device-form">
+                <label class="sr-only" for="device-name">设备名称</label>
+                <input id="device-name" name="name" required maxlength="64" placeholder="设备名称，例如：我的 Pixel" autocomplete="off" />
+                <button type="submit">添加设备</button>
+              </form>
+              <div id="token-box" class="token-box" hidden role="status">
+                <p class="callout warn">这些凭证只显示这一次，关闭后无法再次查看。</p>
+                <div id="bearer-wrap" class="stack" hidden>
+                  <strong>Bearer token，只显示这一次</strong>
+                  <code id="token-value"></code>
+                  <p>请立刻保存。关闭或刷新页面后无法再查看。请求头使用 <code>Authorization: Bearer &lt;token&gt;</code>。Android 和已经装好的旧快捷指令继续用它。丢失后要删除设备并新建。</p>
+                  <button id="copy-token" class="secondary" type="button">复制 token</button>
+                </div>
+                <div id="push-wrap" class="stack" hidden>
+                  <strong>推送链接，只显示这一次</strong>
+                  <code id="push-url-value"></code>
+                  <p>贴进已经装好的那一条快捷指令。它等同设备密钥，不要发到聊天或工单。数据库只保存哈希，刷新后不能再显示明文。丢掉请在这台设备上点「轮换」。</p>
+                  <button id="copy-push-url" class="secondary" type="button">复制推送链接</button>
+                </div>
+                <label><input id="token-saved" type="checkbox" /> 我已保存好</label>
+                <div class="add-device-actions">
+                  <button id="token-done" type="button" disabled>完成</button>
+                </div>
               </div>
-              <label><input id="token-saved" type="checkbox" /> 我已保存好</label>
-              <div class="add-device-actions">
-                <button id="token-done" type="button" disabled>完成</button>
-              </div>
-            </div>
-          </section>
+            </section>
+          </template>
 
           <section class="devices-section" aria-labelledby="devices-title">
             <div class="section-head">
@@ -109,53 +113,55 @@
             <div id="devices" class="devices cards"></div>
           </section>
 
-          <section class="panel api-config" id="api-config" aria-labelledby="api-config-title">
-            <h2 id="api-config-title">API 配置</h2>
-            <p class="lede">Android、已有快捷指令或自建脚本都向同一个完整地址上报短信。请求方法固定为 POST，认证使用设备 token。</p>
-            <dl class="api-facts">
-              <div>
-                <dt>请求地址</dt>
-                <dd>
-                  <code id="sms-url"></code>
-                  <button id="copy-sms-url" class="secondary" type="button">复制地址</button>
-                </dd>
-              </div>
-              <div>
-                <dt>请求方法</dt>
-                <dd><code>POST</code></dd>
-              </div>
-              <div>
-                <dt>Authorization</dt>
-                <dd>
-                  <code>Bearer &lt;设备 token&gt;</code>
-                  <button id="copy-auth" class="secondary" type="button">复制</button>
-                </dd>
-              </div>
-              <div>
-                <dt>Content-Type</dt>
-                <dd><code>application/json</code></dd>
-              </div>
-            </dl>
-            <p class="subtle">设备 token 在添加设备时只显示一次；丢失需删除设备后重建。上面的复制按钮复制的是完整请求地址，不是设备 ID。限流 60 次 / 分钟。</p>
-            <details class="fold">
-              <summary>JSON 请求体模板</summary>
-              <div class="code-block">
-                <button id="copy-template" class="secondary copy-corner" type="button">复制模板</button>
-                <pre id="android-template"></pre>
-              </div>
-            </details>
-            <details class="fold">
-              <summary>curl 示例</summary>
-              <div class="code-block">
-                <button id="copy-curl" class="secondary copy-corner" type="button">复制</button>
-                <pre id="curl-sample"></pre>
-              </div>
-            </details>
-          </section>
+          <template id="api-config-template">
+            <section class="api-config">
+              <h3 class="api-config-title">API 配置</h3>
+              <p class="lede">Android、已有快捷指令或自建脚本都向同一个完整地址上报短信。请求方法固定为 POST，认证使用设备 token。</p>
+              <dl class="api-facts">
+                <div>
+                  <dt>请求地址</dt>
+                  <dd>
+                    <code id="sms-url"></code>
+                    <button id="copy-sms-url" class="secondary" type="button">复制地址</button>
+                  </dd>
+                </div>
+                <div>
+                  <dt>请求方法</dt>
+                  <dd><code>POST</code></dd>
+                </div>
+                <div>
+                  <dt>Authorization</dt>
+                  <dd>
+                    <code>Bearer &lt;设备 token&gt;</code>
+                    <button id="copy-auth" class="secondary" type="button">复制</button>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Content-Type</dt>
+                  <dd><code>application/json</code></dd>
+                </div>
+              </dl>
+              <p class="subtle">设备 token 在添加设备时只显示一次；丢失需删除设备后重建。上面的复制按钮复制的是完整请求地址，不是设备 ID。限流 60 次 / 分钟。</p>
+              <details class="fold">
+                <summary>JSON 请求体模板</summary>
+                <div class="code-block">
+                  <button id="copy-template" class="secondary copy-corner" type="button">复制模板</button>
+                  <pre id="android-template"></pre>
+                </div>
+              </details>
+              <details class="fold">
+                <summary>curl 示例</summary>
+                <div class="code-block">
+                  <button id="copy-curl" class="secondary copy-corner" type="button">复制</button>
+                  <pre id="curl-sample"></pre>
+                </div>
+              </details>
+            </section>
+          </template>
 
-          <section class="panel setup-panel" id="ios-setup" aria-labelledby="setup-title">
+          <template id="setup-guide-template">
             <details class="fold setup-details" id="setup-details">
-              <summary id="setup-title">平台配置说明（iOS / Android / 通用 API）</summary>
+              <summary id="setup-title">接入指引（iOS / Android / 通用 API）</summary>
               <div class="tabs" role="tablist" aria-label="配置平台">
                 <button class="tab is-active" type="button" data-tab="ios" role="tab" aria-selected="true">iOS</button>
                 <button class="tab" type="button" data-tab="android" role="tab" aria-selected="false">Android</button>
@@ -238,7 +244,7 @@
                 </table>
               </div>
             </details>
-          </section>
+          </template>
         </div>
       </div>
     </div>
