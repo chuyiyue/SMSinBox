@@ -123,10 +123,6 @@ a { color: var(--accent-text); }
   stroke-linejoin: round;
 }
 
-/* The bundled mark.svg is still terracotta; render it monochrome so the old
-   warm accent never leaks into the neutral shell. */
-.mark img { filter: grayscale(1); opacity: 0.9; }
-
 code, .mono, .chip, .code-chip, pre {
   font-family: var(--font-mono);
 }
