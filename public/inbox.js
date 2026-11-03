@@ -91,16 +91,6 @@ function startView() {
       banner.hidden = true;
       loadMessages().catch(showError);
     },
-    onDeviceFilter(id) {
-      deviceSelect.value = id;
-      state.page = 1;
-      banner.hidden = true;
-      closeDrawer();
-      // Keep the address bar in step with the sidebar immediately, even if the
-      // request below fails; the sidebar highlight and URL stay in sync.
-      syncUrl();
-      loadMessages().catch(showError);
-    },
     onEscape() {
       closeDrawer();
     },

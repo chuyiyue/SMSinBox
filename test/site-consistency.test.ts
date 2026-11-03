@@ -90,6 +90,17 @@ describe("site consistency", () => {
     expect(inbox).toContain("receivedStamp(message.received_at)");
   });
 
+  it("links sidebar devices to their device-page card and scrolls long device lists", () => {
+    const common = readFileSync("public/common.js", "utf8");
+    const css = readFileSync("public/style.css", "utf8");
+    expect(common).toContain('`/devices.html#dev-${encodeURIComponent(id)}`');
+    expect(common).toContain('"/devices.html"');
+    expect(common).toContain("还没有设备。");
+    expect(common).toContain('add.href = "/devices.html#add"');
+    expect(css).toMatch(/\.sidebar \.device-list \{[\s\S]*?max-height:[^;]+;[\s\S]*?overflow-y: auto;/);
+    expect(css).toMatch(/\.sidebar \.sidebar-devices \{[\s\S]*?border-top:/);
+  });
+
   it("labels the admin entry as system management on every page", () => {
     for (const file of pages) {
       const html = readFileSync(file, "utf8");

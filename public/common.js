@@ -5,7 +5,6 @@ import {
   getActiveId,
   getDevices,
   getMe,
-  inboxDeviceHref,
   setActiveId,
 } from "./device-store.js";
 import {
@@ -348,11 +347,7 @@ export function initShell(options = {}) {
     const id = button.getAttribute("data-device-id") || "";
     setActiveId(id);
     closeSidebar();
-    if (shellHooks.onDeviceFilter) {
-      shellHooks.onDeviceFilter(id);
-      return;
-    }
-    followAppLink(inboxDeviceHref(id));
+    followAppLink(id ? `/devices.html#dev-${encodeURIComponent(id)}` : "/devices.html");
   });
 }
 
