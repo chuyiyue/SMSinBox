@@ -212,7 +212,7 @@ describe("site consistency", () => {
     expect(html).not.toContain(`>${version}<`);
     expect(html).toContain('<dd id="fact-version">读取中…</dd>');
     expect(html).not.toContain("静态信息");
-    expect(html).toContain("package.json");
+    expect(html).not.toContain("package.json");
     expect(js).toContain('/api/v1/system/info');
     expect(js).toContain('querySelector("#fact-version")');
     expect(js).toContain("loadSystemInfo");

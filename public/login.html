@@ -18,7 +18,6 @@
         <span class="brand-name">SMSinBox</span>
       </a>
       <h1 class="auth-title">SMSinBox</h1>
-      <p class="lede">你自己的短信收件箱</p>
       <p id="login-error" class="callout danger auth-error" role="alert" hidden></p>
       <!-- 登录方式列表：本版只有「密码」一项。将来的第三方 OAuth 与通行密钥
            作为同一列表的新项渲染在密码表单下方（用带「或」字的分隔线隔开），
@@ -56,10 +55,9 @@
       <!-- 验证步骤：与密码共用同一张卡片，不新开页面。 -->
       <form id="totp-form" class="auth-form auth-step" hidden>
         <h2 id="totp-title" class="auth-step-title">两步验证</h2>
-        <p class="subtle">输入身份验证器上的 6 位验证码，或使用一次性恢复码。</p>
         <p id="totp-error" class="callout danger" role="alert" hidden></p>
         <label>验证码
-          <input id="totp-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="24" required />
+          <input id="totp-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="24" placeholder="6 位验证码或恢复码" required />
         </label>
         <button id="totp-submit" type="submit">验证并登录</button>
         <button id="totp-cancel" class="ghost" type="button">返回密码登录</button>

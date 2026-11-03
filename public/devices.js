@@ -439,9 +439,6 @@ function buildPushPanel(device, view) {
   const strong = document.createElement("p");
   strong.className = "device-detail-value";
   strong.textContent = view.pushLabel;
-  const hint = document.createElement("p");
-  hint.className = "subtle";
-  hint.textContent = view.pushHint;
   const actions = document.createElement("div");
   actions.className = "actions device-detail-actions";
   for (const action of view.actions) {
@@ -452,7 +449,7 @@ function buildPushPanel(device, view) {
     button.addEventListener("click", () => runPush(device, action.action));
     actions.append(button);
   }
-  summary.append(title, strong, hint, actions);
+  summary.append(title, strong, actions);
   panel.append(summary);
   return panel;
 }
@@ -465,10 +462,7 @@ function buildAdvancedPanel(device) {
   remove.className = "danger";
   remove.textContent = "删除设备";
   remove.addEventListener("click", () => removeDevice(device, findDeviceRow(device.id)));
-  const safe = document.createElement("p");
-  safe.className = "subtle";
-  safe.textContent = "危险操作会通过现有确认弹窗执行，保证与当前设备页一致。";
-  panel.append(remove, safe);
+  panel.append(remove);
   return panel;
 }
 
@@ -707,7 +701,7 @@ function renderDevice(device, entry) {
     title: view.received.at ? absoluteTime(view.received.at) : "",
   });
   if (total !== null) addFact(facts, "短信数量", `${total} 条`);
-  addFact(facts, "推送链接", view.pushHint, { wide: true });
+  addFact(facts, "推送链接", view.pushLabel, { wide: true });
   addFact(facts, "快捷指令", view.shortcut, { wide: true });
   addFact(facts, "设备 ID", null, { wide: true, node: idLine(view.id) });
 
