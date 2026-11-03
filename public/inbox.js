@@ -3,13 +3,16 @@ import {
   closeDrawer,
   CodeChip,
   emptyState,
+  errorBanner,
   flashLabel,
   formatDateTime,
   initShell,
   isUnauthorized,
   loadNav,
+  loadingState,
   logout,
   openDrawer,
+  openEventStream,
   receivedStamp,
   renderContent,
   toast,
@@ -230,37 +233,30 @@ function startRealtime() {
   stopRealtime();
   if (state.paused) return;
   if (!state.cursor) state.cursor = `${Date.now()}:`;
-  const source = new EventSource(`/api/v1/events?cursor=${encodeURIComponent(state.cursor)}`);
-  state.live = source;
-  source.onopen = () => {
-    state.expectReconnect = false;
-    state.failures = 0;
-    setLive("实时", "ok");
-  };
-  source.addEventListener("message", (event) => {
-    let payload = null;
-    try {
-      payload = JSON.parse(event.data);
-    } catch {
-      return;
-    }
-    if (!payload?.message) return;
-    onLiveMessage(payload.message);
-  });
-  source.addEventListener("bye", () => {
-    state.expectReconnect = true;
-    setLive("重新连接中…", "warn");
-  });
-  source.onerror = () => {
-    if (state.expectReconnect) {
+  state.live = openEventStream(state.cursor, {
+    onOpen() {
       state.expectReconnect = false;
+      state.failures = 0;
+      setLive("实时", "ok");
+    },
+    onMessage(message) {
+      onLiveMessage(message);
+    },
+    onBye() {
+      state.expectReconnect = true;
       setLive("重新连接中…", "warn");
-      return;
-    }
-    state.failures += 1;
-    if (state.failures > 3) setLive("连接中断，已每 30 秒自动刷新", "danger");
-    else setLive("重新连接中…", "warn");
-  };
+    },
+    onError() {
+      if (state.expectReconnect) {
+        state.expectReconnect = false;
+        setLive("重新连接中…", "warn");
+        return;
+      }
+      state.failures += 1;
+      if (state.failures > 3) setLive("连接中断，已每 30 秒自动刷新", "danger");
+      else setLive("重新连接中…", "warn");
+    },
+  });
   state.fallback = window.setInterval(() => {
     if (!state.loading) loadMessages({ silent: true }).catch(() => {});
   }, FALLBACK_MS);
@@ -654,11 +650,7 @@ function inboxEmptyState() {
 function showSkeleton() {
   list.setAttribute("aria-busy", "true");
   list.replaceChildren();
-  for (let index = 0; index < 6; index += 1) {
-    const row = document.createElement("div");
-    row.className = "skeleton";
-    list.append(row);
-  }
+  list.append(loadingState({ count: 6 }));
 }
 
 function avatarNode(sender) {
@@ -926,18 +918,9 @@ function setLive(text, mode) {
 
 function showError(reason) {
   const message = reason instanceof Error ? "加载失败，请重试" : String(reason || "加载失败");
-  errorBox.hidden = false;
-  errorBox.replaceChildren();
-  const text = document.createElement("span");
-  text.textContent = message;
-  const retry = document.createElement("button");
-  retry.type = "button";
-  retry.className = "secondary";
-  retry.textContent = "重试";
-  retry.addEventListener("click", () => {
+  errorBanner(errorBox, message, () => {
     loadMessages().catch(showError);
   });
-  errorBox.append(text, retry);
   list.removeAttribute("aria-busy");
   list.querySelectorAll(".skeleton").forEach((node) => node.remove());
 }

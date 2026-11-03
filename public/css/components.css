@@ -582,59 +582,6 @@ kbd {
   margin-top: var(--space-1);
 }
 
-/* DetailDrawer: right-hand panel with overlay, Esc and focus management. */
-.detail-drawer,
-.message-drawer {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-drawer);
-  display: flex;
-  justify-content: flex-end;
-  background: var(--overlay);
-}
-
-.detail-drawer-panel,
-.message-drawer-panel {
-  width: min(480px, 100%);
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  background: var(--surface);
-  color: var(--text);
-  border-left: 1px solid var(--border);
-  box-shadow: var(--shadow-3);
-  animation: drawer-in var(--dur-base) var(--ease);
-}
-
-.detail-drawer-head,
-.message-drawer-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--border);
-}
-
-.detail-drawer-head h2,
-.message-drawer-head .sender {
-  margin: 0;
-  font-size: var(--fs-lg);
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
-.detail-drawer-body,
-.message-drawer-panel > #drawer-body {
-  flex: 1;
-  min-height: 0;
-  padding: var(--space-5);
-  overflow: auto;
-}
-
-.detail-drawer .drag-bar,
-.message-drawer .drag-bar { display: none; }
-
 /* ConfigDialog / ConfirmDialog sit on the shared modal primitive. */
 .config-dialog .modal-card { width: min(560px, 100%); }
 .confirm-dialog .modal-card { width: min(420px, 100%); }
@@ -672,17 +619,12 @@ kbd {
   }
   button.chip, .code-chip { min-height: 36px; }
   .segment { min-height: 44px; }
-  .detail-drawer-panel,
-  .message-drawer-panel { width: 100%; border-left: 0; }
-  .detail-drawer-body,
-  .message-drawer-panel > #drawer-body { padding: var(--space-4); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .skeleton { animation: none; }
   .message-row.is-fresh { animation: none; }
   .switch::after { transition: none; }
-  .detail-drawer-panel, .message-drawer-panel { animation: none; }
 }
 
 /* ---------------------------------------------------------------------------

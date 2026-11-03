@@ -1,4 +1,4 @@
-import { api, emptyState, formatTime, initShell, isUnauthorized, loadNav, logout, openModal, showNotice, statusDot, toast } from "./common.js";
+import { api, emptyState, errorState, formatTime, initShell, isUnauthorized, loadNav, logout, openModal, showNotice, statusDot, toast } from "./common.js";
 import { registerView } from "./shell.js";
 
 const MAX_CHANNELS = 10;
@@ -549,17 +549,15 @@ function describe(channel) {
 }
 
 function retryState(message) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "secondary";
-  button.textContent = "重试";
-  button.addEventListener("click", () => {
-    loadChannels().catch((error) => {
-      if (isUnauthorized(error)) return;
-      setError("加载推送渠道失败");
-    });
+  return errorState({
+    message,
+    onRetry: () => {
+      loadChannels().catch((error) => {
+        if (isUnauthorized(error)) return;
+        setError("加载推送渠道失败");
+      });
+    },
   });
-  return emptyState({ text: message, actions: [button] });
 }
 
 function emptyChannels() {

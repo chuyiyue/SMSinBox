@@ -7,6 +7,7 @@ import {
   getMe,
   setActiveId,
 } from "./device-store.js";
+import { api } from "./api-client.js";
 import {
   applyTheme,
   closeMenu,
@@ -14,37 +15,14 @@ import {
   cycleTheme,
   isTyping,
   openHelp,
-  rememberFlash,
   takeFlash,
   toast,
 } from "./ui.js";
 
+export { api, isUnauthorized, openEventStream } from "./api-client.js";
 export { openHelp, openMenu, openModal, passwordScore, generatePassword, toast } from "./ui.js";
 
 const URL_RE = /https?:\/\/[^\s<>"']+/gi;
-
-export async function api(path, options = {}) {
-  const headers = new Headers(options.headers || {});
-  if (options.body && !headers.has("content-type")) headers.set("content-type", "application/json");
-  const response = await fetch(path, { ...options, headers, credentials: "same-origin" });
-  const text = await response.text();
-  let data = {};
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = { ok: false, error: "响应无法解析" };
-    }
-  }
-  if (response.status === 401 && !options.allowUnauthorized) {
-    clearShellCache();
-    rememberFlash("登录已过期");
-    const next = encodeURIComponent(`${location.pathname}${location.search}`);
-    location.assign(`/login.html?next=${next}`);
-    throw new Error("unauthorized");
-  }
-  return { response, data };
-}
 
 export function safeNext(value) {
   if (!value || !value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) return "/";
@@ -108,10 +86,6 @@ export function minuteStamp(ms) {
 export function receivedStamp(ms) {
   const text = formatDateTime(ms);
   return text ? `收到时间 ${text}` : "";
-}
-
-export function isUnauthorized(error) {
-  return error instanceof Error && error.message === "unauthorized";
 }
 
 export function showNotice(element, message) {
@@ -621,4 +595,59 @@ export function emptyState({ title = "", text = "", actions = [] } = {}) {
     box.append(wrap);
   }
   return box;
+}
+
+// ─── Shared state components: loading / load failure ────────────────────────
+//
+// Every list view renders its loading and load-failure states through these
+// three components instead of hand-building the DOM per page:
+//   loadingState — a fragment of skeleton rows for a pending list.
+//   errorState   — the centered failure block (message + retry button),
+//                  built on emptyState so all pages share one structure.
+//   errorBanner  — fills a page's .callout danger box with a message and
+//                  an optional retry button (banner-style failure).
+
+export function loadingState({ count = 3, className = "skeleton", ariaHidden = false } = {}) {
+  const fragment = document.createDocumentFragment();
+  for (let index = 0; index < count; index += 1) {
+    const row = document.createElement("div");
+    row.className = className;
+    if (ariaHidden) row.setAttribute("aria-hidden", "true");
+    fragment.append(row);
+  }
+  return fragment;
+}
+
+export function errorState({ message = "", onRetry = null, retryLabel = "重试" } = {}) {
+  const actions = [];
+  if (onRetry) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = retryLabel;
+    button.addEventListener("click", () => {
+      onRetry();
+    });
+    actions.push(button);
+  }
+  return emptyState({ text: message, actions });
+}
+
+export function errorBanner(element, message, onRetry = null) {
+  if (!element) return;
+  element.hidden = false;
+  element.replaceChildren();
+  const text = document.createElement("span");
+  text.textContent = String(message || "");
+  element.append(text);
+  if (onRetry) {
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "secondary";
+    retry.textContent = "重试";
+    retry.addEventListener("click", () => {
+      onRetry();
+    });
+    element.append(retry);
+  }
 }

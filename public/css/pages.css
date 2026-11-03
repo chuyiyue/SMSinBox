@@ -230,36 +230,6 @@
 .message-raw summary { color: var(--text-2); font-size: var(--fs-sm); }
 .message-raw .code-block { max-height: 280px; margin-top: var(--space-2); overflow: auto; }
 
-.message-drawer {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: grid;
-  align-items: end;
-  background: var(--overlay);
-}
-
-.message-drawer-panel {
-  width: min(440px, 100%);
-  height: min(70dvh, 640px);
-  margin-left: auto;
-  background: var(--surface);
-  border-radius: var(--r-lg) var(--r-lg) 0 0;
-  box-shadow: var(--shadow-3);
-  padding: 8px 16px 24px;
-  overflow: auto;
-}
-
-.drag-bar {
-  width: 40px;
-  height: 4px;
-  margin: 6px auto 12px;
-  border-radius: var(--r-pill);
-  background: var(--border-strong);
-}
-
-.message-drawer-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
-
 .end-note, .sentinel { text-align: center; color: var(--text-3); font-size: var(--fs-sm); padding: 16px; }
 .chips:empty { display: none; }
 
@@ -489,7 +459,6 @@
   .time-end { display: none; }
   .time-inline { display: inline; margin-left: auto; }
   .chip-slot { justify-self: start; margin-top: var(--space-1); }
-  .message-drawer-panel { width: 100%; }
   .device-facts { grid-template-columns: 1fr; }
   .system-facts { grid-template-columns: 1fr; }
   .session-row { align-items: stretch; flex-direction: column; }
