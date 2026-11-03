@@ -130,17 +130,21 @@ describe("site consistency", () => {
     expect(common).toContain('"/devices.html"');
     expect(common).toContain("还没有设备。");
     expect(common).not.toContain("sidebar-empty-add");
-    expect(shellCss).toContain(".sidebar-add-row");
-    expect(readFileSync("public/sidebar-boot.js", "utf8")).toContain("relocateAddDeviceLink");
+    expect(common).not.toContain('key: "all"');
+    expect(shellCss).not.toContain(".sidebar-add-row");
+    expect(readFileSync("public/sidebar-boot.js", "utf8")).not.toContain("relocateAddDeviceLink");
     expect(css).toMatch(/\.sidebar \.device-list \{[\s\S]*?max-height:[^;]+;[\s\S]*?overflow-y: auto;/);
     expect(css).toMatch(/\.sidebar \.sidebar-devices \{[\s\S]*?border-top:/);
   });
 
-  it("places the collapse control beside the brand and keeps the add link aligned", () => {
+  it("places the collapse control beside the brand and keeps the device header controls aligned", () => {
     const boot = readFileSync("public/sidebar-boot.js", "utf8");
     const css = readFileSync("public/css/shell.css", "utf8");
     expect(boot).toContain('row.className = "sidebar-brand-row"');
-    expect(boot).toContain('row.className = "sidebar-add-row"');
+    expect(css).toMatch(/\.sidebar-label-row \{[\s\S]*?margin: 0 12px 6px;/);
+    expect(css).toMatch(/\.sidebar-section-toggle \{[\s\S]*?flex: 1 1 50%;/);
+    expect(css).toMatch(/\.sidebar-add \{[\s\S]*?flex: 1 1 50%;[\s\S]*?justify-content: center;/);
+    expect(css).toMatch(/\.sidebar \.device-link \{[\s\S]*?padding: 6px 12px;/);
     expect(boot).toContain('button.setAttribute("aria-expanded", collapsed ? "false" : "true")');
     expect(css).toContain(":root[data-sidebar=\"collapsed\"] .sidebar-brand-row");
     expect(css).toContain(".sidebar-collapse { display: none; }");
