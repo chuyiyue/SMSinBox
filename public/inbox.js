@@ -2,6 +2,7 @@ import {
   api,
   closeDrawer,
   CodeChip,
+  emptyState,
   flashLabel,
   formatDateTime,
   initShell,
@@ -20,6 +21,8 @@ import { isTyping } from "./ui.js";
 const PAGE_SIZE = 30;
 const FALLBACK_MS = 30_000;
 const UNREADABLE = "无法解密这条短信。请确认 CONTENT_KEY 与写入时一致。";
+const READ_KEY = "smsinbox-inbox-read";
+const READ_LIMIT = 500;
 const state = {
   page: 1,
   total: 0,
@@ -38,6 +41,7 @@ const state = {
   dismissedQuery: null,
   listGen: 0,
   selectedId: "",
+  read: loadReadSet(),
 };
 
 let filters;
@@ -248,6 +252,8 @@ function stopRealtime() {
 }
 
 function onLiveMessage(message) {
+  // Live arrivals only touch the list. Never close or rebuild the detail
+  // drawer here: an open message must stay put while new SMS come in.
   if (message?.device_id) noteDeviceSeen(message.device_id, message.created_at || message.received_at || Date.now());
   if (!message?.id || state.seen.has(message.id)) return;
   remember(message);
@@ -285,6 +291,7 @@ async function loadMessages(options = {}) {
   const silent = options.silent === true;
   if (queryTooLong()) {
     paintQueryGuard();
+    list.removeAttribute("aria-busy");
     list.querySelectorAll(".skeleton").forEach((node) => node.remove());
     return;
   }
@@ -326,7 +333,10 @@ async function loadMessages(options = {}) {
     if (append) state.page = Math.max(1, state.page - 1);
     showError(error);
   } finally {
-    if (!silent && state.listGen === mine) state.loading = false;
+    if (!silent && state.listGen === mine) {
+      state.loading = false;
+      list.removeAttribute("aria-busy");
+    }
   }
 }
 
@@ -342,8 +352,9 @@ function replaceMessages(rows) {
   banner.hidden = true;
   paintTitle();
   list.replaceChildren();
+  list.removeAttribute("aria-busy");
   if (rows.length === 0) {
-    list.append(emptyState());
+    list.append(inboxEmptyState());
     return;
   }
   for (const message of rows) list.append(renderMessage(message));
@@ -379,8 +390,9 @@ function prependMessage(message) {
 
 function renderMessage(message) {
   messages.set(message.id, message);
+  const read = state.read.has(message.id);
   const article = document.createElement("article");
-  article.className = "message-row";
+  article.className = `message-row ${read ? "is-read" : "is-unread"}`;
   article.id = `msg-${message.id}`;
   article.tabIndex = 0;
   const senderText = message.from_number || "未知发件人";
@@ -388,10 +400,17 @@ function renderMessage(message) {
   line.className = "message-row-line";
   const senderLine = document.createElement("div");
   senderLine.className = "sender-line";
+  if (!read) senderLine.append(unreadDot());
   const sender = document.createElement("div");
   sender.className = "sender";
   sender.textContent = senderText;
   senderLine.append(sender);
+  if (message.device_name) {
+    const device = document.createElement("span");
+    device.className = "message-device";
+    device.textContent = message.device_name;
+    senderLine.append(device);
+  }
   const inlineTime = timeNode(message, "time-inline");
   senderLine.append(inlineTime);
   const preview = document.createElement("div");
@@ -400,7 +419,7 @@ function renderMessage(message) {
   else preview.textContent = "这条短信无法解密";
   const slot = document.createElement("div");
   slot.className = "chip-slot";
-  if (message.code && !unreadable(message)) slot.append(codeChip(message.code));
+  if (message.code && !unreadable(message)) slot.append(codeChip(message.code, message.code_source ?? "regex"));
   line.append(avatarNode(senderText), senderLine, timeNode(message, "time-end"), preview, slot);
   article.append(line);
   article.addEventListener("click", (event) => {
@@ -418,6 +437,7 @@ function renderMessage(message) {
 
 function openMessage(article, message) {
   state.selectedId = message.id;
+  markRead(message.id, article);
   for (const row of list.querySelectorAll(".message-row.is-selected")) row.classList.remove("is-selected");
   article.classList.add("is-selected");
   showDrawer(message);
@@ -425,7 +445,7 @@ function openMessage(article, message) {
 
 function showDrawer(message) {
   openDrawer({
-    title: message.from_number || "未知发件人",
+    title: "短信详情",
     bodyHTML: buildDetail(message),
   });
 }
@@ -435,11 +455,13 @@ function buildDetail(message) {
   wrap.className = "message-detail-inner";
 
   const meta = document.createElement("div");
-  meta.className = "ui-drawer-meta";
+  meta.className = "ui-drawer-meta message-detail-meta";
   meta.append(
     detailRow("发件方", message.from_number || "未知发件人"),
     detailRow("设备", message.device_name || message.device_id || "未知设备"),
   );
+  const stamp = receivedStamp(message.received_at);
+  if (stamp) meta.append(detailRow("收到时间", stamp.replace(/^收到时间\s*/, "")));
   wrap.append(meta);
 
   if (unreadable(message)) {
@@ -448,22 +470,28 @@ function buildDetail(message) {
     warn.textContent = "这条短信无法解密（加密密钥已更换或被清空）";
     wrap.append(warn);
   } else {
+    if (message.code) {
+      const codeBlock = document.createElement("section");
+      codeBlock.className = "message-detail-block";
+      const label = document.createElement("h3");
+      label.className = "message-detail-label";
+      label.textContent = "验证码";
+      codeBlock.append(label, CodeChip(message.code, message.code_source ?? "regex"));
+      wrap.append(codeBlock);
+    }
+    const contentBlock = document.createElement("section");
+    contentBlock.className = "message-detail-block";
+    const label = document.createElement("h3");
+    label.className = "message-detail-label";
+    label.textContent = "短信正文";
     const content = document.createElement("p");
     content.className = "content";
     renderContent(content, message.content, message.code);
-    wrap.append(content);
-    if (message.code) wrap.append(CodeChip(message.code, message.code_source ?? "regex"));
-  }
-  const received = document.createElement("p");
-  received.className = "received-at";
-  const stamp = receivedStamp(message.received_at);
-  if (stamp) {
-    received.textContent = stamp;
-    wrap.append(received);
-  }
-  if (!unreadable(message)) {
+    contentBlock.append(label, content);
+    wrap.append(contentBlock);
+
     const actions = document.createElement("div");
-    actions.className = "actions";
+    actions.className = "actions message-detail-actions";
     const full = document.createElement("button");
     full.type = "button";
     full.className = "secondary";
@@ -495,7 +523,7 @@ function detailRow(label, value) {
 
 function rawJsonFold(message) {
   const details = document.createElement("details");
-  details.className = "fold";
+  details.className = "fold message-raw";
   const summary = document.createElement("summary");
   summary.textContent = "原始 JSON";
   const pre = document.createElement("pre");
@@ -505,41 +533,60 @@ function rawJsonFold(message) {
   return details;
 }
 
-function codeChip(code) {
+function codeChip(code, source) {
+  const label = codeSourceLabel(source);
   const chip = document.createElement("button");
   chip.type = "button";
-  chip.className = "chip";
-  chip.textContent = code;
+  chip.className = "message-codechip";
   chip.title = "复制验证码";
-  chip.setAttribute("aria-label", `复制验证码 ${code}`);
+  chip.setAttribute("aria-label", label ? `复制验证码 ${code}（${label}）` : `复制验证码 ${code}`);
+  const value = document.createElement("span");
+  value.className = "ui-codechip-code";
+  value.textContent = code;
+  chip.append(value);
+  if (label) {
+    const badge = document.createElement("span");
+    badge.className = "ui-codechip-source";
+    badge.textContent = label;
+    chip.append(badge);
+  }
   chip.addEventListener("click", async (event) => {
     event.stopPropagation();
-    const copied = await flashLabel(chip, code, code);
+    const copied = await flashLabel(value, code, code);
     if (copied) toast(`验证码 ${code} 已复制`);
   });
   return chip;
 }
 
-function emptyState() {
-  const box = document.createElement("div");
-  box.className = "empty-state";
-  const title = document.createElement("h2");
-  title.className = "empty-title";
-  const text = document.createElement("p");
+function codeSourceLabel(source) {
+  if (source === "regex") return "正则识别";
+  if (source === "workers-ai") return "AI 识别";
+  return "";
+}
+
+function inboxEmptyState() {
   const filtered = Boolean(deviceSelect.value || filters.elements.from.value.trim() || qInput.value.trim());
   if (filtered) {
-    title.textContent = "没有符合条件的短信";
-    text.textContent = "换一个设备、号码，或缩短搜索词。";
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = "清除筛选";
     button.addEventListener("click", () => clearButton.click());
-    box.append(title, text, button);
-    return box;
+    return emptyState({
+      title: "没有符合条件的短信",
+      text: "换一个设备、号码，或缩短搜索词。",
+      actions: [button],
+    });
   }
-  title.textContent = "收件箱还是空的";
   if (state.devices.length === 0) {
-    text.textContent = "让手机把短信转发到这里。";
+    const link = document.createElement("a");
+    link.className = "button";
+    link.href = "/devices.html";
+    link.textContent = "去添加设备";
+    const box = emptyState({
+      title: "收件箱还是空的",
+      text: "让手机把短信转发到这里。",
+      actions: [link],
+    });
     const steps = document.createElement("ol");
     steps.className = "steps";
     for (const line of ["创建设备", "在手机上配置转发（iOS 或 Android）", "发送一条测试短信"]) {
@@ -547,23 +594,22 @@ function emptyState() {
       item.textContent = line;
       steps.append(item);
     }
-    const link = document.createElement("a");
-    link.className = "button";
-    link.href = "/devices.html";
-    link.textContent = "去添加设备";
-    box.append(title, text, steps, link);
+    box.insertBefore(steps, box.querySelector(".empty-actions"));
     return box;
   }
-  text.textContent = "设备已经就绪。发送一条测试短信，确认转发通了。";
   const link = document.createElement("a");
   link.className = "button";
   link.href = "/devices.html";
   link.textContent = "发送一条测试短信";
-  box.append(title, text, link);
-  return box;
+  return emptyState({
+    title: "收件箱还是空的",
+    text: "设备已经就绪。发送一条测试短信，确认转发通了。",
+    actions: [link],
+  });
 }
 
 function showSkeleton() {
+  list.setAttribute("aria-busy", "true");
   list.replaceChildren();
   for (let index = 0; index < 6; index += 1) {
     const row = document.createElement("div");
@@ -735,6 +781,44 @@ function remember(message) {
   if (message?.id) state.seen.add(message.id);
 }
 
+function unreadDot() {
+  const dot = document.createElement("span");
+  dot.className = "unread-dot";
+  dot.setAttribute("role", "img");
+  dot.setAttribute("aria-label", "未读");
+  return dot;
+}
+
+// Read state is a local convenience only: the API has no read flag, so we
+// remember which messages were opened in this browser. Never send it upstream.
+function loadReadSet() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(READ_KEY) || "[]");
+    if (!Array.isArray(raw)) return new Set();
+    return new Set(raw.filter((id) => typeof id === "string").slice(-READ_LIMIT));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveReadSet() {
+  try {
+    localStorage.setItem(READ_KEY, JSON.stringify([...state.read].slice(-READ_LIMIT)));
+  } catch {
+    // Storage may be unavailable; the mark still holds for this view.
+  }
+}
+
+function markRead(id, article) {
+  if (!state.read.has(id)) {
+    state.read.add(id);
+    saveReadSet();
+  }
+  article?.classList.remove("is-unread");
+  article?.classList.add("is-read");
+  article?.querySelector(".unread-dot")?.remove();
+}
+
 function matchesFilters(message) {
   const device = deviceSelect.value;
   const from = String(filters.elements.from.value || "").trim();
@@ -778,6 +862,7 @@ function showError(reason) {
     loadMessages().catch(showError);
   });
   errorBox.append(text, retry);
+  list.removeAttribute("aria-busy");
   list.querySelectorAll(".skeleton").forEach((node) => node.remove());
 }
 
@@ -825,7 +910,7 @@ function onInboxKey(event) {
     const message = messages.get(state.selectedId);
     if (!message?.code) return;
     event.preventDefault();
-    document.querySelector(`#msg-${CSS.escape(state.selectedId)} .chip`)?.click();
+    document.querySelector(`#msg-${CSS.escape(state.selectedId)} .message-codechip`)?.click();
   }
 }
 

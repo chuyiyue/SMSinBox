@@ -73,77 +73,88 @@
             <button id="page-retry-button" class="secondary" type="button">重试</button>
           </p>
 
-          <section id="account-panel" class="panel stack" aria-labelledby="account-title">
-            <h2 id="account-title">管理员账号</h2>
-            <p class="lede">只有这一位管理员，不能创建第二个账号。登录只要密码，因此这里只保留改密码。</p>
-            <p class="subtle">单管理员模式：没有用户名，也没有注册或改用户名入口。</p>
-            <p id="account-error" class="callout danger" hidden></p>
-            <p id="account-status" class="callout ok" hidden></p>
+          <div class="settings">
+            <nav class="settings-nav" aria-label="系统管理设置">
+              <a href="#account-panel">账号与安全</a>
+              <a href="#sessions-panel">会话管理</a>
+              <a href="#totp-panel">两步验证</a>
+              <a href="#system-panel">系统信息</a>
+            </nav>
 
-            <form id="password-form" class="stack" novalidate>
-              <h3>改密码</h3>
-              <label>当前密码
-                <input id="password-current" name="current_password" type="password" required maxlength="256" autocomplete="current-password" />
-              </label>
-              <label>新密码
-                <input id="password" name="password" type="password" required maxlength="256" autocomplete="new-password" />
-              </label>
-              <div id="password-strength" class="strength" data-score="0" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-              <div class="actions">
-                <button id="generate-password" class="ghost" type="button">生成强密码</button>
-              </div>
-              <p class="subtle">8 到 256 位。保存后会撤销全部会话，需要用新密码重新登录。</p>
-              <p id="password-error" class="field-error" hidden></p>
-              <div class="actions">
-                <button id="password-submit" type="submit">保存密码</button>
-                <button id="logout" class="secondary" type="button" data-logout>退出登录</button>
-              </div>
-            </form>
-          </section>
+            <div class="settings-body">
+              <section id="account-panel" class="settings-section panel stack" aria-labelledby="account-title">
+                <h2 id="account-title">管理员账号</h2>
+                <p class="lede">只有这一位管理员，不能创建第二个账号。登录只要密码，因此这里只保留改密码。</p>
+                <p class="subtle">单管理员模式：没有用户名，也没有注册或改用户名入口。</p>
+                <p id="account-error" class="callout danger" hidden></p>
+                <p id="account-status" class="callout ok" hidden></p>
 
-          <section id="sessions-panel" class="panel stack" aria-labelledby="sessions-title">
-            <h2 id="sessions-title">会话管理</h2>
-            <p class="lede">列出还没过期的登录会话。撤销后，对应浏览器需要重新登录。</p>
-            <p id="sessions-error" class="callout danger" hidden></p>
-            <p id="sessions-status" class="callout ok" hidden></p>
-            <ul id="session-list" class="session-list" aria-live="polite"></ul>
-            <div class="actions">
-              <button id="revoke-others" class="secondary" type="button" disabled>撤销其它会话</button>
-              <button id="sessions-refresh" class="ghost" type="button">刷新列表</button>
+                <form id="password-form" class="stack" novalidate>
+                  <h3>改密码</h3>
+                  <label>当前密码
+                    <input id="password-current" name="current_password" type="password" required maxlength="256" autocomplete="current-password" />
+                  </label>
+                  <label>新密码
+                    <input id="password" name="password" type="password" required maxlength="256" autocomplete="new-password" />
+                  </label>
+                  <div id="password-strength" class="strength" data-score="0" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+                  <div class="actions">
+                    <button id="generate-password" class="ghost" type="button">生成强密码</button>
+                  </div>
+                  <p class="subtle">8 到 256 位。保存后会撤销全部会话，需要用新密码重新登录。</p>
+                  <p id="password-error" class="field-error" hidden></p>
+                  <div class="actions">
+                    <button id="password-submit" type="submit">保存密码</button>
+                    <button id="logout" class="secondary" type="button" data-logout>退出登录</button>
+                  </div>
+                </form>
+              </section>
+
+              <section id="sessions-panel" class="settings-section panel stack" aria-labelledby="sessions-title">
+                <h2 id="sessions-title">会话管理</h2>
+                <p class="lede">列出还没过期的登录会话。撤销后，对应浏览器需要重新登录。</p>
+                <p id="sessions-error" class="callout danger" hidden></p>
+                <p id="sessions-status" class="callout ok" hidden></p>
+                <ul id="session-list" class="session-list" aria-live="polite"></ul>
+                <div class="actions">
+                  <button id="revoke-others" class="secondary" type="button" disabled>撤销其它会话</button>
+                  <button id="sessions-refresh" class="ghost" type="button">刷新列表</button>
+                </div>
+              </section>
+
+              <section id="totp-panel" class="settings-section panel stack" aria-labelledby="totp-title">
+                <h2 id="totp-title">两步验证</h2>
+                <p id="totp-state" class="subtle">正在读取两步验证状态…</p>
+                <p id="totp-extra" class="subtle"></p>
+                <p id="totp-error" class="callout danger" hidden></p>
+                <p id="totp-ok" class="callout ok" hidden></p>
+                <div id="totp-actions" class="actions"></div>
+              </section>
+
+              <section id="system-panel" class="settings-section panel stack" aria-labelledby="system-title">
+                <h2 id="system-title">系统信息</h2>
+                <dl class="system-facts">
+                  <div>
+                    <dt>版本</dt>
+                    <dd id="fact-version">读取中…</dd>
+                  </div>
+                  <div>
+                    <dt>设备数</dt>
+                    <dd id="fact-devices">读取中…</dd>
+                  </div>
+                  <div>
+                    <dt>登录会话</dt>
+                    <dd id="fact-sessions">读取中…</dd>
+                  </div>
+                  <div>
+                    <dt>运行环境</dt>
+                    <dd>Cloudflare Workers + D1</dd>
+                  </div>
+                </dl>
+                <p class="subtle">版本号由服务端读取 package.json，发版后自动更新；设备数和会话数来自当前管理员的接口。</p>
+              </section>
             </div>
-          </section>
-
-          <section id="totp-panel" class="panel stack" aria-labelledby="totp-title">
-            <h2 id="totp-title">两步验证</h2>
-            <p id="totp-state" class="subtle">正在读取两步验证状态…</p>
-            <p id="totp-extra" class="subtle"></p>
-            <p id="totp-error" class="callout danger" hidden></p>
-            <p id="totp-ok" class="callout ok" hidden></p>
-            <div id="totp-actions" class="actions"></div>
-          </section>
-
-          <section id="system-panel" class="panel stack" aria-labelledby="system-title">
-            <h2 id="system-title">系统信息</h2>
-            <dl class="system-facts">
-              <div>
-                <dt>版本</dt>
-                <dd id="fact-version">读取中…</dd>
-              </div>
-              <div>
-                <dt>设备数</dt>
-                <dd id="fact-devices">读取中…</dd>
-              </div>
-              <div>
-                <dt>登录会话</dt>
-                <dd id="fact-sessions">读取中…</dd>
-              </div>
-              <div>
-                <dt>运行环境</dt>
-                <dd>Cloudflare Workers + D1</dd>
-              </div>
-            </dl>
-            <p class="subtle">版本号由服务端读取 package.json，发版后自动更新；设备数和会话数来自当前管理员的接口。</p>
-          </section>
+          </div>
         </div>
       </div>
     </div>

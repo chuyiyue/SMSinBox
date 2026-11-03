@@ -1,4 +1,4 @@
-import { api, initShell, isUnauthorized, loadNav, logout, openModal, showNotice, toast } from "./common.js";
+import { api, emptyState, formatTime, initShell, isUnauthorized, loadNav, logout, openModal, showNotice, statusDot, toast } from "./common.js";
 import { registerView } from "./shell.js";
 
 const MAX_CHANNELS = 10;
@@ -51,9 +51,12 @@ let dialog;
 let kindStep;
 let addButton;
 let count;
+let view;
+let viewFields;
 let selectedKind = "telegram";
 let emailMode = "webhook";
 let viewToken = 0;
+const lastTest = new Map();
 
 function startView() {
   viewToken += 1;
@@ -68,8 +71,11 @@ function startView() {
   list = document.querySelector("#notify-list");
   dialog = document.querySelector("#notify-dialog");
   kindStep = document.querySelector("#kind-step");
+  view = document.querySelector("#notify-view");
+  viewFields = document.querySelector("#notify-view-fields");
   addButton = document.querySelector("#add-channel");
   count = document.querySelector("#channel-count");
+  lastTest.clear();
   renderKindGrid();
   initShell({
     onLogout: () => logout().catch(() => setError("退出失败")),
@@ -81,6 +87,7 @@ function startView() {
   addButton.addEventListener("click", openCreate);
   document.querySelector("#notify-close").addEventListener("click", () => dialog.close());
   document.querySelector("#notify-back").addEventListener("click", () => showKindStep());
+  document.querySelector("#notify-view-close").addEventListener("click", () => dialog.close());
   dialog.addEventListener("click", (event) => {
     if (event.target === dialog) dialog.close();
   });
@@ -122,6 +129,7 @@ function openCreate() {
 function showKindStep() {
   kindStep.hidden = false;
   form.hidden = true;
+  view.hidden = true;
   document.querySelector("#notify-dialog-title").textContent = "添加渠道";
 }
 
@@ -131,10 +139,22 @@ function chooseKind(kind) {
   showFormError("");
   renderFields();
   kindStep.hidden = true;
+  view.hidden = true;
   form.hidden = false;
   const label = KINDS.find((item) => item.kind === kind)?.label || "渠道";
   document.querySelector("#notify-dialog-title").textContent = `添加${label}`;
   form.querySelector("input")?.focus();
+}
+
+function openView(channel) {
+  const meta = KINDS.find((item) => item.kind === channel.kind);
+  viewFields.replaceChildren(...viewFieldsFor(channel));
+  kindStep.hidden = true;
+  form.hidden = true;
+  view.hidden = false;
+  document.querySelector("#notify-dialog-title").textContent = `${meta?.label || channel.kind}配置`;
+  if (!dialog.open) dialog.showModal();
+  document.body.classList.add("modal-open");
 }
 
 function renderFields() {
@@ -347,40 +367,89 @@ function paintCount(total) {
 
 function renderChannel(channel) {
   const meta = KINDS.find((item) => item.kind === channel.kind);
+  const name = meta?.label || channel.kind;
   const row = document.createElement("article");
-  row.className = "record channel-card";
-  const top = document.createElement("div");
-  top.className = "channel-top";
-  const text = document.createElement("div");
-  const title = document.createElement("strong");
-  title.textContent = meta?.label || channel.kind;
+  row.className = "channel-card";
+  row.dataset.channelId = channel.id;
+
+  const head = document.createElement("div");
+  head.className = "channel-card-head";
+  const badge = document.createElement("span");
+  badge.className = "channel-icon";
+  badge.append(icon(meta?.icon || ""));
+  const title = document.createElement("span");
+  title.className = "channel-title";
+  const nameNode = document.createElement("strong");
+  nameNode.className = "channel-name";
+  nameNode.textContent = name;
+  const hintText = document.createElement("span");
+  hintText.className = "channel-hint";
+  hintText.textContent = meta?.hint || "";
+  title.append(nameNode, hintText);
+  head.append(badge, title, enabledDot(channel.enabled));
+
   const masked = document.createElement("p");
-  masked.className = "masked";
+  masked.className = "channel-mask";
   masked.textContent = describe(channel);
-  text.append(title, masked);
+
+  const test = document.createElement("div");
+  test.className = "channel-test";
+  test.append(testStatus(channel));
+
+  const actions = document.createElement("div");
+  actions.className = "channel-actions";
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "switch";
   toggle.setAttribute("role", "switch");
   toggle.setAttribute("aria-checked", channel.enabled ? "true" : "false");
-  toggle.setAttribute("aria-label", channel.enabled ? `停用${title.textContent}` : `启用${title.textContent}`);
+  toggle.setAttribute("aria-label", channel.enabled ? `停用${name}` : `启用${name}`);
   toggle.addEventListener("click", () => setEnabled(channel, toggle));
-  top.append(icon(meta?.icon || ""), text, toggle);
-  const actions = document.createElement("div");
-  actions.className = "actions";
-  const test = document.createElement("button");
-  test.type = "button";
-  test.className = "secondary";
-  test.textContent = "发送测试";
-  test.addEventListener("click", () => sendTest(channel, test));
+  const buttons = document.createElement("div");
+  buttons.className = "actions";
+  const edit = document.createElement("button");
+  edit.type = "button";
+  edit.className = "secondary";
+  edit.textContent = "编辑";
+  edit.addEventListener("click", () => openView(channel));
+  const testButton = document.createElement("button");
+  testButton.type = "button";
+  testButton.className = "secondary";
+  testButton.textContent = "发送测试";
+  testButton.addEventListener("click", () => sendTest(channel, testButton));
   const remove = document.createElement("button");
   remove.type = "button";
   remove.className = "ghost";
   remove.textContent = "删除";
   remove.addEventListener("click", () => removeChannel(channel));
-  actions.append(test, remove);
-  row.append(top, actions);
+  buttons.append(edit, testButton, remove);
+  actions.append(toggle, buttons);
+
+  row.append(head, masked, test, actions);
   return row;
+}
+
+function enabledDot(enabled) {
+  // statusDot() only emits ok/warn/bad; disabled falls back to the gray base dot.
+  const status = statusDot(enabled ? "ok" : "idle", enabled ? "已启用" : "已停用");
+  if (!enabled) status.querySelector(".ui-status-dot")?.setAttribute("data-status", "idle");
+  return status;
+}
+
+function testStatus(channel) {
+  const record = lastTest.get(channel.id);
+  if (!record) {
+    const empty = document.createElement("span");
+    empty.className = "channel-test-empty";
+    empty.textContent = "尚未测试";
+    return empty;
+  }
+  return statusDot(record.ok ? "ok" : "bad", `${record.ok ? "测试成功" : "测试失败"} · ${formatTime(record.at)}`);
+}
+
+function paintTest(channel) {
+  const row = list.querySelector(`[data-channel-id="${channel.id}"]`);
+  row?.querySelector(".channel-test")?.replaceChildren(testStatus(channel));
 }
 
 async function sendTest(channel, button) {
@@ -391,21 +460,25 @@ async function sendTest(channel, button) {
     const tested = await api(`/api/v1/notifications/${channel.id}/test`, { method: "POST", body: "{}" });
     if (!tested.response.ok || !tested.data.ok) {
       const message = tested.data.error || "测试失败";
+      lastTest.set(channel.id, { ok: false, at: Date.now() });
       setError(message);
       setStatus("");
       toast(message, { tone: "danger" });
       return;
     }
+    lastTest.set(channel.id, { ok: true, at: Date.now() });
     setError("");
     setStatus("测试通知已发送。");
     toast("测试通知已发送。");
   } catch (error) {
     if (isUnauthorized(error)) return;
+    lastTest.set(channel.id, { ok: false, at: Date.now() });
     setError("测试失败");
     toast("测试失败", { tone: "danger" });
   } finally {
     button.disabled = false;
     button.textContent = previous;
+    paintTest(channel);
   }
 }
 
@@ -477,10 +550,6 @@ function describe(channel) {
 }
 
 function retryState(message) {
-  const wrap = document.createElement("div");
-  wrap.className = "empty-state";
-  const text = document.createElement("p");
-  text.textContent = message;
   const button = document.createElement("button");
   button.type = "button";
   button.className = "secondary";
@@ -491,24 +560,19 @@ function retryState(message) {
       setError("加载推送渠道失败");
     });
   });
-  wrap.append(text, button);
-  return wrap;
+  return emptyState({ text: message, actions: [button] });
 }
 
 function emptyChannels() {
-  const wrap = document.createElement("div");
-  wrap.className = "empty-state";
-  const title = document.createElement("h2");
-  title.className = "empty-title";
-  title.textContent = "还没有推送渠道";
-  const text = document.createElement("p");
-  text.textContent = "短信入库后，可以推到 Telegram、企业微信、Bark、飞书、钉钉或邮箱。";
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = "添加渠道";
   button.addEventListener("click", openCreate);
-  wrap.append(title, text, button);
-  return wrap;
+  return emptyState({
+    title: "还没有推送渠道",
+    text: "短信入库后，可以推到 Telegram、企业微信、Bark、飞书、钉钉或邮箱。",
+    actions: [button],
+  });
 }
 
 function wecomHostOk(value) {
@@ -554,6 +618,44 @@ function secretField(label, name) {
   const wrap = field(label, name, "", "new-password");
   wrap.querySelector("input").type = "password";
   return wrap;
+}
+
+function viewField(label, value) {
+  const wrap = document.createElement("label");
+  wrap.append(label);
+  const input = document.createElement("input");
+  input.value = value == null ? "" : String(value);
+  input.readOnly = true;
+  input.tabIndex = -1;
+  wrap.append(input);
+  return wrap;
+}
+
+function viewFieldsFor(channel) {
+  const config = channel.config || {};
+  if (channel.kind === "telegram") {
+    return [viewField("Bot token", config.bot_token), viewField("Chat ID", config.chat_id)];
+  }
+  if (channel.kind === "wecom") {
+    return [viewField("Webhook URL", config.webhook_url)];
+  }
+  if (channel.kind === "bark") {
+    return [viewField("Device key", config.device_key), viewField("服务器", config.server)];
+  }
+  if (channel.kind === "feishu" || channel.kind === "dingtalk") {
+    return [viewField("Webhook URL", config.webhook_url), viewField("签名密钥（可选）", config.secret || "未设置")];
+  }
+  if (config.webhook_url) {
+    return [viewField("收件邮箱", config.to), viewField("发件邮箱", config.from), viewField("Webhook URL", config.webhook_url)];
+  }
+  return [
+    viewField("收件邮箱", config.to),
+    viewField("发件邮箱", config.from),
+    viewField("SMTP 主机", config.smtp_host),
+    viewField("SMTP 用户名", config.smtp_username),
+    viewField("SMTP 密码", config.smtp_password),
+    viewField("端口", 465),
+  ];
 }
 
 function portNote() {
