@@ -77,35 +77,28 @@
           <p id="page-error" class="callout danger" hidden></p>
           <p id="page-status" class="callout ok" hidden></p>
 
-          <!-- API Section -->
-          <section id="api-panel" class="panel stack" aria-labelledby="api-title">
-            <div class="sidebar-label-row">
-              <h2 id="api-title">外部 REST API</h2>
-              <a href="/api/ext/v1/openapi.json" target="_blank" rel="noopener" class="subtle" style="font-size: var(--fs-sm);">OpenAPI 规范 ↗</a>
-            </div>
-            <div class="device-facts">
-              <div>
-                <dt>API 状态</dt>
-                <dd><span class="badge ok">服务就绪</span></dd>
-              </div>
-              <div>
-                <dt>API Base URL</dt>
-                <dd class="device-id">
-                  <code id="api-base-url">/api/ext/v1</code>
-                  <button id="copy-base-url" class="secondary" type="button" style="padding: 2px 8px; font-size: var(--fs-xs);">复制</button>
-                </dd>
-              </div>
-            </div>
+          <div class="tabs api-tabs" role="tablist" aria-label="API 与 MCP 分区">
+            <button id="tab-token" class="tab is-active" type="button" role="tab" aria-selected="true" aria-controls="token-panel" data-tab="tokens">令牌管理</button>
+            <button id="tab-mcp" class="tab" type="button" role="tab" aria-selected="false" aria-controls="mcp-panel" data-tab="mcp" tabindex="-1">MCP 接入</button>
+            <button id="tab-docs" class="tab" type="button" role="tab" aria-selected="false" aria-controls="api-panel" data-tab="docs" tabindex="-1">外部 API 文档</button>
+          </div>
 
-            <div class="sidebar-label-row" style="margin-top: 16px;">
-              <h3>访问 Token 列表</h3>
+          <!-- Token management -->
+          <section id="token-panel" class="panel stack tab-panel" role="tabpanel" aria-labelledby="tab-token" data-panel="tokens">
+            <div>
+              <h2>令牌管理</h2>
+              <p class="subtle">创建、停用与撤销外部访问凭证，每个 Token 拥有独立的权限与设备范围。</p>
             </div>
             <div id="token-list" class="devices"></div>
+            <details class="fold">
+              <summary>如何禁用或撤销凭证</summary>
+              <p>在上方 Token 列表中点击「禁用」可临时冻结凭证；点击「撤销」将永久废除凭证，废除后所有请求将立即被系统拒绝。</p>
+            </details>
           </section>
 
-          <!-- MCP Section -->
-          <section id="mcp-panel" class="panel stack" aria-labelledby="mcp-title">
-            <h2 id="mcp-title">MCP Server</h2>
+          <!-- MCP access -->
+          <section id="mcp-panel" class="panel stack tab-panel" role="tabpanel" aria-labelledby="tab-mcp" data-panel="mcp" hidden>
+            <h2>MCP 接入</h2>
             <p class="subtle">提供符合 Model Context Protocol (MCP) 规范的 Streamable HTTP JSON-RPC 端点，供 Cursor、Claude Desktop 等 AI Agent 接入。</p>
             <div class="device-facts">
               <div>
@@ -116,7 +109,7 @@
                 <dt>Endpoint</dt>
                 <dd class="device-id">
                   <code id="mcp-endpoint-url">/mcp</code>
-                  <button id="copy-mcp-url" class="secondary" type="button" style="padding: 2px 8px; font-size: var(--fs-xs);">复制</button>
+                  <button id="copy-mcp-url" class="secondary" type="button">复制</button>
                 </dd>
               </div>
               <div>
@@ -133,37 +126,99 @@
               </div>
             </div>
 
-            <div style="margin-top: 12px;">
+            <div class="config-sample">
               <p class="subtle">通用 MCP 客户端配置示例（将 <code>smsx_YOUR_TOKEN_HERE</code> 替换为您新建的 Token）：</p>
-              <div class="code-block" style="position: relative;">
+              <div class="code-block">
                 <button id="copy-mcp-config" class="secondary copy-corner" type="button">复制代码</button>
-                <pre id="mcp-config-sample" style="overflow-x: auto; font-size: var(--fs-xs);"></pre>
+                <pre id="mcp-config-sample"></pre>
               </div>
             </div>
-          </section>
 
-          <!-- Collapsible Documentation -->
-          <section class="panel stack">
-            <h2>使用说明与帮助</h2>
-            <details class="fold">
-              <summary>如何调用 REST API</summary>
-              <p>使用标准 HTTP 客户端携带 <code>Authorization: Bearer &lt;Token&gt;</code> 发起 GET 请求：</p>
-              <div class="code-block" style="position: relative;">
-                <button id="copy-curl-example" class="secondary copy-corner" type="button">复制</button>
-                <pre id="curl-example" style="overflow-x: auto; font-size: var(--fs-xs);"></pre>
-              </div>
-            </details>
             <details class="fold">
               <summary>如何连接 MCP 客户端</summary>
               <p>在 Claude Desktop 的 <code>claude_desktop_config.json</code> 或 Cursor 的 MCP 设置中添加上述通用 JSON 配置即可。MCP 采用 Streamable HTTP 传输协议，直接向 <code>/mcp</code> 端点发起带 Bearer Token 的 POST 请求。</p>
             </details>
+          </section>
+
+          <!-- API documentation -->
+          <section id="api-panel" class="panel stack tab-panel" role="tabpanel" aria-labelledby="tab-docs" data-panel="docs" hidden>
+            <div class="section-head">
+              <h2 id="api-title">外部 REST API</h2>
+              <a href="/api/ext/v1/openapi.json" target="_blank" rel="noopener" class="subtle">OpenAPI 规范 ↗</a>
+            </div>
+            <div class="device-facts">
+              <div>
+                <dt>API 状态</dt>
+                <dd><span class="badge ok">服务就绪</span></dd>
+              </div>
+              <div>
+                <dt>API Base URL</dt>
+                <dd class="device-id">
+                  <code id="api-base-url">/api/ext/v1</code>
+                  <button id="copy-base-url" class="secondary" type="button">复制</button>
+                </dd>
+              </div>
+            </div>
+
+            <div class="endpoints">
+              <h3>接口端点</h3>
+              <p class="subtle">以下端点均基于上方 API Base URL，全部使用 GET 方法并携带 <code>Authorization: Bearer &lt;Token&gt;</code>。</p>
+              <div class="endpoint-list" role="list">
+                <div class="endpoint-row" role="listitem">
+                  <span class="method">GET</span>
+                  <code class="endpoint-path">/health</code>
+                  <span class="endpoint-desc">连通性检查，验证 API 与 Token 有效。</span>
+                </div>
+                <div class="endpoint-row" role="listitem">
+                  <span class="method">GET</span>
+                  <code class="endpoint-path">/me</code>
+                  <span class="endpoint-desc">当前 Token 详情（权限、设备范围、有效期）。</span>
+                </div>
+                <div class="endpoint-row" role="listitem">
+                  <span class="method">GET</span>
+                  <code class="endpoint-path">/messages</code>
+                  <span class="endpoint-desc">短信列表，支持分页与 device_id / from / since / until / q 过滤。</span>
+                </div>
+                <div class="endpoint-row" role="listitem">
+                  <span class="method">GET</span>
+                  <code class="endpoint-path">/messages/{id}</code>
+                  <span class="endpoint-desc">单条短信详情。</span>
+                </div>
+                <div class="endpoint-row" role="listitem">
+                  <span class="method">GET</span>
+                  <code class="endpoint-path">/otp/latest</code>
+                  <span class="endpoint-desc">最新验证码，可用 device_id / from / since 过滤。</span>
+                </div>
+                <div class="endpoint-row" role="listitem">
+                  <span class="method">GET</span>
+                  <code class="endpoint-path">/otp/search</code>
+                  <span class="endpoint-desc">验证码检索，支持分页与过滤。</span>
+                </div>
+                <div class="endpoint-row" role="listitem">
+                  <span class="method">GET</span>
+                  <code class="endpoint-path">/devices</code>
+                  <span class="endpoint-desc">授权设备列表及在线状态。</span>
+                </div>
+                <div class="endpoint-row" role="listitem">
+                  <span class="method">GET</span>
+                  <code class="endpoint-path">/devices/{id}/status</code>
+                  <span class="endpoint-desc">单台设备在线状态与最后消息时间。</span>
+                </div>
+              </div>
+            </div>
+
+            <details class="fold">
+              <summary>如何调用 REST API</summary>
+              <p>使用标准 HTTP 客户端携带 <code>Authorization: Bearer &lt;Token&gt;</code> 发起 GET 请求：</p>
+              <div class="code-block">
+                <button id="copy-curl-example" class="secondary copy-corner" type="button">复制</button>
+                <pre id="curl-example"></pre>
+              </div>
+            </details>
+
             <details class="fold">
               <summary>如何测试连接</summary>
               <p>可以向 <code>/api/ext/v1/health</code> 发送 GET 请求，或向 <code>/mcp</code> 发送 <code>ping</code> JSON-RPC 请求检验凭证有效性。</p>
-            </details>
-            <details class="fold">
-              <summary>如何禁用或撤销凭证</summary>
-              <p>在上方 Token 列表中点击「禁用」可临时冻结凭证；点击「撤销」将永久废除凭证，废除后所有请求将立即被系统拒绝。</p>
             </details>
           </section>
         </div>
@@ -210,37 +265,37 @@
             <input name="name" required maxlength="80" placeholder="例如：Cursor Agent、自动化统计" />
           </label>
 
-          <fieldset class="stack" style="border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px;">
-            <legend style="padding: 0 6px; font-weight: 600; font-size: var(--fs-sm);">访问权限</legend>
-            <label style="display: flex; align-items: center; gap: 8px;">
+          <fieldset class="scope-fieldset stack">
+            <legend>访问权限</legend>
+            <label class="scope-option">
               <input type="checkbox" name="permissions" value="messages:read" checked />
               <span><strong>messages:read</strong> - 读取短信列表与正文</span>
             </label>
-            <label style="display: flex; align-items: center; gap: 8px;">
+            <label class="scope-option">
               <input type="checkbox" name="permissions" value="otp:read" checked />
               <span><strong>otp:read</strong> - 读取最新验证码及检索验证码</span>
             </label>
-            <label style="display: flex; align-items: center; gap: 8px;">
+            <label class="scope-option">
               <input type="checkbox" name="permissions" value="devices:read" checked />
               <span><strong>devices:read</strong> - 查看授权设备列表</span>
             </label>
-            <label style="display: flex; align-items: center; gap: 8px;">
+            <label class="scope-option">
               <input type="checkbox" name="permissions" value="devices:status" checked />
               <span><strong>devices:status</strong> - 查看设备在线状态与最后上报时间</span>
             </label>
           </fieldset>
 
-          <fieldset class="stack" style="border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px;">
-            <legend style="padding: 0 6px; font-weight: 600; font-size: var(--fs-sm);">设备授权范围</legend>
-            <label style="display: flex; align-items: center; gap: 8px;">
+          <fieldset class="scope-fieldset stack">
+            <legend>设备授权范围</legend>
+            <label class="scope-option">
               <input type="radio" name="scope_type" value="all" checked />
               <span>全部设备（包括后续添加的新设备）</span>
             </label>
-            <label style="display: flex; align-items: center; gap: 8px;">
+            <label class="scope-option">
               <input type="radio" name="scope_type" value="custom" />
               <span>指定设备</span>
             </label>
-            <div id="scope-device-picker" class="stack" style="padding-left: 24px; margin-top: 6px;" hidden>
+            <div id="scope-device-picker" class="scope-device-picker stack" hidden>
               <div id="device-checkbox-list" class="stack"></div>
             </div>
           </fieldset>

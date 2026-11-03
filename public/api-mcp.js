@@ -96,8 +96,19 @@ export function start() {
     if (copied) toast("Token 已复制到剪贴板");
   });
 
+  bindTabs();
+  const initialTab = location.hash === "#mcp-panel" || location.hash === "#panel-mcp"
+    ? "mcp"
+    : location.hash === "#api-panel" || location.hash === "#panel-docs"
+      ? "docs"
+      : "tokens";
+  switchTab(initialTab);
+
   // Modal open & close
-  document.querySelector("#add-token")?.addEventListener("click", openCreateModal);
+  document.querySelector("#add-token")?.addEventListener("click", () => {
+    switchTab("tokens");
+    openCreateModal();
+  });
   document.querySelector("#refresh")?.addEventListener("click", loadTokens);
   document.querySelector("#token-dialog-cancel")?.addEventListener("click", closeDialog);
   document.querySelector("#token-result-close")?.addEventListener("click", () => {
@@ -116,6 +127,34 @@ export function start() {
   formEl?.addEventListener("submit", handleCreateSubmit);
 
   void loadTokens();
+}
+
+function bindTabs() {
+  const tabs = [...document.querySelectorAll("[data-tab]")];
+  for (const tab of tabs) {
+    tab.addEventListener("click", () => switchTab(tab.dataset.tab));
+    tab.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      const index = tabs.indexOf(tab);
+      const delta = event.key === "ArrowRight" ? 1 : -1;
+      const next = tabs[(index + delta + tabs.length) % tabs.length];
+      next.focus();
+      switchTab(next.dataset.tab);
+    });
+  }
+}
+
+function switchTab(name) {
+  for (const tab of document.querySelectorAll("[data-tab]")) {
+    const on = tab.dataset.tab === name;
+    tab.classList.toggle("is-active", on);
+    tab.setAttribute("aria-selected", on ? "true" : "false");
+    tab.tabIndex = on ? 0 : -1;
+  }
+  for (const panel of document.querySelectorAll("[data-panel]")) {
+    panel.hidden = panel.dataset.panel !== name;
+  }
 }
 
 registerView("/api-mcp.html", start);
