@@ -10,16 +10,22 @@ function navHrefs(html: string): string[] {
   return [...nav.matchAll(/href="([^"]+)"/g)].map((match) => match[1] ?? "");
 }
 
+function registryHrefs(registry: string): string[] {
+  return [...registry.matchAll(/href: "([^"]+)"/g)].map((match) => match[1] ?? "");
+}
+
 describe("site consistency", () => {
   it("uses the same navigation and shell on every app page", () => {
-    const hrefs = pages.map((file) => navHrefs(readFileSync(file, "utf8")));
-    expect(hrefs[0]).toEqual(["/", "/devices.html", "/notify.html", "/api-mcp.html", "/users.html"]);
+    // The HTML shells carry no nav links: the boot renders them from the registry.
+    const expected = ["/", "/devices.html", "/notify.html", "/api-mcp.html", "/users.html"];
+    expect(registryHrefs(readFileSync("public/registry.js", "utf8"))).toEqual(expected);
     for (const file of pages) {
       const html = readFileSync(file, "utf8");
-      expect(navHrefs(html)).toEqual(hrefs[0]);
+      expect(navHrefs(html)).toEqual([]);
       expect(html).toContain('class="app-layout"');
       expect(html).toContain('class="sidebar"');
       expect(html).toContain('id="sidebar-devices"');
+      expect(html).toContain('src="/registry.js"');
       expect(html).toContain('src="/sidebar-boot.js"');
       expect(html).toContain('class="topbar"');
       expect(html).toContain('placeholder="搜索正文、号码或验证码"');
@@ -141,11 +147,12 @@ describe("site consistency", () => {
   });
 
   it("labels the admin entry as system management on every page", () => {
+    // The admin nav entry is defined once in the registry with this title.
+    const registry = readFileSync("public/registry.js", "utf8");
+    expect(registry).toContain('key: "users", title: "系统管理"');
+    expect(registry).not.toContain('title: "用户"');
     for (const file of pages) {
       const html = readFileSync(file, "utf8");
-      const nav = html.match(/<nav class="sidebar-nav"[\s\S]*?<\/nav>/)?.[0] ?? "";
-      expect(nav).toContain('<span class="nav-label">系统管理</span>');
-      expect(nav).not.toContain('<span class="nav-label">用户</span>');
       // The admin entry now lives in the shared sidebar footer, not a mobile sheet.
       expect(html).toContain('<a class="account-btn" href="/users.html"');
       expect(html).toContain('aria-label="系统管理"');
@@ -154,20 +161,38 @@ describe("site consistency", () => {
   });
 
   it("renders the primary nav from a single registry", () => {
-    const boot = readFileSync("public/sidebar-boot.js", "utf8");
-    expect(boot).toContain("var NAV_ITEMS = [");
+    const registry = readFileSync("public/registry.js", "utf8");
+    expect(registry).toContain("window.SMSINBOX_MODULES");
     for (const text of ['key: "inbox"', 'title: "收件箱"', 'title: "设备列表"', 'title: "推送渠道"', 'title: "API 与 MCP"', 'title: "系统管理"']) {
-      expect(boot).toContain(text);
+      expect(registry).toContain(text);
     }
     for (const icon of ["icon-inbox", "icon-smartphone", "icon-bell", "icon-terminal", "icon-settings"]) {
-      expect(boot).toContain(icon);
+      expect(registry).toContain(icon);
     }
+    for (const script of ['script: "/inbox.js"', 'script: "/devices.js"', 'script: "/notify.js"', 'script: "/api-mcp.js"', 'script: "/users.js"']) {
+      expect(registry).toContain(script);
+    }
+    expect(registryHrefs(registry)).toEqual(["/", "/devices.html", "/notify.html", "/api-mcp.html", "/users.html"]);
+
+    // The boot renders the nav from the registry instead of its own list.
+    const boot = readFileSync("public/sidebar-boot.js", "utf8");
+    expect(boot).toContain("window.SMSINBOX_MODULES");
+    expect(boot).not.toContain("var NAV_ITEMS = [");
+    expect(boot).not.toContain('key: "inbox"');
     expect(boot).toContain("window.SMSINBOX_NAV");
     expect(boot).toContain("renderNav");
+
+    // The shell generates its route map from the registry, not a literal map.
+    const shell = readFileSync("public/shell.js", "utf8");
+    expect(shell).toContain("SMSINBOX_MODULES");
+    expect(shell).not.toContain('"/devices.html": "/devices.js"');
+    expect(shell).not.toContain('"/users.html": "/users.js"');
+
+    // No page hardcodes nav links or a noscript fallback any more.
     for (const file of pages) {
       const nav = readFileSync(file, "utf8").match(/<nav class="sidebar-nav"[\s\S]*?<\/nav>/)?.[0] ?? "";
-      expect(nav).toContain("<noscript>");
-      expect(nav).toContain("</noscript>");
+      expect(nav).not.toContain("<noscript>");
+      expect(nav).not.toContain("href=");
     }
   });
 

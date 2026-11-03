@@ -1,3 +1,4 @@
+import "./registry.js";
 import { closeSidebar, clearSidebarDevices, paintDevicePresence, renderSidebarDevices, setActiveDevice, setNavigator } from "./common.js";
 import {
   devicesKnown,
@@ -9,13 +10,15 @@ import {
 } from "./device-store.js";
 import { closeMenu } from "./ui.js";
 
-const VIEWS = {
-  "/": "/inbox.js",
-  "/devices.html": "/devices.js",
-  "/notify.html": "/notify.js",
-  "/api-mcp.html": "/api-mcp.js",
-  "/users.html": "/users.js",
-};
+// The route map is generated from the single module registry in
+// public/registry.js (imported above and also loaded before sidebar-boot.js
+// on every page): href -> the view script the shell lazy-loads for it.
+const VIEWS = Object.fromEntries(
+  (globalThis.SMSINBOX_MODULES || []).map((item) => [item.href, item.script]),
+);
+
+// Exported so tests can assert the generated route map without a DOM.
+export const VIEW_SCRIPTS = VIEWS;
 
 const PORTALS = ["#message-drawer", "#device-dialog", "#notify-dialog", "#token-dialog"];
 
