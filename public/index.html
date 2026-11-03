@@ -50,13 +50,6 @@
       <div class="main">
         <header class="topbar">
           <h1 class="topbar-title">收件箱</h1>
-          <div class="search-wrap">
-            <input class="topbar-search" form="filters" type="search" name="q" maxlength="80" placeholder="搜索正文、号码或验证码" aria-label="搜索短信" />
-            <span id="q-count" class="q-count" hidden></span>
-          </div>
-          <button id="search-toggle" class="icon-btn" type="button" aria-label="搜索">
-            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-          </button>
           <p id="live-status" class="live-status" role="status"><span class="live-dot" aria-hidden="true"></span><span id="live-status-text">正在连接</span></p>
           <div class="topbar-actions">
             <button class="ghost icon-btn" type="button" data-theme-toggle aria-label="主题：跟随系统">
@@ -70,16 +63,23 @@
         </header>
         <div class="page">
           <div class="filterbar">
-            <form id="filters" class="filters">
-              <label>设备
+            <form id="filters" class="filters" role="search">
+              <label class="filter-field">
+                <span class="filter-label">设备</span>
                 <select id="device" name="device_id"><option value="">全部设备</option></select>
               </label>
-              <label>号码
+              <label class="filter-field">
+                <span class="filter-label">号码</span>
                 <input name="from" placeholder="发件号码" maxlength="80" />
               </label>
-              <button id="clear-filters" class="ghost" type="button" hidden>清除筛选</button>
+              <div class="filter-search">
+                <svg class="icon filter-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+                <input class="topbar-search" type="search" name="q" maxlength="80" placeholder="搜索正文、号码或验证码" aria-label="搜索短信" />
+                <span id="q-count" class="q-count" hidden></span>
+              </div>
+              <button id="clear-filters" class="ghost filter-clear" type="button" hidden>清除筛选</button>
             </form>
-            <p id="summary" class="subtle">共 0 条</p>
+            <p id="summary" class="subtle filter-summary">共 0 条</p>
           </div>
           <div id="filter-chips" class="chips"></div>
           <p id="query-error" class="field-error" hidden>关键词过长，请缩短</p>
@@ -88,7 +88,7 @@
             <button id="search-note-close" class="ghost" type="button">关闭</button>
           </div>
           <button id="live-banner" class="new-pill" type="button" hidden>↑ 1 条新短信</button>
-          <div id="inbox-error" class="callout danger" hidden></div>
+          <div id="inbox-error" class="callout danger" role="alert" hidden></div>
           <div id="list" class="list message-list"></div>
           <p id="list-end" class="end-note" hidden>没有更多了 · 已到底</p>
           <div id="list-sentinel" class="sentinel"></div>
