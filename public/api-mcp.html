@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>API 与 MCP · SMSinBox</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <script src="/theme-boot.js"></script>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="app-layout">
+      <aside class="sidebar" id="sidebar">
+        <a class="brand" href="/">
+          <span class="mark" aria-hidden="true"><img src="/mark.svg" width="18" height="18" alt="" /></span>
+          <span class="brand-name">SMSinBox</span>
+        </a>
+        <nav class="sidebar-nav" aria-label="主导航">
+          <a href="/">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg>
+            <span class="nav-label">收件箱</span>
+          </a>
+          <a href="/devices.html">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>
+            <span class="nav-label">设备列表</span>
+          </a>
+          <a href="/notify.html">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>
+            <span class="nav-label">推送渠道</span>
+          </a>
+          <a class="active" aria-current="page" href="/api-mcp.html">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+            <span class="nav-label">API 与 MCP</span>
+          </a>
+          <a href="/users.html">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/></svg>
+            <span class="nav-label">系统管理</span>
+          </a>
+        </nav>
+        <div class="sidebar-devices" aria-labelledby="sidebar-devices-title">
+          <div class="sidebar-label-row">
+            <p class="sidebar-label" id="sidebar-devices-title">我的设备</p>
+            <a class="ghost icon-btn sidebar-add" href="/devices.html#add" aria-label="添加设备" title="添加设备">+</a>
+          </div>
+          <div id="sidebar-devices" class="device-list"></div>
+        </div>
+        <script src="/sidebar-boot.js"></script>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <h1 class="topbar-title">API 与 MCP</h1>
+          <form class="search-wrap" action="/" method="get" role="search">
+            <input class="topbar-search" type="search" name="q" maxlength="80" placeholder="搜索正文、号码或验证码" aria-label="搜索短信" />
+          </form>
+          <button id="search-toggle" class="icon-btn" type="button" aria-label="搜索">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          </button>
+          <div class="topbar-actions">
+            <button class="ghost icon-btn" type="button" data-theme-toggle aria-label="主题：跟随系统">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/></svg>
+              <span class="btn-label sr-only">主题：跟随系统</span>
+            </button>
+            <span id="token-count" class="count-pill">0</span>
+            <button id="add-token" class="primary" type="button">新建 Token</button>
+            <button id="refresh" class="ghost icon-btn" type="button" aria-label="刷新">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.2-5.5M20 4v6h-6"/></svg>
+            </button>
+          </div>
+        </header>
+        <div class="page">
+          <div class="page-intro">
+            <p class="lede">管理外部 API 访问凭证，并连接支持 MCP 协议的 AI Agent。</p>
+            <p class="subtle">外部访问 Token 拥有独立的权限与设备范围，只读访问短信、验证码与设备状态。</p>
+          </div>
+
+          <p id="page-error" class="callout danger" hidden></p>
+          <p id="page-status" class="callout ok" hidden></p>
+
+          <!-- API Section -->
+          <section id="api-panel" class="panel stack" aria-labelledby="api-title">
+            <div class="sidebar-label-row">
+              <h2 id="api-title">外部 REST API</h2>
+              <a href="/api/ext/v1/openapi.json" target="_blank" rel="noopener" class="subtle" style="font-size: var(--fs-sm);">OpenAPI 规范 ↗</a>
+            </div>
+            <div class="device-facts">
+              <div>
+                <dt>API 状态</dt>
+                <dd><span class="badge ok">服务就绪</span></dd>
+              </div>
+              <div>
+                <dt>API Base URL</dt>
+                <dd class="device-id">
+                  <code id="api-base-url">/api/ext/v1</code>
+                  <button id="copy-base-url" class="secondary" type="button" style="padding: 2px 8px; font-size: var(--fs-xs);">复制</button>
+                </dd>
+              </div>
+            </div>
+
+            <div class="sidebar-label-row" style="margin-top: 16px;">
+              <h3>访问 Token 列表</h3>
+            </div>
+            <div id="token-list" class="devices"></div>
+          </section>
+
+          <!-- MCP Section -->
+          <section id="mcp-panel" class="panel stack" aria-labelledby="mcp-title">
+            <h2 id="mcp-title">MCP Server</h2>
+            <p class="subtle">提供符合 Model Context Protocol (MCP) 规范的 Streamable HTTP JSON-RPC 端点，供 Cursor、Claude Desktop 等 AI Agent 接入。</p>
+            <div class="device-facts">
+              <div>
+                <dt>MCP 状态</dt>
+                <dd><span class="badge ok">服务就绪</span></dd>
+              </div>
+              <div>
+                <dt>Endpoint</dt>
+                <dd class="device-id">
+                  <code id="mcp-endpoint-url">/mcp</code>
+                  <button id="copy-mcp-url" class="secondary" type="button" style="padding: 2px 8px; font-size: var(--fs-xs);">复制</button>
+                </dd>
+              </div>
+              <div>
+                <dt>传输协议</dt>
+                <dd>Streamable HTTP (POST JSON-RPC 2.0)</dd>
+              </div>
+              <div>
+                <dt>认证方式</dt>
+                <dd>Bearer Token（与 REST API 共用）</dd>
+              </div>
+              <div class="span-2">
+                <dt>只读工具 (7 个)</dt>
+                <dd><code>list_messages</code>, <code>search_messages</code>, <code>get_message</code>, <code>get_latest_otp</code>, <code>search_otp</code>, <code>list_devices</code>, <code>get_device_status</code></dd>
+              </div>
+            </div>
+
+            <div style="margin-top: 12px;">
+              <p class="subtle">通用 MCP 客户端配置示例（将 <code>smsx_YOUR_TOKEN_HERE</code> 替换为您新建的 Token）：</p>
+              <div class="code-block" style="position: relative;">
+                <button id="copy-mcp-config" class="secondary copy-corner" type="button">复制代码</button>
+                <pre id="mcp-config-sample" style="overflow-x: auto; font-size: var(--fs-xs);"></pre>
+              </div>
+            </div>
+          </section>
+
+          <!-- Collapsible Documentation -->
+          <section class="panel stack">
+            <h2>使用说明与帮助</h2>
+            <details class="fold">
+              <summary>如何调用 REST API</summary>
+              <p>使用标准 HTTP 客户端携带 <code>Authorization: Bearer &lt;Token&gt;</code> 发起 GET 请求：</p>
+              <div class="code-block" style="position: relative;">
+                <button id="copy-curl-example" class="secondary copy-corner" type="button">复制</button>
+                <pre id="curl-example" style="overflow-x: auto; font-size: var(--fs-xs);"></pre>
+              </div>
+            </details>
+            <details class="fold">
+              <summary>如何连接 MCP 客户端</summary>
+              <p>在 Claude Desktop 的 <code>claude_desktop_config.json</code> 或 Cursor 的 MCP 设置中添加上述通用 JSON 配置即可。MCP 采用 Streamable HTTP 传输协议，直接向 <code>/mcp</code> 端点发起带 Bearer Token 的 POST 请求。</p>
+            </details>
+            <details class="fold">
+              <summary>如何测试连接</summary>
+              <p>可以向 <code>/api/ext/v1/health</code> 发送 GET 请求，或向 <code>/mcp</code> 发送 <code>ping</code> JSON-RPC 请求检验凭证有效性。</p>
+            </details>
+            <details class="fold">
+              <summary>如何禁用或撤销凭证</summary>
+              <p>在上方 Token 列表中点击「禁用」可临时冻结凭证；点击「撤销」将永久废除凭证，废除后所有请求将立即被系统拒绝。</p>
+            </details>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <nav class="tabbar" aria-label="页面">
+      <a href="/">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg>
+        收件箱
+      </a>
+      <a href="/devices.html">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>
+        设备
+      </a>
+      <a href="/notify.html">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>
+        推送
+      </a>
+      <button id="more-toggle" type="button">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="18" cy="12" r="1"/></svg>
+        更多
+      </button>
+    </nav>
+
+    <div id="more-sheet" class="sheet" hidden>
+      <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="more-title">
+        <h2 id="more-title">更多</h2>
+        <a href="/api-mcp.html">API 与 MCP</a>
+        <a id="users-tab" href="/users.html">系统管理</a>
+        <button class="ghost" type="button" data-theme-toggle><span class="btn-label">主题：跟随系统</span></button>
+        <button class="ghost" type="button" data-help>快捷键</button>
+        <button class="ghost" type="button" data-logout>退出登录</button>
+        <button id="more-close" class="secondary" type="button">关闭</button>
+      </div>
+    </div>
+
+    <!-- Create Token Modal Dialog -->
+    <dialog id="token-dialog" class="modal">
+      <div class="modal-card">
+        <h2 id="token-dialog-title">新建外部访问 Token</h2>
+        <form id="token-form" class="stack">
+          <label>Token 名称
+            <input name="name" required maxlength="80" placeholder="例如：Cursor Agent、自动化统计" />
+          </label>
+
+          <fieldset class="stack" style="border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px;">
+            <legend style="padding: 0 6px; font-weight: 600; font-size: var(--fs-sm);">访问权限</legend>
+            <label style="display: flex; align-items: center; gap: 8px;">
+              <input type="checkbox" name="permissions" value="messages:read" checked />
+              <span><strong>messages:read</strong> - 读取短信列表与正文</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px;">
+              <input type="checkbox" name="permissions" value="otp:read" checked />
+              <span><strong>otp:read</strong> - 读取最新验证码及检索验证码</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px;">
+              <input type="checkbox" name="permissions" value="devices:read" checked />
+              <span><strong>devices:read</strong> - 查看授权设备列表</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px;">
+              <input type="checkbox" name="permissions" value="devices:status" checked />
+              <span><strong>devices:status</strong> - 查看设备在线状态与最后上报时间</span>
+            </label>
+          </fieldset>
+
+          <fieldset class="stack" style="border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px;">
+            <legend style="padding: 0 6px; font-weight: 600; font-size: var(--fs-sm);">设备授权范围</legend>
+            <label style="display: flex; align-items: center; gap: 8px;">
+              <input type="radio" name="scope_type" value="all" checked />
+              <span>全部设备（包括后续添加的新设备）</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px;">
+              <input type="radio" name="scope_type" value="custom" />
+              <span>指定设备</span>
+            </label>
+            <div id="scope-device-picker" class="stack" style="padding-left: 24px; margin-top: 6px;" hidden>
+              <div id="device-checkbox-list" class="stack"></div>
+            </div>
+          </fieldset>
+
+          <label>有效期
+            <select name="expires_in_days">
+              <option value="0">永不过期</option>
+              <option value="30">30 天</option>
+              <option value="90">90 天</option>
+              <option value="365">365 天</option>
+            </select>
+          </label>
+
+          <p id="token-form-error" class="field-error" hidden></p>
+
+          <div class="modal-actions">
+            <button id="token-dialog-cancel" class="secondary" type="button">取消</button>
+            <button type="submit">创建 Token</button>
+          </div>
+        </form>
+
+        <div id="token-result-box" class="stack" hidden>
+          <div class="callout warn">
+            <p><strong>请立即复制并妥善保管您的 Token！</strong></p>
+            <p class="subtle">出于安全考虑，完整 Token 只在此处显示一次。离开此页面后将无法再次找回。</p>
+          </div>
+          <div class="code-block" style="position: relative;">
+            <code id="new-token-plaintext" style="display: block; word-break: break-all; padding: 12px; font-size: var(--fs-sm);"></code>
+          </div>
+          <div class="modal-actions">
+            <button id="copy-new-token-btn" class="primary" type="button">复制 Token</button>
+            <button id="token-result-close" class="secondary" type="button">完成</button>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <script type="module" src="/api-mcp.js"></script>
+  </body>
+</html>
