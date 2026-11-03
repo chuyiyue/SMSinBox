@@ -51,7 +51,7 @@ openssl rand -base64 32 | npx wrangler secret put DEVICE_JWT_SECRET
 
 没有设置 `DEVICE_JWT_SECRET` 时，程序会退回到 `CONTENT_KEY`（其次 `ADMIN_PASSWORD`）派生的密钥，保证旧部署升级后还能添加设备。更换这个密钥会让所有已签发的设备 JWT 立即失效，旧设备仍可用原来的随机 Bearer 上报。
 
-更换或清空 `CONTENT_KEY` 之后，之前加密的短信无法再解密，收件箱会显示无法解密。设置过 `CONTENT_KEY` 之后，两步验证的 TOTP 密钥也会用它加密；清空或更换后，验证器里的码将无法校验，但仍可用恢复码登录。部署含 `0003_message_encryption.sql`、`0004_users.sql`、`0005_device_push.sql`、`0006_single_user.sql`、`0007_totp.sql` 或 `0008_device_identity.sql` 的版本后，同样需要再执行一次数据库迁移。读取推送链接或 TOTP 列的 Worker 必须在对应迁移应用之后部署。顺序、冒烟和回滚见 [docs/RELEASE_IOS_V2.md](docs/RELEASE_IOS_V2.md)。
+更换或清空 `CONTENT_KEY` 之后，之前加密的短信无法再解密，收件箱会显示无法解密。设置过 `CONTENT_KEY` 之后，两步验证的 TOTP 密钥也会用它加密；清空或更换后，验证器里的码将无法校验，但仍可用恢复码登录。部署含 `0003_message_encryption.sql`、`0004_users.sql`、`0005_device_push.sql`、`0006_single_user.sql`、`0007_totp.sql`、`0008_device_identity.sql` 或 `0009_api_tokens.sql` 的版本后，同样需要再执行一次数据库迁移。读取推送链接或 TOTP 列的 Worker 必须在对应迁移应用之后部署。顺序、冒烟和回滚见 [docs/RELEASE_IOS_V2.md](docs/RELEASE_IOS_V2.md)。
 
 之后如果改了 `ADMIN_PASSWORD`，用新密码再登录一次即可。程序会在用户名与密钥一致时更新保存的口令哈希，并把这个账号设为管理员、取消停用。只改密钥、还没用新密码登录之前，旧密码仍然有效。改 `ADMIN_USERNAME` 不会再创建第二个管理员。密钥里的用户名必须就是要留下的那个账号；对不上时登录会停下，不会按创建时间挑一个管理员。登录之后也可以用下面的账号接口改用户名和密码。
 
@@ -220,12 +220,87 @@ Cookie: smsinbox_session=...
 
 `POST /api/v1/auth/logout` 仍只按原来的 `isCrossSite` 拒绝跨站。
 
+## API 与 MCP
+
+为外部第三方程序和 AI Agent（如 Cursor、Claude Desktop）提供只读访问能力。外部访问使用独立的 Token（格式以 `smsx_` 开头）与权限体系，完全与管理员会话 Cookie 隔离。
+
+### Token 管理
+
+管理员在网页「API 与 MCP」（`/api-mcp.html`）中创建与维护访问凭证：
+
+- **生成**：生成带 `smsx_` 前缀的加密随机 Token。完整明文仅在创建响应中返回一次，服务端仅保存 SHA-256 哈希（`token_hash`）与前缀片段（`token_prefix`）。
+- **有效期**：支持永不过期、30天、90天、365天。
+- **状态控制**：支持禁用、启用、撤销与删除。禁用与撤销后，该 Token 的后续请求会立即失效（实时校验数据库，不依赖过时缓存）。
+- **管理接口**（需要管理员登录，防御 CSRF）：
+  - `GET /api/v1/api-tokens`：列出当前管理员的所有 Token（不含明文和哈希）
+  - `POST /api/v1/api-tokens`：创建新 Token（一次性返回明文）
+  - `POST /api/v1/api-tokens/:id/disable`：禁用 Token
+  - `POST /api/v1/api-tokens/:id/enable`：重新启用 Token
+  - `POST /api/v1/api-tokens/:id/revoke`：永久撤销 Token
+  - `DELETE /api/v1/api-tokens/:id`：删除 Token
+
+### 权限与设备范围
+
+每个 Token 均受以下两层约束：
+
+1. **四项只读权限**（可按需组合勾选）：
+   - `messages:read`：读取短信列表、搜索与正文详情。
+   - `otp:read`：读取最新短信验证码与检索历史验证码。
+   - `devices:read`：读取授权范围内的设备列表。
+   - `devices:status`：读取单台设备的在线状态与最近活跃时间。
+2. **设备授权范围（`device_scope`）**：
+   - 空数组 `[]` 表示授权访问全部设备（包括之后新增的设备）。
+   - 指定设备 ID 数组时，仅限访问这部分设备的数据。
+   - 范围过滤严格在 SQL 层执行（`WHERE device_id IN (...)`）。超出范围的设备及其短信在列表中自动剔除；通过 ID 查询范围外资源时一律返回 404（禁止越权探测与枚举）。
+
+### 外部 REST API
+
+端点前缀为 `/api/ext/v1`，请求头携带 `Authorization: Bearer <Token>`。响应统一为 JSON：成功 `{ "ok": true, "data": ..., "page": ... }`，失败 `{ "ok": false, "error": { "code", "message" } }`。
+
+| 方法 | 路径 | 所需权限 | 说明 |
+|---|---|---|---|
+| `GET` | `/api/ext/v1/health` | 有效 Token | 健康检查与 Token 连通性测试 |
+| `GET` | `/api/ext/v1/me` | 有效 Token | 获取当前 Token 的名称、权限、设备范围和过期时间 |
+| `GET` | `/api/ext/v1/messages` | `messages:read` | 分页读取短信（支持 `limit` 默认 20 上限 100、`offset`、`device_id`、`from`、`since`、`until`、`q` 搜索） |
+| `GET` | `/api/ext/v1/messages/:id` | `messages:read` | 读取单条短信详情（范围外返回 404） |
+| `GET` | `/api/ext/v1/otp/latest` | `otp:read` | 获取最新一条带验证码的短信（支持 `device_id`、`from`、`since`） |
+| `GET` | `/api/ext/v1/otp/search` | `otp:read` | 分页搜索验证码列表（支持时间范围与设备过滤） |
+| `GET` | `/api/ext/v1/devices` | `devices:read` | 读取授权范围内的设备列表及状态 |
+| `GET` | `/api/ext/v1/devices/:id/status` | `devices:status` | 读取单台设备在线状态与最新短信时间（范围外返回 404） |
+| `GET` | `/api/ext/v1/openapi.json` | 无需认证 | 获取描述上述 REST 接口的 OpenAPI 3.0 规范 JSON |
+
+安全与业务约定：
+- **限流**：每个 Token 独立计数，每分钟最多 120 次请求，超限返回 429。每次有效请求更新 `last_used_at` 记录最后调用时间。
+- **设备在线状态**：设备状态由 `last_seen_at` 派生。阈值常量为 15 分钟（`DEVICE_ONLINE_THRESHOLD_MS = 15 * 60 * 1000`）。若最后上报时间在 15 分钟内为 `online`，超过 15 分钟为 `offline`；从未上报为 `unseen`。
+- **验证码状态与来源约定**：本系统不调用任何外部 AI。验证码由短信写入时通过正则提取（`src/extract.ts`）。含验证码时返回 `code_status: "recognized"`、`code_source: "regex"`；无验证码时返回 `code_status: "none"`、`code_source: null`。查询未找到验证码时返回 `data: null`，绝不编造数据。
+- **日志安全**：系统日志严格对 Token 明文与短信正文进行脱敏与打码。
+
+### MCP Server
+
+在 Worker 同一端口提供 `/mcp` 端点，基于 Streamable HTTP 传输协议（POST JSON-RPC 2.0），无需额外部署或外部 SDK。与 REST API 共用相同的 Bearer Token、权限检查与设备范围校验。
+
+- **握手协议**：
+  - `POST /mcp` 发送 `initialize`：返回协议版本 `2024-11-05`、服务名称与工具能力。
+  - 发送 `notifications/initialized`：返回 202 确认。
+  - 发送 `ping`：返回 `{}`。
+  - 发送 `tools/list`：返回全部 7 个只读工具清单及输入 JSON Schema。
+  - 发送 `tools/call`：执行工具，返回包含 `content`（文本摘要）与 `structuredContent`（结构化 JSON）的结果。
+- **只读工具清单**（绝不提供任何写/删/改配置工具）：
+  1. `list_messages`：分页列出授权范围内的短信（参数：`limit`, `offset`, `device_id`, `since`, `until`）
+  2. `search_messages`：按关键词搜索短信正文、发件人或验证码（参数：`q`, `from`, `device_id`, `limit`, `offset`）
+  3. `get_message`：按 ID 获取短信详情（参数：`id`）
+  4. `get_latest_otp`：获取最新一条验证码（参数：`device_id`, `from`, `since`）
+  5. `search_otp`：按时间范围与筛选条件搜索历史验证码（参数：`since`, `until`, `device_id`, `from`, `limit`, `offset`）
+  6. `list_devices`：列出授权范围内的设备及在线状态（参数：无）
+  7. `get_device_status`：查询单台设备的在线状态与最新短信时间（参数：`id`）
+
 ## 网页
 
 - `/login.html`：用户名和密码登录。居中卡片。
 - `/`：收件箱。左侧固定深色侧边栏，右侧浅色内容区。新短信在前，可按设备、号码和关键词筛选；侧边栏设备列表和顶部搜索也会筛选。页面通过 `GET /api/v1/events` 的 SSE 接收新短信：服务端按 `created_at` 和短信 id 记住游标，大约每 2 秒查一次 D1，连接大约保持 25 秒后主动结束，浏览器会带上 `Last-Event-ID` 自动重连。标签页切到后台时断开。另外每 30 秒补拉一次第一页，避免重连间隙漏消息。列表是行式的，验证码 chip 可一键复制，点击行在桌面展开详情、在窄屏打开抽屉。
 - `/devices.html`：设备卡片显示名称、平台（来自最近一条短信的 `device` 字段）、推送状态、设备 ID、最近一次短信接收时间，以及快捷指令配置状态。创建或轮换后，黄框里的 Bearer token 和推送链接可以一键复制；刷新后不再显示。数据库只存哈希，没有再显示明文的入口，丢掉推送链接就轮换。生成、轮换和撤销都会先确认。页面保留 iOS 安装说明，并给出 iCloud 分享链接与未签名备用下载。每个设备可以「发送测试消息」，把一条带验证码 `654321` 的短信写入收件箱。删除设备会同时删除该设备的短信。
 - `/notify.html`：给当前用户添加 Telegram、企业微信群机器人、Bark 和邮件推送渠道。
+- `/api-mcp.html`：API 与 MCP 管理页。管理外部 API 访问 Token（生成、禁用、启用、撤销、删除），配置只读权限与设备授权范围；展示 MCP 端点 `/mcp` 连接信息、通用配置与 OpenAPI 3.0 规范链接。
 - `/users.html`：系统管理页，分四区。**管理员账号**改用户名、改密码（都要当前密码；改密码后全部会话失效并需要重新登录）。**会话管理**列出未过期会话并标出当前这次，可以撤销单条、撤销其它会话。**两步验证**启用、关闭 TOTP，查看剩余恢复码并重新生成。**系统信息**显示由服务端读取 `package.json` 得到的版本号、当前用户、设备数和会话数，发版只需改 `package.json`。旧的添加用户、用户列表和用户弹窗已移除；`/api/v1/users` 仍返回 410。
 
 关键词搜索用 SQL `LIKE`。D1 的 LIKE 模式最长 50 字节，超出会返回错误。
