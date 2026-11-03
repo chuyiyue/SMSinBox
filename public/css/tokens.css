@@ -154,6 +154,7 @@
   --danger: #f87171;
   --danger-text: #fca5a5;
   --danger-soft: rgba(248, 113, 113, 0.14);
+  --warn-bg: rgba(251, 191, 36, 0.14);
   --on-danger: #171717;
 
   --switch-knob: #fafafa;
@@ -219,6 +220,7 @@
     --danger: #f87171;
     --danger-text: #fca5a5;
     --danger-soft: rgba(248, 113, 113, 0.14);
+    --warn-bg: rgba(251, 191, 36, 0.14);
     --on-danger: #171717;
 
     --switch-knob: #fafafa;
