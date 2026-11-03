@@ -8,11 +8,12 @@ import {
   loadNav,
   logout,
   openModal,
+  paintSidebarProfile,
   passwordScore,
   showNotice,
   toast,
 } from "./common.js";
-import { ensureDevices, ensureMe, getDevices, refreshDevices } from "./device-store.js";
+import { ensureDevices, ensureMe, getDevices, getMe, noteMe, refreshDevices } from "./device-store.js";
 import { go, registerView } from "./shell.js";
 import { initTotpSettings } from "./totp-settings.js";
 import { rememberFlash } from "./ui.js";
@@ -23,6 +24,10 @@ let sessions = [];
 
 let accountError;
 let accountStatus;
+let profileForm;
+let profileUsername;
+let profileError;
+let profileSubmit;
 let passwordForm;
 let passwordCurrent;
 let passwordInput;
@@ -48,6 +53,10 @@ function startView() {
 
   accountError = document.querySelector("#account-error");
   accountStatus = document.querySelector("#account-status");
+  profileForm = document.querySelector("#profile-form");
+  profileUsername = document.querySelector("#profile-username");
+  profileError = document.querySelector("#profile-error");
+  profileSubmit = document.querySelector("#profile-submit");
   passwordForm = document.querySelector("#password-form");
   passwordCurrent = document.querySelector("#password-current");
   passwordInput = document.querySelector("#password");
@@ -72,6 +81,7 @@ function startView() {
   const cleanupTotp = initTotpSettings();
   const cleanupSettingsNav = initSettingsNav();
 
+  profileForm.addEventListener("submit", submitProfile);
   passwordForm.addEventListener("submit", submitPassword);
   passwordInput.addEventListener("input", () => paintPassword(true));
   document.querySelector("#generate-password").addEventListener("click", () => {
@@ -182,8 +192,10 @@ async function refreshPage() {
 }
 
 function paintAccount() {
-  // No username is shown anywhere: there is exactly one administrator.
   if (!me) me = { role: "admin" };
+  // The profile username is a display nickname (and GitHub handle), never a
+  // login credential; the login username itself is shown nowhere.
+  profileUsername.value = typeof me.profile_username === "string" ? me.profile_username : "";
 }
 
 async function loadDeviceCount() {
@@ -238,6 +250,46 @@ function paintPassword(silent) {
   passwordError.textContent = ok ? "" : "密码长度需在 8 到 256 之间";
   passwordInput.setAttribute("aria-invalid", !silent && !ok ? "true" : "false");
   return ok;
+}
+
+async function submitProfile(event) {
+  event.preventDefault();
+  setAccountError("");
+  setAccountStatus("");
+  setProfileError("");
+  const username = profileUsername.value.trim();
+  profileSubmit.disabled = true;
+  const previous = profileSubmit.textContent;
+  profileSubmit.textContent = "保存中…";
+  try {
+    const result = await api("/api/v1/auth/profile", {
+      method: "POST",
+      body: JSON.stringify({ username }),
+    });
+    if (!result.response.ok) {
+      setProfileError(result.data.error || "保存用户名失败");
+      return;
+    }
+    const saved = typeof result.data.profile_username === "string" ? result.data.profile_username : username;
+    profileUsername.value = saved;
+    me = { ...(me || { role: "admin" }), profile_username: saved };
+    noteMe({ profile_username: saved });
+    paintSidebarProfile(getMe());
+    const message = saved ? "用户名已保存" : "用户名已清除";
+    setAccountStatus(message);
+    toast(message);
+  } catch (error) {
+    if (isUnauthorized(error)) return;
+    setProfileError("保存用户名失败，请重试");
+  } finally {
+    profileSubmit.disabled = false;
+    profileSubmit.textContent = previous;
+  }
+}
+
+function setProfileError(message) {
+  profileError.hidden = !message;
+  profileError.textContent = message;
 }
 
 async function submitPassword(event) {

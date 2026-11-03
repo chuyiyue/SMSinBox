@@ -31,6 +31,7 @@ import {
   findTotpUser,
   findUserRecordById,
   getMessage,
+  getProfileUsername,
   insertApiToken,
   insertDevice,
   insertMessage,
@@ -57,6 +58,7 @@ import {
   replaceDevicePushToken,
   revokeDevicePush,
   setNotifyChannelEnabled,
+  setProfileUsername,
   touchDevice,
   updateApiTokenDisabled,
   updateApiTokenRevoked,
@@ -121,10 +123,9 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
     if (method !== "GET") return methodNotAllowed("GET");
     return me(request, env);
   }
-  if (path === "/api/v1/auth/username") {
-    // Single-admin v2 has no username. Kept as an explicit tombstone so old
-    // pages and clients fail loudly instead of silently editing a display name.
-    return json({ ok: false, error: "用户名已移除，登录只需要密码" }, 410);
+  if (path === "/api/v1/auth/profile") {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return updateProfile(request, env);
   }
   if (path === "/api/v1/auth/password") {
     if (method !== "POST") return methodNotAllowed("POST");
@@ -431,7 +432,20 @@ async function logout(request: Request, env: Env): Promise<Response> {
 async function me(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
-  return json({ ok: true, user: publicUser(user) });
+  const profileUsername = await getProfileUsername(env.DB);
+  return json({ ok: true, user: { ...publicUser(user), profile_username: profileUsername } });
+}
+
+async function updateProfile(request: Request, env: Env): Promise<Response> {
+  const user = await requireSensitiveUser(request, env);
+  if (user instanceof Response) return user;
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const parsed = readProfileUsername(body.value);
+  if ("error" in parsed) return json({ ok: false, error: parsed.error }, 400);
+  await setProfileUsername(env.DB, parsed.username);
+  logInfo({ message: "profile_username_updated", user_id: user.id });
+  return json({ ok: true, profile_username: parsed.username });
 }
 
 async function systemInfo(request: Request, env: Env): Promise<Response> {
@@ -1013,6 +1027,23 @@ function readPasswordChange(value: unknown): { currentPassword: string; password
     return { error: "新密码需要 8 到 256 个字符" };
   }
   return { currentPassword, password: record.password };
+}
+
+// The profile username doubles as the GitHub handle behind the sidebar
+// avatar, so it must follow GitHub's username syntax. It is a display
+// nickname only; it never takes part in login.
+const GITHUB_USERNAME_RE = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/;
+
+function readProfileUsername(value: unknown): { username: string } | { error: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { error: "请求体无效" };
+  const raw = (value as Record<string, unknown>).username;
+  if (typeof raw !== "string") return { error: "请填写用户名" };
+  const username = raw.trim();
+  if (username === "") return { username: "" };
+  if (!GITHUB_USERNAME_RE.test(username)) {
+    return { error: "用户名需为 1 到 39 位字母、数字或连字符，且不能以连字符开头或结尾" };
+  }
+  return { username };
 }
 
 const PLATFORMS = new Set(["ios", "android", "other"]);

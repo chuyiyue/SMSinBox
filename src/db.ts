@@ -122,6 +122,36 @@ export async function ensureAdmin(db: D1Database, userId: string): Promise<void>
 }
 
 export const SINGLE_USER_MERGED_KEY = "single_user_merged_at";
+export const PROFILE_USERNAME_KEY = "profile_username";
+
+// The one admin may set a display-only username (a nickname). It lives in
+// schema_meta, never on the users row: the login stays password-only and the
+// stored login username is not a profile field.
+export async function getProfileUsername(db: D1Database): Promise<string> {
+  try {
+    const row = await db
+      .prepare("SELECT value FROM schema_meta WHERE key = ?")
+      .bind(PROFILE_USERNAME_KEY)
+      .first<{ value: string }>();
+    return row?.value ?? "";
+  } catch (error) {
+    if (isMissingSchemaMeta(error)) return "";
+    throw error;
+  }
+}
+
+export async function setProfileUsername(db: D1Database, username: string): Promise<void> {
+  if (username.length === 0) {
+    await db.prepare("DELETE FROM schema_meta WHERE key = ?").bind(PROFILE_USERNAME_KEY).run();
+    return;
+  }
+  await db
+    .prepare(
+      "INSERT INTO schema_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    )
+    .bind(PROFILE_USERNAME_KEY, username)
+    .run();
+}
 
 export type SingleUserMergeResult = "merged" | "already" | "skipped" | "aborted";
 

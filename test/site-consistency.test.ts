@@ -177,6 +177,15 @@ describe("site consistency", () => {
     }
   });
 
+  it("drives the sidebar avatar from the profile username's GitHub avatar", () => {
+    const common = readFileSync("public/common.js", "utf8");
+    expect(common).toContain("profile_username");
+    expect(common).toContain("https://github.com/${encodeURIComponent(profileUsername)}.png?s=96");
+    const css = readFileSync("public/css/shell.css", "utf8");
+    expect(css).toContain(".account-avatar img");
+    expect(css).toContain("object-fit: cover");
+  });
+
   it("renders the primary nav from a single registry", () => {
     const registry = readFileSync("public/registry.js", "utf8");
     expect(registry).toContain("window.SMSINBOX_MODULES");
@@ -260,9 +269,12 @@ describe("site consistency", () => {
     }
     expect(html).toContain("<title>系统管理 · SMSinBox</title>");
     expect(html).toContain('<h1 class="topbar-title">系统管理</h1>');
-    // Merged UI/UX v2: there is no username to change, so no username form.
+    // The only username surface is the display-only profile nickname form;
+    // there is still no form that changes a login username.
     expect(html).not.toContain('id="username-form"');
-    expect(html).not.toContain('name="username"');
+    expect(html).toContain('id="profile-form"');
+    expect(html).toContain('id="profile-username"');
+    expect(html).toContain("仅用于显示与 GitHub 头像，不用于登录");
     expect(html).toContain('id="password-form"');
     expect(html).toContain('name="current_password"');
     expect(html).toContain('id="session-list"');
@@ -275,6 +287,7 @@ describe("site consistency", () => {
     }
     expect(js).not.toContain("/api/v1/users");
     expect(js).not.toContain("/api/v1/auth/username");
+    expect(js).toContain("/api/v1/auth/profile");
     expect(js).toContain("/api/v1/auth/password");
     expect(js).toContain("current_password");
     expect(js).toContain("/api/v1/auth/sessions");
