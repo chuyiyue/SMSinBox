@@ -164,4 +164,11 @@ describe("site consistency", () => {
     bytes[0] = 9;
     expect(new Uint8Array(copy)).toEqual(new Uint8Array([1, 2, 3]));
   });
+
+  it("routes /mcp to the worker before static assets", () => {
+    const config = readFileSync("wrangler.jsonc", "utf8");
+    const workerFirst = config.match(/"run_worker_first":\s*\[([^\]]*)\]/)?.[1] ?? "";
+    expect(workerFirst).toContain('"/api/*"');
+    expect(workerFirst).toContain('"/mcp"');
+  });
 });
