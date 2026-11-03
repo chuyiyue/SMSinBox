@@ -92,6 +92,29 @@
 }
 :root[data-sidebar="collapsed"] .sidebar-collapse .icon { transform: rotate(180deg); }
 
+/* Collapsed rail: center icons, hide labels and the device list. */
+:root[data-sidebar="collapsed"] .brand {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+:root[data-sidebar="collapsed"] .brand-name,
+:root[data-sidebar="collapsed"] .nav-label,
+:root[data-sidebar="collapsed"] .sidebar-label,
+:root[data-sidebar="collapsed"] .sidebar-add {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+:root[data-sidebar="collapsed"] .sidebar-nav a {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+:root[data-sidebar="collapsed"] .sidebar-devices { display: none; }
+
 .sidebar-devices {
   margin-top: auto;
   min-height: 0;
@@ -213,6 +236,7 @@
   min-width: 0;
   min-height: 100dvh;
   background: var(--bg);
+  transition: margin-left var(--dur-base) var(--ease);
 }
 
 .topbar {
