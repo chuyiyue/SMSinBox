@@ -249,7 +249,12 @@
 }
 
 /* Device page: add form, collapsible cards, API config and collapsed help. */
-.add-device-panel .add-device-head { margin-bottom: 12px; }
+.page-notices { display: grid; gap: 8px; }
+.page-notices:has(.callout:not([hidden])) { margin-bottom: 12px; }
+.page-notices .callout { margin: 0; }
+
+.add-device-panel { display: grid; gap: 12px; }
+.add-device-panel .add-device-head { margin-bottom: 0; }
 .add-device-panel .lede { margin: 0; }
 .add-device-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .add-device-form input { flex: 1 1 220px; min-width: 0; }
@@ -273,17 +278,7 @@
 .device-head { align-items: center; cursor: pointer; }
 .device-head-actions { align-items: center; }
 .device-title { align-items: center; }
-.device-presence { gap: 6px; }
-.device-presence::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  flex: none;
-  border-radius: 50%;
-  background: var(--text-3);
-}
-.device-presence[data-state="recent"]::before { background: var(--success-text); }
-.device-presence[data-state="stale"]::before { background: var(--warning-text); }
+.ui-status-dot[data-status="idle"] { background: var(--text-3); }
 
 .device-toggle {
   min-height: 32px;
@@ -304,7 +299,8 @@
 .device-id code { color: var(--text-3); background: transparent; border: 0; padding: 0; }
 .device-id button { min-height: 28px; font-size: var(--fs-xs); padding: 0 8px; }
 
-.api-config { margin-top: 20px; }
+.api-config { margin-top: 0; }
+.api-config-title { margin: 0 0 4px; font-size: var(--fs-md); }
 .api-config .lede { margin-bottom: 14px; }
 .api-facts {
   display: grid;
@@ -325,8 +321,7 @@
 .api-facts button { min-height: 30px; font-size: var(--fs-xs); padding: 0 10px; }
 .api-config details.fold + details.fold { margin-top: 8px; }
 
-.setup-panel { padding: 0; margin-top: 20px; }
-.setup-details { border: 0; background: transparent; padding: 16px 20px; }
+.setup-details { padding: 12px 14px; }
 .setup-details > summary { font-size: var(--fs-md); }
 .setup-details > summary::marker { color: var(--text-3); }
 
