@@ -94,7 +94,6 @@
             <section class="add-device-panel">
               <div class="add-device-head">
                 <h2 id="add-device-title">添加设备</h2>
-                <p class="lede">每部转发短信的手机是一台设备。添加后会显示一次 Bearer token 和推送链接，请立刻保存。</p>
               </div>
               <form id="device-form" class="add-device-form">
                 <label class="sr-only" for="device-name">设备名称</label>
@@ -126,7 +125,6 @@
           <section class="devices-section" aria-labelledby="devices-title">
             <div class="section-head">
               <h2 id="devices-title">我的设备</h2>
-              <p class="subtle">点击卡片展开查看时间、配置和推送链接管理。</p>
             </div>
             <div id="devices" class="devices cards"></div>
           </section>
@@ -134,7 +132,6 @@
           <template id="api-config-template">
             <section class="api-config">
               <h3 class="api-config-title">API 配置</h3>
-              <p class="lede">Android、已有快捷指令或自建脚本都向同一个完整地址上报短信。请求方法固定为 POST，认证使用设备 token。</p>
               <dl class="api-facts">
                 <div>
                   <dt>请求地址</dt>
@@ -159,7 +156,7 @@
                   <dd><code>application/json</code></dd>
                 </div>
               </dl>
-              <p class="subtle">设备 token 在添加设备时只显示一次；丢失需删除设备后重建。上面的复制按钮复制的是完整请求地址，不是设备 ID。限流 60 次 / 分钟。</p>
+              <p class="subtle">限流：60 次 / 分钟。</p>
               <details class="fold">
                 <summary>JSON 请求体模板</summary>
                 <div class="code-block">
@@ -231,7 +228,6 @@
                     <li>请求体字段不变：<code>from</code>、<code>content</code>、<code>timestamp</code>、<code>device</code>。设备 token 丢失后需删除设备并重建。</li>
                   </ol>
                 </details>
-                <p class="subtle">完整步骤和常见问题见仓库的 <code>docs/ios-setup.md</code>。</p>
               </div>
               <div data-panel="android" hidden>
                 <h3>Android · SmsForwarder</h3>
@@ -242,7 +238,6 @@
                   <li>请求头添加 <code>Authorization: Bearer 设备token</code> 和 <code>Content-Type: application/json</code>。</li>
                   <li>请求体使用上方 JSON 模板。规则里可加关键字「验证码」，少收无关短信。</li>
                 </ol>
-                <p class="subtle">设备 token 只在添加设备时显示一次；丢失需删除设备后重建。</p>
               </div>
               <div data-panel="api" hidden>
                 <h3>通用 API</h3>

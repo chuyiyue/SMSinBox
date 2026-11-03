@@ -27,8 +27,7 @@ describe("device panel secrets", () => {
     const view = describeDevice({ ...DEVICE, push: "active" }, null);
     expect(view).not.toHaveProperty("push_url");
     expect(view).not.toHaveProperty("token");
-    expect(view.pushHint).toContain("不能再查看");
-    expect(view.pushHint).toContain("轮换");
+    expect(view.pushLabel).toBe("推送链接有效");
   });
 
   it("shows the yellow-box credentials only when this response just returned them", () => {
@@ -79,12 +78,12 @@ describe("device panel status", () => {
     expect(receiveTime({ last_seen_at: null }, null)).toEqual({ kind: "none", at: null });
   });
 
-  it("describes shortcut config without claiming the phone switch is visible", () => {
+  it("shows concise device status values", () => {
     const waiting = describeDevice(DEVICE, null);
     expect(waiting.platform).toEqual({ key: "unknown", label: "尚未上报" });
     expect(waiting.platformBadge).toBe("尚未上报");
-    expect(waiting.platformDetail).toContain("会变成 iOS");
-    expect(waiting.shortcut).toContain("要在 iPhone 上确认");
+    expect(waiting.platformDetail).toBe("尚未上报");
+    expect(waiting.shortcut).toBe("尚未收到短信");
     expect(waiting.id).toBe(DEVICE.id);
 
     const ios = describeDevice(
@@ -94,15 +93,14 @@ describe("device panel status", () => {
     expect(ios.platform.label).toBe("iOS");
     expect(ios.platformBadge).toBe("iOS");
     expect(ios.received).toEqual({ kind: "message", at: 20 });
-    expect(ios.shortcut).toContain("已收到 iOS 短信");
-    expect(ios.shortcut).toContain("不能证明自动化仍然开着");
+    expect(ios.shortcut).toBe("已收到 iOS 短信");
 
     const tested = describeDevice(DEVICE, {
       device_id: DEVICE.id,
       reported_device: DEVICE.name,
       received_at: 30,
     });
-    expect(tested.shortcut).toContain("测试短信会写成设备名称");
+    expect(tested.shortcut).toBe("已收到短信（我的 iPhone）");
     expect(tested.platformBadge).toBe("其他");
     expect(tested.platformDetail).toContain("我的 iPhone");
   });

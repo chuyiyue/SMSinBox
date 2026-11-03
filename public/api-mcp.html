@@ -87,26 +87,19 @@
           </div>
         </header>
         <div class="page">
-          <div class="page-intro">
-            <p class="lede">管理外部 API 访问凭证，并连接支持 MCP 协议的 AI Agent。</p>
-            <p class="subtle">外部访问 Token 拥有独立的权限与设备范围，只读访问短信、验证码与设备状态。</p>
-          </div>
-
           <p id="page-error" class="callout danger" hidden></p>
           <p id="page-status" class="callout ok" hidden></p>
 
           <div class="tabs api-tabs" role="tablist" aria-label="API 与 MCP 分区">
             <button id="tab-token" class="tab is-active" type="button" role="tab" aria-selected="true" aria-controls="token-panel" data-tab="tokens">令牌管理</button>
             <button id="tab-mcp" class="tab" type="button" role="tab" aria-selected="false" aria-controls="mcp-panel" data-tab="mcp" tabindex="-1">MCP 接入</button>
+            <button id="tab-permissions" class="tab" type="button" role="tab" aria-selected="false" aria-controls="permissions-panel" data-tab="permissions" tabindex="-1">权限管理</button>
             <button id="tab-docs" class="tab" type="button" role="tab" aria-selected="false" aria-controls="api-panel" data-tab="docs" tabindex="-1">外部 API 文档</button>
           </div>
 
           <!-- Token management -->
           <section id="token-panel" class="panel stack tab-panel" role="tabpanel" aria-labelledby="tab-token" data-panel="tokens">
-            <div>
-              <h2>令牌管理</h2>
-              <p class="subtle">创建、停用与撤销外部访问凭证，每个 Token 拥有独立的权限与设备范围。</p>
-            </div>
+            <h2>令牌管理</h2>
             <div id="token-list" class="devices"></div>
             <details class="fold">
               <summary>如何禁用或撤销凭证</summary>
@@ -117,7 +110,6 @@
           <!-- MCP access -->
           <section id="mcp-panel" class="panel stack tab-panel" role="tabpanel" aria-labelledby="tab-mcp" data-panel="mcp" hidden>
             <h2>MCP 接入</h2>
-            <p class="subtle">提供符合 Model Context Protocol (MCP) 规范的 Streamable HTTP JSON-RPC 端点，供 Cursor、Claude Desktop 等 AI Agent 接入。</p>
             <div class="device-facts">
               <div>
                 <dt>MCP 状态</dt>
@@ -152,10 +144,19 @@
               </div>
             </div>
 
+            <div class="stack" id="mcp-tools-list"></div>
+
             <details class="fold">
               <summary>如何连接 MCP 客户端</summary>
               <p>在 Claude Desktop 的 <code>claude_desktop_config.json</code> 或 Cursor 的 MCP 设置中添加上述通用 JSON 配置即可。MCP 采用 Streamable HTTP 传输协议，直接向 <code>/mcp</code> 端点发起带 Bearer Token 的 POST 请求。</p>
             </details>
+          </section>
+
+          <section id="permissions-panel" class="panel stack tab-panel" role="tabpanel" aria-labelledby="tab-permissions" data-panel="permissions" hidden>
+            <div class="section-head">
+              <h2>权限管理</h2>
+            </div>
+            <div id="permissions-list" class="stack"></div>
           </section>
 
           <!-- API documentation -->
@@ -224,6 +225,8 @@
                 </div>
               </div>
             </div>
+
+            <div id="api-endpoints-details" class="stack"></div>
 
             <details class="fold">
               <summary>如何调用 REST API</summary>

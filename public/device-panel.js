@@ -11,16 +11,6 @@ export function pushLabel(push) {
   return "未生成推送链接";
 }
 
-export function pushLinkHint(push) {
-  if (push === "active") {
-    return "推送链接有效。明文只在创建或轮换后的黄框里，刷新后不能再查看，丢掉请轮换。";
-  }
-  if (push === "revoked") {
-    return "推送链接已撤销。旧链接不会再显示。需要新链接时点生成或轮换，并先确认。";
-  }
-  return "还没有推送链接。生成后请立刻从黄框复制。";
-}
-
 export function pushActions(push) {
   if (push === "active") {
     return [
@@ -67,12 +57,10 @@ export function platformBadge(platform) {
 }
 
 export function platformDetail(platform) {
-  if (platform?.key === "ios") return "最近一条短信的 device 是 iOS。";
-  if (platform?.key === "android") return "最近一条短信的 device 是 Android。";
-  if (platform?.key === "reported") {
-    return `最近一条短信的 device 是「${platform.label}」。测试短信会写成设备名称。`;
-  }
-  return "还没有短信。快捷指令上报后，这里会变成 iOS。";
+  if (platform?.key === "ios") return "iOS";
+  if (platform?.key === "android") return "Android";
+  if (platform?.key === "reported") return platform.label;
+  return "尚未上报";
 }
 
 export function receiveTime(device, latest) {
@@ -106,13 +94,10 @@ export function latestByDevice(messages) {
 }
 
 function shortcutConfigLine(platform, received) {
-  if (received.kind === "none") {
-    return "还没有短信。快捷指令是否装好、自动化是否打开，要在 iPhone 上确认。";
-  }
-  if (platform.key === "ios") {
-    return "已收到 iOS 短信。这只说明推送链接曾经写入过，不能证明自动化仍然开着。";
-  }
-  return `已收到短信，上报的 device 是「${platform.label}」。测试短信会写成设备名称，不能当成 iOS 已装好。自动化开关要在 iPhone 上确认。`;
+  if (received.kind === "none") return "尚未收到短信";
+  if (platform.key === "ios") return "已收到 iOS 短信";
+  if (platform.key === "unknown") return "已收到短信";
+  return `已收到短信（${platform.label}）`;
 }
 
 export function describeDevice(device, latest) {
@@ -127,7 +112,6 @@ export function describeDevice(device, latest) {
     platformDetail: platformDetail(platform),
     push,
     pushLabel: pushLabel(push),
-    pushHint: pushLinkHint(push),
     received,
     shortcut: shortcutConfigLine(platform, received),
     actions: pushActions(push),

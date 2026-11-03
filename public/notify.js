@@ -163,7 +163,7 @@ function renderFields() {
     fields.append(
       field("Bot token", "bot_token", "123456:AA...", "off"),
       field("Chat ID", "chat_id", "数字或 @频道", "off"),
-      help("在哪里获取", "在 Telegram 找 @BotFather，发送 /newbot，把返回的 token 贴到这里。Chat ID 是数字，或频道的 @名称。", "https://core.telegram.org/bots#botfather"),
+      help("在哪里获取", "Bot token：@BotFather；Chat ID：数字或 @频道。", "https://core.telegram.org/bots#botfather"),
     );
     return;
   }
@@ -179,14 +179,14 @@ function renderFields() {
       error.textContent = bad ? "企业微信 Webhook 必须是 qyapi.weixin.qq.com 的 https 地址" : "";
       input.querySelector("input").setAttribute("aria-invalid", bad ? "true" : "false");
     });
-    fields.append(input, error, help("在哪里获取", "在企业微信群里添加群机器人，复制 Webhook 地址。主机必须是 qyapi.weixin.qq.com。", "https://developer.work.weixin.qq.com/document/path/91770"));
+    fields.append(input, error, help("在哪里获取", "复制群机器人的 Webhook URL。", "https://developer.work.weixin.qq.com/document/path/91770"));
     return;
   }
   if (selectedKind === "bark") {
     fields.append(
       field("Device key", "device_key", "Bark 设备密钥", "off"),
       field("服务器", "server", "留空则使用 https://api.day.app", "off"),
-      help("在哪里获取", "打开 Bark App，复制设备密钥。服务器留空则使用 https://api.day.app。", "https://bark.day.app/#/tutorial"),
+      help("在哪里获取", "复制设备密钥；服务器可留空。", "https://bark.day.app/#/tutorial"),
     );
     return;
   }
@@ -206,7 +206,7 @@ function renderFields() {
       input,
       error,
       secretField("签名密钥（可选）", "secret"),
-      help("在哪里获取", "在飞书群里添加自定义机器人，复制 Webhook 地址。开启签名校验时再填入密钥；不填则按未开启校验发送。", "https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot"),
+      help("在哪里获取", "复制群机器人 Webhook；启用签名校验时填写密钥。", "https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot"),
     );
     return;
   }
@@ -226,7 +226,7 @@ function renderFields() {
       input,
       error,
       secretField("签名密钥（可选）", "secret"),
-      help("在哪里获取", "在钉钉群里添加自定义机器人，复制 Webhook 地址。安全设置选择「加签」时，把密钥填到这里。", "https://open.dingtalk.com/document/robots/custom-robot-access"),
+      help("在哪里获取", "复制群机器人 Webhook；启用加签时填写密钥。", "https://open.dingtalk.com/document/robots/custom-robot-access"),
     );
     return;
   }
@@ -243,7 +243,7 @@ function renderFields() {
     extra.replaceChildren();
     if (emailMode === "webhook") {
       extra.append(field("Webhook URL", "webhook_url", "https://example.com/mail", "off"));
-      extra.append(help("在哪里获取", "把通知 POST 到你自己的 https 地址。收件和发件邮箱都会写进通知里。"));
+      extra.append(help("在哪里获取", "HTTPS 地址；通知包含收件与发件邮箱。"));
       return;
     }
     extra.append(
@@ -251,7 +251,6 @@ function renderFields() {
       field("SMTP 用户名", "smtp_username", "smtp-user", "off"),
       secretField("SMTP 密码", "smtp_password"),
       portNote(),
-      help("在哪里获取", "使用支持 465 端口隐式 TLS 的发信服务器。端口固定为 465，不需要填写。"),
     );
   };
   for (const [mode, label] of [["webhook", "Webhook"], ["smtp", "SMTP"]]) {

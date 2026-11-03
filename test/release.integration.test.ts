@@ -652,6 +652,51 @@ describe("release journey", () => {
     expect(asBearer.error).toBe("设备 token 无效");
   });
 
+  it("filters messages by since and rejects invalid timestamps", async () => {
+    const base = Date.now();
+    const before = base - 10 * 24 * 60 * 60 * 1000;
+    const middle = base - 2 * 60 * 60 * 1000;
+    const after = base - 10 * 60 * 1000;
+    await runSql(
+      env.DB,
+      "INSERT INTO messages (id, device_id, from_number, to_number, content, content_hash, code, raw_payload, received_at, created_at) VALUES (?, ?, '10086', '', '旧短信', 'hash-since-old', NULL, '{}', ?, ?)",
+      ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", state.deviceId, before, before],
+    );
+    await runSql(
+      env.DB,
+      "INSERT INTO messages (id, device_id, from_number, to_number, content, content_hash, code, raw_payload, received_at, created_at) VALUES (?, ?, '10086', '', '中间短信', 'hash-since-mid', NULL, '{}', ?, ?)",
+      ["bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", state.deviceId, middle, middle],
+    );
+    await runSql(
+      env.DB,
+      "INSERT INTO messages (id, device_id, from_number, to_number, content, content_hash, code, raw_payload, received_at, created_at) VALUES (?, ?, '10086', '', '新短信', 'hash-since-new', NULL, '{}', ?, ?)",
+      ["cccccccc-cccc-4ccc-8ccc-cccccccccccc", state.deviceId, after, after],
+    );
+
+    const cutoff = base - 3 * 60 * 60 * 1000;
+    const filtered = await expectStatus(await call(`/api/v1/messages?since=${cutoff}`, {}, state.cookie), 200) as {
+      messages: Array<Record<string, unknown>>;
+    };
+    const filteredMessages = filtered.messages;
+    expect(filteredMessages).toEqual(
+      expect.arrayContaining([expect.objectContaining({ content: "中间短信" }), expect.objectContaining({ content: "新短信" })]),
+    );
+    expect(filteredMessages.some((message) => String(message.content) === "旧短信")).toBe(false);
+    expect(filteredMessages.every((message) => Number(message.received_at) >= cutoff)).toBe(true);
+
+    const all = await expectStatus(await call("/api/v1/messages", {}, state.cookie), 200) as {
+      messages: Array<Record<string, unknown>>;
+    };
+    expect(all.messages.length).toBeGreaterThan(filteredMessages.length);
+    expect(all.messages.some((message) => String(message.content) === "旧短信")).toBe(true);
+
+    for (const value of ["abc", "-1", "1.5"]) {
+      const bad = await call(`/api/v1/messages?since=${encodeURIComponent(value)}`, {}, state.cookie);
+      expect(bad.status).toBe(400);
+      expect(await bad.json()).toMatchObject({ ok: false, error: "since 参数无效" });
+    }
+  });
+
   it("ignores a per-device secret on create and authenticates legacy rows by bearer only", async () => {
     // The `secret` column still exists in D1 but is never written or read. An
     // old client that sends it on create is not rejected; the field is ignored.
