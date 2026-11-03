@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { copyBytes } from "../src/auth";
 import { errorText } from "../src/log";
 
-const pages = ["public/index.html", "public/devices.html", "public/notify.html", "public/users.html"];
+const pages = ["public/index.html", "public/devices.html", "public/notify.html", "public/api-mcp.html", "public/users.html"];
 
 function navHrefs(html: string): string[] {
   const nav = html.match(/<nav class="sidebar-nav"[\s\S]*?<\/nav>/)?.[0] ?? "";
@@ -13,7 +13,7 @@ function navHrefs(html: string): string[] {
 describe("site consistency", () => {
   it("uses the same navigation and shell on every app page", () => {
     const hrefs = pages.map((file) => navHrefs(readFileSync(file, "utf8")));
-    expect(hrefs[0]).toEqual(["/", "/devices.html", "/notify.html", "/users.html"]);
+    expect(hrefs[0]).toEqual(["/", "/devices.html", "/notify.html", "/api-mcp.html", "/users.html"]);
     for (const file of pages) {
       const html = readFileSync(file, "utf8");
       expect(navHrefs(html)).toEqual(hrefs[0]);
@@ -49,9 +49,11 @@ describe("site consistency", () => {
     const devices = readFileSync("public/devices.js", "utf8");
     const notify = readFileSync("public/notify.js", "utf8");
     const users = readFileSync("public/users.js", "utf8");
+    const apimcp = readFileSync("public/api-mcp.js", "utf8");
     expect(devices).toContain("if (!result.response.ok)");
     expect(notify).toContain("if (!result.response.ok)");
     expect(users).toContain("if (!result.response.ok)");
+    expect(apimcp).toContain("if (!result.response.ok)");
     expect(devices).toContain("flashLabel");
     expect(readFileSync("public/inbox.js", "utf8")).toContain("flashLabel");
     expect(readFileSync("public/common.js", "utf8")).toContain("还没有设备。");
