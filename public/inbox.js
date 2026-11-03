@@ -1,11 +1,14 @@
 import {
   api,
+  closeDrawer,
+  CodeChip,
   flashLabel,
   formatDateTime,
   initShell,
   isUnauthorized,
   loadNav,
   logout,
+  openDrawer,
   receivedStamp,
   renderContent,
   toast,
@@ -43,9 +46,6 @@ let summary;
 let errorBox;
 let deviceSelect;
 let banner;
-let drawer;
-let drawerSender;
-let drawerBody;
 let qInput;
 let qCount;
 let queryError;
@@ -70,9 +70,6 @@ function startView() {
   errorBox = document.querySelector("#inbox-error");
   deviceSelect = document.querySelector("#device");
   banner = document.querySelector("#live-banner");
-  drawer = document.querySelector("#message-drawer");
-  drawerSender = document.querySelector("#drawer-sender");
-  drawerBody = document.querySelector("#drawer-body");
   qInput = document.querySelector("input[name=q]");
   qCount = document.querySelector("#q-count");
   queryError = document.querySelector("#query-error");
@@ -94,10 +91,6 @@ function startView() {
     onEscape() {
       closeDrawer();
     },
-  });
-  document.querySelector("#drawer-close")?.addEventListener("click", closeDrawer);
-  drawer?.addEventListener("click", (event) => {
-    if (event.target === drawer) closeDrawer();
   });
   media = window.matchMedia("(max-width: 639px)");
   media.addEventListener("change", onMedia);
@@ -390,7 +383,6 @@ function renderMessage(message) {
   article.className = "message-row";
   article.id = `msg-${message.id}`;
   article.tabIndex = 0;
-  article.setAttribute("aria-expanded", "false");
   const senderText = message.from_number || "未知发件人";
   const line = document.createElement("div");
   line.className = "message-row-line";
@@ -410,14 +402,9 @@ function renderMessage(message) {
   slot.className = "chip-slot";
   if (message.code && !unreadable(message)) slot.append(codeChip(message.code));
   line.append(avatarNode(senderText), senderLine, timeNode(message, "time-end"), preview, slot);
-  const detail = document.createElement("div");
-  detail.className = "message-detail";
-  detail.append(buildDetail(message));
-  article.append(line, detail);
+  article.append(line);
   article.addEventListener("click", (event) => {
     if (event.target.closest("button, a")) return;
-    // Clicks inside the open detail (selecting text, links) must not collapse it.
-    if (event.target.closest(".message-detail")) return;
     openMessage(article, message);
   });
   article.addEventListener("keydown", (event) => {
@@ -433,41 +420,28 @@ function openMessage(article, message) {
   state.selectedId = message.id;
   for (const row of list.querySelectorAll(".message-row.is-selected")) row.classList.remove("is-selected");
   article.classList.add("is-selected");
-  if (window.matchMedia("(max-width: 639px)").matches) {
-    openDrawer(message);
-    return;
-  }
-  const open = article.classList.contains("is-open");
-  for (const row of list.querySelectorAll(".message-row.is-open")) {
-    row.classList.remove("is-open");
-    row.setAttribute("aria-expanded", "false");
-  }
-  if (!open) {
-    article.classList.add("is-open");
-    article.setAttribute("aria-expanded", "true");
-  }
+  showDrawer(message);
 }
 
-function openDrawer(message) {
-  if (!drawer) return;
-  drawerSender.textContent = message.from_number || "未知发件人";
-  drawerBody.replaceChildren(buildDetail(message));
-  drawer.hidden = false;
-  document.body.classList.add("drawer-open");
-  document.querySelector("#drawer-close")?.focus();
+function showDrawer(message) {
+  openDrawer({
+    title: message.from_number || "未知发件人",
+    bodyHTML: buildDetail(message),
+  });
 }
 
-function closeDrawer() {
-  if (!drawer || drawer.hidden) return;
-  drawer.hidden = true;
-  document.body.classList.remove("drawer-open");
-}
-
-// One click reveals everything. Three blocks only: body, device receive time,
-// and the copy actions. No message id, no server insert time, no device/SIM.
 function buildDetail(message) {
   const wrap = document.createElement("div");
   wrap.className = "message-detail-inner";
+
+  const meta = document.createElement("div");
+  meta.className = "ui-drawer-meta";
+  meta.append(
+    detailRow("发件方", message.from_number || "未知发件人"),
+    detailRow("设备", message.device_name || message.device_id || "未知设备"),
+  );
+  wrap.append(meta);
+
   if (unreadable(message)) {
     const warn = document.createElement("div");
     warn.className = "callout warn";
@@ -478,6 +452,7 @@ function buildDetail(message) {
     content.className = "content";
     renderContent(content, message.content, message.code);
     wrap.append(content);
+    if (message.code) wrap.append(CodeChip(message.code, message.code_source ?? "regex"));
   }
   const received = document.createElement("p");
   received.className = "received-at";
@@ -489,7 +464,6 @@ function buildDetail(message) {
   if (!unreadable(message)) {
     const actions = document.createElement("div");
     actions.className = "actions";
-    if (message.code) actions.append(labeledCopy(message.code, "复制验证码", true));
     const full = document.createElement("button");
     full.type = "button";
     full.className = "secondary";
@@ -501,20 +475,34 @@ function buildDetail(message) {
     actions.append(full);
     wrap.append(actions);
   }
+
+  wrap.append(rawJsonFold(message));
   return wrap;
 }
 
-function labeledCopy(code, label, primary) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = primary ? "primary" : "secondary";
-  button.textContent = label;
-  button.addEventListener("click", async (event) => {
-    event.stopPropagation();
-    const copied = await flashLabel(button, code, label);
-    if (copied) toast(`验证码 ${code} 已复制`);
-  });
-  return button;
+function detailRow(label, value) {
+  const row = document.createElement("div");
+  row.className = "ui-drawer-meta-row";
+  const dt = document.createElement("span");
+  dt.className = "ui-drawer-meta-label";
+  dt.textContent = label;
+  const dd = document.createElement("span");
+  dd.className = "ui-drawer-meta-value";
+  dd.textContent = value;
+  row.append(dt, dd);
+  return row;
+}
+
+function rawJsonFold(message) {
+  const details = document.createElement("details");
+  details.className = "fold";
+  const summary = document.createElement("summary");
+  summary.textContent = "原始 JSON";
+  const pre = document.createElement("pre");
+  pre.className = "code-block";
+  pre.textContent = JSON.stringify(message, null, 2);
+  details.append(summary, pre);
+  return details;
 }
 
 function codeChip(code) {
@@ -799,7 +787,7 @@ function clearError() {
 }
 
 function onInboxKey(event) {
-  if (document.querySelector(".modal-root, dialog[open]")) return;
+  if (document.querySelector(".modal-root, dialog[open], .ui-drawer")) return;
   if (event.key === "Escape" && document.activeElement === qInput) {
     event.stopPropagation();
     if (qInput.value) {

@@ -316,7 +316,7 @@ export function initShell(options = {}) {
     if (target.closest("#search-toggle")) openSearch();
   });
   document.addEventListener("keydown", (event) => {
-    if (document.querySelector(".modal-root, dialog[open]")) return;
+    if (document.querySelector(".modal-root, dialog[open], .ui-drawer")) return;
     if (event.key === "Escape") {
       closeMenu();
       closeMore();
@@ -474,4 +474,140 @@ function appendLinked(parent, text) {
     last = index + match[0].length;
   }
   if (last < text.length) parent.append(document.createTextNode(text.slice(last)));
+}
+
+// ─── Shared UI components ────────────────────────────────────────────────────
+
+let drawerState = null;
+
+export function openDrawer({ title = "", bodyHTML = "" } = {}) {
+  closeDrawer();
+  const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const root = document.createElement("div");
+  root.className = "ui-drawer";
+  root.setAttribute("role", "dialog");
+  root.setAttribute("aria-modal", "true");
+  const titleId = `ui-drawer-${Math.random().toString(36).slice(2, 8)}`;
+  root.setAttribute("aria-labelledby", titleId);
+
+  const overlay = document.createElement("div");
+  overlay.className = "ui-drawer-overlay";
+  overlay.setAttribute("aria-hidden", "true");
+  overlay.addEventListener("click", closeDrawer);
+
+  const panel = document.createElement("div");
+  panel.className = "ui-drawer-panel";
+
+  const head = document.createElement("header");
+  head.className = "ui-drawer-head";
+  const heading = document.createElement("h2");
+  heading.id = titleId;
+  heading.className = "ui-drawer-title";
+  heading.textContent = String(title);
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "ui-drawer-close secondary";
+  close.textContent = "关闭";
+  close.addEventListener("click", closeDrawer);
+  head.append(heading, close);
+
+  const body = document.createElement("div");
+  body.className = "ui-drawer-body";
+  if (typeof bodyHTML === "string") body.innerHTML = bodyHTML;
+  else if (bodyHTML?.nodeType) body.append(bodyHTML);
+
+  panel.append(head, body);
+  root.append(overlay, panel);
+  document.body.append(root);
+  document.body.classList.add("drawer-open");
+
+  const onKey = (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeDrawer();
+  };
+  document.addEventListener("keydown", onKey, true);
+  drawerState = { root, trigger, onKey };
+  (panel.querySelector("button, input, select, textarea, a[href]") || close).focus();
+  return root;
+}
+
+export function closeDrawer() {
+  if (!drawerState) return;
+  const { root, trigger, onKey } = drawerState;
+  drawerState = null;
+  document.removeEventListener("keydown", onKey, true);
+  root.remove();
+  document.body.classList.remove("drawer-open");
+  if (trigger?.isConnected) trigger.focus();
+}
+
+function codeSourceLabel(source) {
+  if (source === "regex") return "正则识别";
+  if (source === "workers-ai") return "AI 识别";
+  return "";
+}
+
+export function CodeChip(code, source) {
+  const value = String(code ?? "");
+  const box = document.createElement("span");
+  box.className = "ui-codechip";
+  const chip = document.createElement("span");
+  chip.className = "ui-codechip-code";
+  chip.textContent = value;
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "ui-codechip-copy secondary";
+  copy.textContent = "复制";
+  copy.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    await flashLabel(copy, value, "复制");
+  });
+  box.append(chip, copy);
+  const label = codeSourceLabel(source);
+  if (label) {
+    const badge = document.createElement("span");
+    badge.className = "ui-codechip-source";
+    badge.textContent = label;
+    box.append(badge);
+  }
+  return box;
+}
+
+export function statusDot(status, label = "") {
+  const dot = document.createElement("span");
+  dot.className = "ui-status-dot";
+  dot.setAttribute("data-status", status === "warn" ? "warn" : status === "bad" ? "bad" : "ok");
+  if (!label) return dot;
+  const wrap = document.createElement("span");
+  wrap.className = "ui-status";
+  wrap.append(dot);
+  const text = document.createElement("span");
+  text.textContent = String(label);
+  wrap.append(text);
+  return wrap;
+}
+
+export function emptyState({ title = "", text = "", actions = [] } = {}) {
+  const box = document.createElement("div");
+  box.className = "empty-state";
+  if (title) {
+    const heading = document.createElement("h2");
+    heading.className = "empty-title";
+    heading.textContent = String(title);
+    box.append(heading);
+  }
+  if (text) {
+    const paragraph = document.createElement("p");
+    paragraph.textContent = String(text);
+    box.append(paragraph);
+  }
+  if (actions.length) {
+    const wrap = document.createElement("div");
+    wrap.className = "empty-actions";
+    for (const action of actions) if (action?.nodeType) wrap.append(action);
+    box.append(wrap);
+  }
+  return box;
 }
