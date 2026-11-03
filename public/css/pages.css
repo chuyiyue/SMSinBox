@@ -470,67 +470,14 @@
   .session-row button { width: 100%; }
 
   .settings { grid-template-columns: 1fr; }
-  .settings-nav {
-    position: static;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    padding: 6px;
-    overflow-x: auto;
-    box-shadow: none;
-  }
-  .settings-nav a { min-height: 32px; white-space: nowrap; padding: 0 10px; }
-  .settings-mobile-header { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; }
-  .settings-mobile-header h2 { margin: 0; font-size: var(--fs-lg); }
-  .settings-mobile-header #settings-back { min-height: 32px; }
-  .settings-nav {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 8px;
-    overflow: visible;
-    box-shadow: none;
-  }
-  .settings-nav a {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    min-height: 56px;
-    padding: 10px 12px;
-    white-space: normal;
-  }
-  .setting-item-meta {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
-    min-width: 0;
-    flex: 1;
-  }
-  .setting-item-title { font-weight: 600; }
-  .setting-item-desc {
-    display: block;
-    font-size: var(--fs-xs);
-    color: var(--text-3);
-  }
-  .setting-item-arrow {
-    display: inline-flex;
-    font-size: 1.5rem;
-    line-height: 1;
-    color: var(--text-3);
-  }
-  .settings-body { display: block; }
+  .settings-nav { display: none; }
   .settings-section {
-    display: none;
     padding: var(--space-4);
     border: 1px solid var(--border);
     border-radius: var(--r-lg);
     background: var(--surface);
   }
-  .settings-section.is-visible { display: block; }
 }
-
-.settings-mobile-header { display: none; }
 .setting-item-meta { display: flex; flex-direction: column; gap: 2px; }
 .setting-item-title { font-weight: 600; }
 .setting-item-desc, .setting-item-arrow { display: none; }
