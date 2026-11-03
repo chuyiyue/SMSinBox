@@ -75,7 +75,7 @@
           </div>
           <p id="notify-error" class="callout danger" hidden></p>
           <p id="notify-status" class="callout ok" hidden></p>
-          <div id="notify-list" class="devices"></div>
+          <div id="notify-list" class="channel-grid"></div>
           <p class="privacy">渠道配置保存在你自己的 D1 数据库中；日志不会记录正文、token 或密码。</p>
         </div>
       </div>
@@ -109,7 +109,7 @@
         <button id="more-close" class="secondary" type="button">关闭</button>
       </div>
     </div>
-    <dialog id="notify-dialog" class="modal">
+    <dialog id="notify-dialog" class="modal wide">
       <div class="modal-card">
         <h2 id="notify-dialog-title">添加渠道</h2>
         <div id="kind-step">
@@ -126,6 +126,13 @@
             <button type="submit">添加</button>
           </div>
         </form>
+        <div id="notify-view" class="stack" hidden>
+          <div id="notify-view-fields"></div>
+          <p class="subtle">创建后不能修改配置。要更换密钥，删除这条渠道再添加。</p>
+          <div class="modal-actions">
+            <button id="notify-view-close" class="secondary" type="button">关闭</button>
+          </div>
+        </div>
       </div>
     </dialog>
     <script type="module" src="/notify.js"></script>
