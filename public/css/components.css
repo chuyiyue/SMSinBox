@@ -700,7 +700,10 @@ kbd {
 .ui-drawer-overlay {
   position: absolute;
   inset: 0;
+  border: 0;
+  padding: 0;
   background: var(--overlay);
+  cursor: pointer;
 }
 
 .ui-drawer-panel {
