@@ -257,6 +257,17 @@ describe("site consistency", () => {
     expect(js).toContain("/api/v1/auth/sessions/revoke-others");
     expect(js).toContain("initTotpSettings");
     expect(js).toContain("if (!result.response.ok)");
+
+    // Mobile shows all four sections expanded in one scroll: there is no
+    // list-to-detail folding, no back header, and no section is CSS-hidden.
+    expect(html).not.toContain("settings-mobile-header");
+    expect(html).not.toContain('id="settings-back"');
+    expect(js).not.toContain("initMobileSettingsNav");
+    expect(js).not.toContain("mobileSection");
+    const css = readFileSync("public/css/pages.css", "utf8");
+    expect(css).toContain(".settings-nav { display: none; }");
+    expect(css).not.toContain(".settings-section.is-visible");
+    expect(css).not.toMatch(/\.settings-section\s*\{[^}]*display:\s*none/);
   });
 
   it("loads the displayed version from package.json instead of hardcoding it", () => {
