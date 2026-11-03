@@ -336,3 +336,118 @@
   .api-facts { grid-template-columns: 1fr; }
   .device-head { align-items: flex-start; }
 }
+
+/* API & MCP page: top tabs, endpoint list, token dialog scopes. */
+.tab-panel[hidden] { display: none; }
+
+.api-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin: 0 0 16px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.api-tabs .tab {
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: var(--r-sm);
+  font-weight: 600;
+}
+
+.api-tabs .tab:hover { color: var(--text); }
+
+.api-tabs .tab.is-active,
+.api-tabs .tab[aria-selected="true"] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-1);
+}
+
+.config-sample { display: grid; gap: 12px; }
+.config-sample .subtle { margin: 0; }
+
+.endpoints { display: grid; gap: 8px; }
+.endpoints h3 { margin: 0; }
+.endpoints .subtle { margin: 0; }
+
+.endpoint-list {
+  display: grid;
+  margin: 4px 0 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.endpoint-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 12px;
+  align-items: baseline;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.endpoint-row:last-child { border-bottom: 0; }
+
+.method {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  background: var(--success-soft);
+  color: var(--success-text);
+  white-space: nowrap;
+}
+
+.endpoint-path {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+.endpoint-desc {
+  grid-column: 2;
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.scope-fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 12px;
+}
+
+.scope-fieldset legend {
+  padding: 0 6px;
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+.scope-option { color: var(--text-2); padding: 2px 0; }
+.scope-option strong { color: var(--text); font-family: var(--font-mono); font-weight: 600; }
+
+.scope-device-picker {
+  padding-left: 24px;
+  margin-top: 6px;
+}
+
+@media (max-width: 639px) {
+  .api-tabs { display: flex; width: 100%; }
+  .api-tabs .tab { flex: 1; padding: 0 8px; }
+  .endpoint-row { grid-template-columns: 1fr; gap: 4px; }
+  .endpoint-path, .endpoint-desc { grid-column: 1; }
+}
