@@ -241,4 +241,13 @@ function markActiveNav(path) {
     if (on) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
   }
+  // System management is not a nav entry; its entry point is the sidebar
+  // account button, which carries the current-page state instead.
+  const account = document.querySelector(".account-btn");
+  if (account) {
+    const on = path === "/users.html";
+    account.classList.toggle("active", on);
+    if (on) account.setAttribute("aria-current", "page");
+    else account.removeAttribute("aria-current");
+  }
 }

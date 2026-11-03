@@ -289,6 +289,14 @@
 
 .account-btn:hover { background: var(--sidebar-bg-hover); color: var(--sidebar-text-strong); }
 
+/* Current-page state for the account button: it is the system-management
+   entry (the module no longer renders in the nav), so it reuses the nav
+   active colors rather than inventing its own. */
+.account-btn.active {
+  background: var(--sidebar-active-bg);
+  color: var(--sidebar-active-ink);
+}
+
 .account-avatar {
   width: 30px;
   height: 30px;
