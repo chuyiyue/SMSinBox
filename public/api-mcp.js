@@ -180,6 +180,7 @@ const API_ENDPOINTS = [
     response: JSON.stringify({ ok: true, data: { id: "<device-id>", name: "Device Alpha", platform: "ios", last_seen_at: 1710000000000, status: "online", last_message_at: 1710000000000 } }, null, 2),
   },
 ];
+let tokenListEl;
 let tokenCountEl;
 let pageErrorEl;
 let pageStatusEl;
