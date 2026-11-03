@@ -29,7 +29,7 @@ describe("site consistency", () => {
       expect(html).toContain('src="/sidebar-boot.js"');
       expect(html).toContain('class="topbar"');
       expect(html).toContain('placeholder="搜索正文、号码或验证码"');
-      expect(html).toContain('src="/mark.svg"');
+      expect(html).toContain('src="/logo.png"');
       expect(html).toContain("SMSinBox");
     }
   });
@@ -40,7 +40,7 @@ describe("site consistency", () => {
       expect(html).toContain('class="auth-body"');
       expect(html).toContain('class="auth-card"');
       expect(html).toContain('class="brand"');
-      expect(html).toContain('src="/mark.svg"');
+      expect(html).toContain('src="/logo.png"');
     }
   });
 
