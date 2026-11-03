@@ -16,6 +16,11 @@
   },
   // database_id 可留空：当前 Wrangler 的配置校验不强制填写。
   // 远程部署前运行 `npx wrangler d1 create smsinbox`，把返回的 UUID 填到 database_id。
+  // Workers AI fallback for code extraction. Local dev without this binding
+  // still works: the AI path is skipped when env.AI is absent.
+  "ai": {
+    "binding": "AI"
+  },
   "d1_databases": [
     {
       "binding": "DB",

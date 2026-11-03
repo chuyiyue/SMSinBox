@@ -17,6 +17,7 @@
 - `0007_totp.sql`
 - `0008_device_identity.sql`
 - `0009_api_tokens.sql`
+- `0010_message_code_source.sql`
 
 `0005_device_push.sql` 只追加 `push_token_hash`、`push_revoked_at` 和唯一索引。它不改已有 `token_hash`，不改短信，不删行。SQLite 的唯一索引允许多个 NULL，还没签发推送链接的旧设备可以共存。
 
@@ -28,7 +29,9 @@
 
 `0009_api_tokens.sql` 新增 `api_tokens` 表，为外部 REST API 与 MCP 服务提供独立访问 Token，支持权限与设备范围控制。不改动已有用户、设备和短信表。
 
-新 Worker 会读取推送列和 TOTP 列。数据库还没跑过 `0005` / `0007` / `0008` / `0009` 时不要部署这份 Worker。旧 Worker 不读这些列，所以先迁移再部署是安全的。
+`0010_message_code_source.sql` 只给 `messages` 追加 `code_source` 列（`regex` / `workers-ai`，无码为 NULL），并把已有带码短信回填为 `regex`。新 Worker 入库时会写这一列：正则提到码记 `regex`，正则未命中时由 Workers AI 兜底识别并记 `workers-ai`。还没跑过 `0010` 时不要部署这份 Worker。
+
+新 Worker 会读取推送列和 TOTP 列。数据库还没跑过 `0005` / `0007` / `0008` / `0009` / `0010` 时不要部署这份 Worker。旧 Worker 不读这些列，所以先迁移再部署是安全的。
 
 ## 已在本地完成
 
@@ -46,7 +49,7 @@
 
 1. 确认 `wrangler.jsonc` 里的 `database_id` 是这个账号的 D1。空着时按 README 创建并填上，不要写一个假的 UUID。
 2. 备份远程库：`npx wrangler d1 export smsinbox --remote --output smsinbox-backup.sql`。备份文件留在本机，不要提交。
-3. 先迁移再部署：`npx wrangler d1 migrations apply smsinbox --remote`。看到 `0005_device_push.sql`、`0006_single_user.sql`、`0007_totp.sql`、`0008_device_identity.sql` 和 `0009_api_tokens.sql` 都已应用后再继续。本地用 `--local`。
+3. 先迁移再部署：`npx wrangler d1 migrations apply smsinbox --remote`。看到 `0005_device_push.sql`、`0006_single_user.sql`、`0007_totp.sql`、`0008_device_identity.sql`、`0009_api_tokens.sql` 和 `0010_message_code_source.sql` 都已应用后再继续。本地用 `--local`。
 4. 确认 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 已经用 `wrangler secret put` 设置。已经设置过的 `CONTENT_KEY` 不要更换或清空，否则旧的加密短信无法解密。
 5. `npx wrangler deploy`。
 6. 只用管理员密码登录（旧客户端带 username 也能登录，但会被忽略）。新建设备，确认接口同时给出一次性系统 JWT Bearer 和一次性推送链接。刷新后两样都不再出现。需要两步验证时，在「用户」页下方的「两步验证」卡片里绑定验证器并保存恢复码；之后登录会多一步验证码。

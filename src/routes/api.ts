@@ -63,7 +63,7 @@ import {
   updatePasswordHash,
 } from "../db";
 import { dedupHash } from "../dedup";
-import { extractCode } from "../extract";
+import { recognizeCode } from "../code-recognition";
 import { clientAddress, isCrossSite, json, readCookie, readLimitedBytes, rejectsSensitiveWrite } from "../http";
 import { errorText, logError, logInfo } from "../log";
 import { issueSession, publicUser, requireUser } from "../session";
@@ -842,7 +842,8 @@ async function testDevice(request: Request, env: Env, ctx: WaitCtx, rawId: strin
   const nonce = crypto.randomUUID().slice(0, 8);
   const content = buildTestSms(nonce);
   const from = "SMSinBox";
-  const code = extractCode(content);
+  const recognized = await recognizeCode(env, content);
+  const code = recognized.code;
   const contentHash = await dedupHash({ deviceId: device.id, from, content, receivedAt: now });
   const sealed = await sealMessage(contentKey, {
     content,
@@ -869,6 +870,7 @@ async function testDevice(request: Request, env: Env, ctx: WaitCtx, rawId: strin
       content: sealed.content,
       contentHash,
       code: sealed.code,
+      codeSource: recognized.source,
       rawPayload: sealed.rawPayload,
       receivedAt: now,
       createdAt: now,
@@ -884,7 +886,13 @@ async function testDevice(request: Request, env: Env, ctx: WaitCtx, rawId: strin
   }
 
   await touchDevice(env.DB, device.id, now);
-  logInfo({ message: "sms_test_stored", device_id: device.id, message_id: messageId, has_code: code !== null });
+  logInfo({
+    message: "sms_test_stored",
+    device_id: device.id,
+    message_id: messageId,
+    has_code: code !== null,
+    code_source: recognized.source,
+  });
   scheduleNotify(ctx, () =>
     notifyStoredSms(env, user.id, {
       from,

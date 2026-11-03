@@ -25,6 +25,7 @@ const EXPECTED_MIGRATIONS = [
   "0007_totp.sql",
   "0008_device_identity.sql",
   "0009_api_tokens.sql",
+  "0010_message_code_source.sql",
 ];
 const TABLES = [
   "api_tokens",
@@ -275,7 +276,7 @@ describe("release migrations", () => {
 
     // The worker under test reads the later additive columns, so finish the
     // schema before exercising login on the legacy rows.
-    await applyFiles(["0006_single_user.sql", "0007_totp.sql", "0008_device_identity.sql", "0009_api_tokens.sql"]);
+    await applyFiles(["0006_single_user.sql", "0007_totp.sql", "0008_device_identity.sql", "0009_api_tokens.sql", "0010_message_code_source.sql"]);
     const migrated = await env.DB.prepare("PRAGMA table_info(devices)").all<{ name: string; dflt_value: unknown }>();
     expect(migrated.results.map((column) => column.name)).toEqual([
       "id",
@@ -348,6 +349,49 @@ describe("release migrations", () => {
     );
     expect(viaBearer.ok).toBe(true);
   }, 30_000);
+
+  it("0010 adds code_source and backfills existing codes as regex", async () => {
+    await resetSchema("0009_api_tokens.sql");
+    const sql = readFileSync("migrations/0010_message_code_source.sql", "utf8");
+    expect(sql).toMatch(/ADD COLUMN code_source/);
+    expect(sql).toMatch(/SET code_source = 'regex' WHERE code IS NOT NULL/);
+
+    const before = await env.DB.prepare("PRAGMA table_info(messages)").all<{ name: string }>();
+    expect(before.results.map((column) => column.name)).not.toContain("code_source");
+
+    await runSql(
+      env.DB,
+      "INSERT INTO users (id, username, password_hash, role, created_at) VALUES (?, ?, ?, 'member', ?)",
+      ["user-code-source", "code-source", "hash", 1],
+    );
+    await runSql(
+      env.DB,
+      "INSERT INTO devices (id, user_id, name, token_hash, created_at) VALUES (?, ?, ?, ?, ?)",
+      ["device-code-source", "user-code-source", "旧手机", "hash-code-source", 1],
+    );
+    await runSql(
+      env.DB,
+      "INSERT INTO messages (id, device_id, from_number, to_number, content, content_hash, code, raw_payload, received_at, created_at) VALUES (?, ?, '10086', '', '验证码 123456', 'hash-source-1', '123456', '{}', 1, 1)",
+      ["message-with-code", "device-code-source"],
+    );
+    await runSql(
+      env.DB,
+      "INSERT INTO messages (id, device_id, from_number, to_number, content, content_hash, code, raw_payload, received_at, created_at) VALUES (?, ?, '10086', '', '普通通知', 'hash-source-2', NULL, '{}', 2, 2)",
+      ["message-without-code", "device-code-source"],
+    );
+
+    await applyFiles(["0010_message_code_source.sql"]);
+
+    const after = await env.DB.prepare("PRAGMA table_info(messages)").all<{ name: string }>();
+    expect(after.results.map((column) => column.name)).toContain("code_source");
+    const rows = await env.DB.prepare(
+      "SELECT id, code, code_source FROM messages ORDER BY id",
+    ).all<{ id: string; code: string | null; code_source: string | null }>();
+    expect(rows.results).toEqual([
+      { id: "message-with-code", code: "123456", code_source: "regex" },
+      { id: "message-without-code", code: null, code_source: null },
+    ]);
+  });
 
   it("adds schema_meta without moving devices or deleting users", async () => {
     await resetSchema("0005_device_push.sql");

@@ -5,6 +5,7 @@ import { readRawMeta } from "./parse";
 import { messageMatchesQuery } from "./search";
 import type {
   ApiTokenRecord,
+  CodeSource,
   DeviceRecord,
   DeviceView,
   ListedSession,
@@ -24,7 +25,7 @@ export const MAX_DEVICES = 50;
 export const ENCRYPTED_SEARCH_LIMIT = 500;
 
 const MESSAGE_COLUMNS = `m.id, m.device_id, d.name AS device_name, m.from_number, m.to_number,
-              m.content, m.code, m.raw_payload, m.received_at, m.created_at, m.encrypted`;
+              m.content, m.code, m.code_source, m.raw_payload, m.received_at, m.created_at, m.encrypted`;
 
 export function retentionDays(value: string | undefined): number {
   const parsed = Number(value);
@@ -818,6 +819,7 @@ export async function insertMessage(
     content: string;
     contentHash: string;
     code: string | null;
+    codeSource: CodeSource | null;
     rawPayload: string;
     receivedAt: number;
     createdAt: number;
@@ -827,9 +829,9 @@ export async function insertMessage(
   await db
     .prepare(
       `INSERT INTO messages (
-         id, device_id, from_number, to_number, content, content_hash, code, raw_payload,
+         id, device_id, from_number, to_number, content, content_hash, code, code_source, raw_payload,
          received_at, created_at, encrypted
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       message.id,
@@ -839,6 +841,7 @@ export async function insertMessage(
       message.content,
       message.contentHash,
       message.code,
+      message.codeSource,
       message.rawPayload,
       message.receivedAt,
       message.createdAt,
@@ -999,6 +1002,7 @@ async function revealMessage(row: MessageRecord, key: ContentKey): Promise<Messa
     to_number: row.to_number,
     content: await revealText(key, row.content, encrypted),
     code: await revealCode(key, row.code, encrypted),
+    code_source: row.code === null ? null : row.code_source,
     sim: meta.sim,
     reported_device: meta.device,
     received_at: row.received_at,
@@ -1090,7 +1094,7 @@ export async function touchApiTokenLastUsed(db: D1Database, tokenId: string, las
 // When scopeDeviceIds is non-empty, SQL IN clause is built dynamically (D1 doesn't support array bindings).
 
 const EXT_MESSAGE_COLUMNS = `m.id, m.device_id, d.name AS device_name, m.from_number, m.to_number,
-              m.content, m.code, m.raw_payload, m.received_at, m.created_at, m.encrypted`;
+              m.content, m.code, m.code_source, m.raw_payload, m.received_at, m.created_at, m.encrypted`;
 
 export async function listExtMessages(
   db: D1Database,

@@ -17,7 +17,7 @@ import {
   RATE_LIMIT_PER_MINUTE,
   touchDevice,
 } from "../db";
-import { extractCode } from "../extract";
+import { recognizeCode } from "../code-recognition";
 import { json, MAX_BODY_BYTES, readLimitedBytes } from "../http";
 import { logInfo } from "../log";
 import { notifyStoredSms, scheduleNotify } from "../notify";
@@ -148,7 +148,8 @@ async function storeSms(
   const duplicate = await duplicateResponse(env, device.id, contentHash, now, contentKey);
   if (duplicate) return duplicate;
 
-  const code = extractCode(parsed.sms.content);
+  const recognized = await recognizeCode(env, parsed.sms.content);
+  const code = recognized.code;
   const sealed = await sealMessage(contentKey, {
     content: parsed.sms.content,
     code,
@@ -165,6 +166,7 @@ async function storeSms(
       content: sealed.content,
       contentHash,
       code: sealed.code,
+      codeSource: recognized.source,
       rawPayload: sealed.rawPayload,
       receivedAt: parsed.sms.receivedAt,
       createdAt: now,
@@ -178,7 +180,13 @@ async function storeSms(
   }
 
   await touchDevice(env.DB, device.id, now);
-  logInfo({ message: "sms_stored", device_id: device.id, message_id: id, has_code: code !== null });
+  logInfo({
+    message: "sms_stored",
+    device_id: device.id,
+    message_id: id,
+    has_code: code !== null,
+    code_source: recognized.source,
+  });
   scheduleNotify(ctx, () =>
     notifyStoredSms(env, device.user_id, {
       from: parsed.sms.from,

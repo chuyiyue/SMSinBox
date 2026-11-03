@@ -167,23 +167,23 @@ beforeAll(async () => {
   // Device A: msg 1 (with OTP)
   await runSql(
     db,
-    `INSERT INTO messages (id, device_id, from_number, to_number, content, content_hash, code, raw_payload, received_at, created_at, encrypted)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-    [msgA1Id, deviceAId, "10086", "13800000000", "【中国移动】您的验证码是 889900，请勿泄露给他人。", "chash_a1", "889900", "{}", now - 20_000, now - 20_000],
+    `INSERT INTO messages (id, device_id, from_number, to_number, content, content_hash, code, code_source, raw_payload, received_at, created_at, encrypted)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [msgA1Id, deviceAId, "10086", "13800000000", "【中国移动】您的验证码是 889900，请勿泄露给他人。", "chash_a1", "889900", "regex", "{}", now - 20_000, now - 20_000],
   );
   // Device A: msg 2 (regular notification)
   await runSql(
     db,
-    `INSERT INTO messages (id, device_id, from_number, to_number, content, content_hash, code, raw_payload, received_at, created_at, encrypted)
-     VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 0)`,
+    `INSERT INTO messages (id, device_id, from_number, to_number, content, content_hash, code, code_source, raw_payload, received_at, created_at, encrypted)
+     VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, 0)`,
     [msgA2Id, deviceAId, "顺丰速运", "13800000000", "您的快递已放置于蜂巢快递柜，取件码 1234。", "chash_a2", "{}", now - 10_000, now - 10_000],
   );
   // Device B: msg 1 (with OTP)
   await runSql(
     db,
-    `INSERT INTO messages (id, device_id, from_number, to_number, content, content_hash, code, raw_payload, received_at, created_at, encrypted)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-    [msgB1Id, deviceBId, "10010", "13900000000", "【中国联通】登录验证码 654321，5分钟内有效。", "chash_b1", "654321", "{}", now - 15_000, now - 15_000],
+    `INSERT INTO messages (id, device_id, from_number, to_number, content, content_hash, code, code_source, raw_payload, received_at, created_at, encrypted)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [msgB1Id, deviceBId, "10010", "13900000000", "【中国联通】登录验证码 654321，5分钟内有效。", "chash_b1", "654321", "regex", "{}", now - 15_000, now - 15_000],
   );
 }, 30_000);
 

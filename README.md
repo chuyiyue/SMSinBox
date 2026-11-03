@@ -109,6 +109,17 @@ Content-Type: application/json
 
 每个 token 每分钟最多 60 次，超出返回 429。
 
+### 验证码识别
+
+入库时先跑内置正则（`src/extract.ts`），行为与以前完全一致；只有正则没有命中时，才在同一个明文阶段调用 Workers AI 兜底（`@cf/meta/llama-3.1-8b-instruct-fp8`，`temperature: 0`），提示词只包含短信正文，要求模型只输出验证码，正文没有验证码则输出 `NONE`。为了防幻觉，模型返回的候选必须同时满足：
+
+1. 形态合法：4–8 位数字，或 4–8 位字母数字组合，不含空格或标点；
+2. 逐字出现在短信正文里（与正则相同的全角数字折叠后比较）。
+
+任一条件不满足就丢弃，按「没有验证码」处理。AI 调用失败、超过约 4 秒或未配置 `AI` 绑定时会静默回落，入库照常成功，只是 `code` 为 `null`；错误只写日志，不记录短信正文或验证码明文。每条短信的实际来源写入 `messages.code_source`（`regex` / `workers-ai`，无码为 `NULL`），外部的 REST API 与 MCP 会原样返回该字段。
+
+`wrangler.jsonc` 已声明 `"ai": { "binding": "AI" }`。本地没有该绑定时，代码会自动跳过 AI 路径，正则识别仍然可用。
+
 ### Android SmsForwarder
 
 1. 安装 [SmsForwarder](https://github.com/pppscn/SmsForwarder)，允许读取短信。
@@ -274,7 +285,7 @@ Cookie: smsinbox_session=...
 安全与业务约定：
 - **限流**：每个 Token 独立计数，每分钟最多 120 次请求，超限返回 429。每次有效请求更新 `last_used_at` 记录最后调用时间。
 - **设备在线状态**：设备状态由 `last_seen_at` 派生。阈值常量为 15 分钟（`DEVICE_ONLINE_THRESHOLD_MS = 15 * 60 * 1000`）。若最后上报时间在 15 分钟内为 `online`，超过 15 分钟为 `offline`；从未上报为 `unseen`。
-- **验证码状态与来源约定**：本系统不调用任何外部 AI。验证码由短信写入时通过正则提取（`src/extract.ts`）。含验证码时返回 `code_status: "recognized"`、`code_source: "regex"`；无验证码时返回 `code_status: "none"`、`code_source: null`。查询未找到验证码时返回 `data: null`，绝不编造数据。
+- **验证码状态与来源约定**：验证码在短信写入时识别——先跑正则（`src/extract.ts`），未命中且配置了 Workers AI 时才调用模型兜底，并做「形态合法 + 正文逐字出现」的硬校验。含验证码时返回 `code_status: "recognized"`，`code_source` 为写入时记录的 `"regex"` 或 `"workers-ai"`；无验证码时返回 `code_status: "none"`、`code_source: null`。查询未找到验证码时返回 `data: null`，绝不编造数据。
 - **日志安全**：系统日志严格对 Token 明文与短信正文进行脱敏与打码。
 
 ### MCP Server
@@ -331,4 +342,4 @@ npm test
 npx tsc --noEmit
 ```
 
-测试覆盖验证码提取、上报内容解析、去重哈希、登录口令 / token / HMAC、登录限流、改用户名改密码、会话撤销、TOTP（RFC 6238 向量、绑定、登录第二步、重放、恢复码、关闭、第二步限流）、系统管理页结构与残留检查，以及推送、加密、快捷指令和单用户归并。`test/release.integration.test.ts` 再用本地 D1 跑迁移和整条上报链路，不连接生产。改了 `wrangler.jsonc` 的绑定后，运行 `npm run cf-typegen` 重新生成 `worker-configuration.d.ts`。
+测试覆盖验证码提取（含 Workers AI 兜底与防幻觉校验）、上报内容解析、去重哈希、登录口令 / token / HMAC、登录限流、改用户名改密码、会话撤销、TOTP（RFC 6238 向量、绑定、登录第二步、重放、恢复码、关闭、第二步限流）、系统管理页结构与残留检查，以及推送、加密、快捷指令和单用户归并。`test/release.integration.test.ts` 再用本地 D1 跑迁移和整条上报链路，不连接生产。改了 `wrangler.jsonc` 的绑定后，运行 `npm run cf-typegen` 重新生成 `worker-configuration.d.ts`。

@@ -39,7 +39,7 @@ export function extractCode(content: string): string | null {
   return preferred[0]?.code ?? null;
 }
 
-function foldDigits(value: string): string {
+export function foldDigits(value: string): string {
   return value.replace(/[\uFF10-\uFF19]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xff10 + 0x30));
 }
 
