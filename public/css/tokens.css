@@ -1,7 +1,25 @@
 /* Neutral gray design system (ChatGPT-style workbench).
    The content area stays white / near-white in light mode and neutral dark in
-   dark mode. The sidebar is always a dark gray rail. Buttons use neutral ink
-   instead of the retired terracotta accent; only semantic colors carry hue. */
+   dark mode. The sidebar follows the theme: a light gray rail in light mode
+   and a dark gray rail in dark mode. Buttons use neutral ink instead of the
+   retired terracotta accent; only semantic colors carry hue.
+
+   ==========================================================================
+   响应式断点统一口径表 (Responsive Breakpoints Specification)
+   --------------------------------------------------------------------------
+   统一 3 档响应式口径（CSS 变量无法直接在 @media 查询中使用，以此表为唯一权威值）：
+     1. 移动抽屉断点 (Mobile drawer, --bp-sm): 640px
+        - CSS: @media (max-width: 639px)
+        - JS:  window.matchMedia("(max-width: 639px)")
+        - 行为: 主内容占满屏，顶部汉堡按钮唤起左侧抽屉式侧栏，遮罩轻量覆盖
+     2. 平板断点 (Tablet, --bp-md): 768px
+        - 侧栏图标模式段: @media (min-width: 640px) and (max-width: 1023px)
+        - 平板内容折叠: @media (max-width: 767px)
+        - 行为: 侧栏收拢为 64px 紧凑图标轨，悬停显示文字 Tooltip；内容区弹性双列
+     3. 桌面断点 (Desktop, --bp-lg): 1024px
+        - CSS: @media (min-width: 1024px)
+        - 行为: 248px 完整固定侧栏，支持手动收起/展开；内容区居中最大 1080px
+   ========================================================================== */
 :root {
   color-scheme: light;
 
@@ -48,17 +66,18 @@
   --toast-bg: #18181b;
   --toast-ink: #fafafa;
 
-  /* Sidebar rail: dark in both themes. */
-  --sidebar-bg: #18181b;
-  --sidebar-bg-hover: #27272a;
-  --sidebar-active-bg: #2f2f33;
-  --sidebar-border: #27272a;
-  --sidebar-text: #d4d4d8;
-  --sidebar-text-strong: #fafafa;
-  --sidebar-text-muted: #a1a1aa;
-  --sidebar-icon: #a1a1aa;
-  --sidebar-active-ink: #ffffff;
-  --sidebar-active-bar: #fafafa;
+  /* Sidebar rail: light gray in light mode, dark gray in dark mode. */
+  --sidebar-bg: #f7f7f8;
+  --sidebar-bg-hover: #ececee;
+  --sidebar-active-bg: #e4e4e7;
+  --sidebar-border: #e4e4e7;
+  --sidebar-text: #52525b;
+  --sidebar-text-strong: #18181b;
+  --sidebar-text-muted: #71717a;
+  --sidebar-icon: #71717a;
+  --sidebar-active-ink: #18181b;
+  --sidebar-mark-bg: rgba(24, 24, 27, 0.06);
+  --sidebar-mark-border: rgba(24, 24, 27, 0.14);
 
   --avatar-1: #e4e4e7;
   --avatar-2: #dbe3ee;
@@ -109,11 +128,13 @@
   --dur-base: 180ms;
   --dur-slow: 260ms;
 
-  /* Layout */
+  /* Layout & Breakpoints */
+  --bp-sm: 640px;
+  --bp-md: 768px;
+  --bp-lg: 1024px;
   --sidebar-width: 248px;
   --sidebar-width-collapsed: 64px;
   --topbar-height: 64px;
-  --tabbar-height: 56px;
   --content-max: 1080px;
   --z-drawer: 60;
   --z-modal: 70;
@@ -170,7 +191,8 @@
   --sidebar-text-muted: #8f8f96;
   --sidebar-icon: #8f8f96;
   --sidebar-active-ink: #ffffff;
-  --sidebar-active-bar: #fafafa;
+  --sidebar-mark-bg: rgba(255, 255, 255, 0.08);
+  --sidebar-mark-border: rgba(255, 255, 255, 0.14);
 
   --avatar-1: #3f3f46;
   --avatar-2: #3a4654;
@@ -236,7 +258,8 @@
     --sidebar-text-muted: #8f8f96;
     --sidebar-icon: #8f8f96;
     --sidebar-active-ink: #ffffff;
-    --sidebar-active-bar: #fafafa;
+    --sidebar-mark-bg: rgba(255, 255, 255, 0.08);
+    --sidebar-mark-border: rgba(255, 255, 255, 0.14);
 
     --avatar-1: #3f3f46;
     --avatar-2: #3a4654;

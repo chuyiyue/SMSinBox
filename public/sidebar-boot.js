@@ -9,6 +9,7 @@
 (function () {
   var STORAGE_KEY = "smsinbox.shell";
   var SIDEBAR_KEY = "smsinbox-sidebar";
+  var SIDEBAR_DEVICES_KEY = "smsinbox-sidebar-devices";
   var STALE_MS = 7 * 24 * 60 * 60 * 1000;
 
   var NAV_ITEMS = [
@@ -28,6 +29,7 @@
     var collapsed = readCollapsed();
     injectCollapseButton();
     applySidebarState(collapsed, false);
+    initDevicesCollapse();
   }
 
   function renderNav() {
@@ -105,6 +107,48 @@
     nav.after(button);
   }
 
+  function initDevicesCollapse() {
+    var collapsed = readDevicesCollapsed();
+    applyDevicesCollapsedState(collapsed, false);
+    var button = document.querySelector("#sidebar-devices-toggle");
+    if (button) {
+      button.addEventListener("click", function () {
+        var section = document.querySelector(".sidebar-devices");
+        var isCurrentlyCollapsed = section ? section.classList.contains("is-collapsed") : false;
+        applyDevicesCollapsedState(!isCurrentlyCollapsed, true);
+      });
+    }
+  }
+
+  function readDevicesCollapsed() {
+    try {
+      return localStorage.getItem(SIDEBAR_DEVICES_KEY) === "collapsed";
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function applyDevicesCollapsedState(collapsed, persist) {
+    var section = document.querySelector(".sidebar-devices");
+    if (section) {
+      section.classList.toggle("is-collapsed", collapsed);
+    }
+    if (persist) {
+      try {
+        localStorage.setItem(SIDEBAR_DEVICES_KEY, collapsed ? "collapsed" : "expanded");
+      } catch (error) {
+        // Storage disabled or private browsing mode
+      }
+    }
+    var button = document.querySelector("#sidebar-devices-toggle");
+    if (button) {
+      button.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      var label = collapsed ? "展开设备列表" : "收起设备列表";
+      button.setAttribute("aria-label", label);
+      button.setAttribute("title", label);
+    }
+  }
+
   function paintCachedDevices() {
     var raw = "";
     try {
@@ -159,14 +203,24 @@
     if (device) {
       var state = deviceState(device);
       node.setAttribute("data-state", state.key);
-      node.title = name;
+      var dotStatus = state.key === "recent" ? "ok" : "idle";
+      var dotLabel = state.key === "recent" ? "在线" : (state.key === "stale" ? "离线" : "未上报");
+      node.title = name + " (" + dotLabel + " · " + state.text + ")";
+
+      var dot = document.createElement("span");
+      dot.className = "ui-status-dot";
+      dot.setAttribute("data-status", dotStatus);
+      dot.setAttribute("aria-hidden", "true");
+
       var title = document.createElement("span");
       title.className = "device-name";
       title.textContent = name;
+
       var status = document.createElement("span");
       status.className = "device-state";
       status.textContent = state.text;
-      node.append(icon(), title, status);
+
+      node.append(dot, icon(), title, status);
     } else {
       node.textContent = name;
     }

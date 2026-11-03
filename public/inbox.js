@@ -96,6 +96,7 @@ function startView() {
       closeDrawer();
     },
   });
+  // Aligned with the unified mobile drawer breakpoint (< 640px) in tokens.css.
   media = window.matchMedia("(max-width: 639px)");
   media.addEventListener("change", onMedia);
   banner.addEventListener("click", flushPending);

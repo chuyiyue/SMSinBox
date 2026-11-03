@@ -295,19 +295,14 @@ export function initShell(options = {}) {
     else openSidebar();
   });
   backdrop?.addEventListener("click", closeSidebar);
-  document.querySelector("#more-toggle")?.addEventListener("click", openMore);
-  document.querySelector("#more-close")?.addEventListener("click", closeMore);
-  document.querySelector("#more-sheet")?.addEventListener("click", (event) => {
-    if (event.target?.id === "more-sheet") closeMore();
+  document.querySelector("#sidebar")?.addEventListener("click", (event) => {
+    if (event.target.closest("a[href]")) closeSidebar();
   });
   for (const button of document.querySelectorAll("[data-theme-toggle]")) {
     button.addEventListener("click", () => cycleTheme());
   }
   for (const button of document.querySelectorAll("[data-help]")) {
-    button.addEventListener("click", () => {
-      closeMore();
-      openHelp();
-    });
+    button.addEventListener("click", openHelp);
   }
   document.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
@@ -319,7 +314,6 @@ export function initShell(options = {}) {
     if (document.querySelector(".modal-root, dialog[open], .ui-drawer")) return;
     if (event.key === "Escape") {
       closeMenu();
-      closeMore();
       closeSidebar();
       document.querySelector(".topbar")?.classList.remove("is-searching");
       shellHooks.onEscape?.();
@@ -349,11 +343,38 @@ export function initShell(options = {}) {
     closeSidebar();
     followAppLink(id ? `/devices.html#dev-${encodeURIComponent(id)}` : "/devices.html");
   });
+  void renderSidebarProfile().catch(() => {});
 }
 
 export async function loadNav() {
   const result = await ensureMe();
   return result?.user || getMe() || null;
+}
+
+async function renderSidebarProfile() {
+  const user = await loadNav();
+  paintSidebarProfile(user);
+}
+
+function paintSidebarProfile(user) {
+  const footer = document.querySelector(".sidebar-footer");
+  if (!footer) return;
+  const name = (user && (user.username || user.name)) || "管理员";
+  const avatar = footer.querySelector(".account-avatar");
+  const label = footer.querySelector(".account-name");
+  const accountBtn = footer.querySelector(".account-btn");
+  if (avatar) avatar.textContent = initialOf(name);
+  if (label) label.textContent = name;
+  const title = `${name} · 系统管理`;
+  if (accountBtn) {
+    accountBtn.title = title;
+    accountBtn.setAttribute("aria-label", title);
+  }
+}
+
+function initialOf(name) {
+  const value = String(name || "").trim();
+  return value ? [...value][0].toUpperCase() : "管";
 }
 
 
@@ -378,6 +399,9 @@ function paintLabel(button, name) {
   let title = button.querySelector(".device-name");
   if (!title) {
     button.replaceChildren();
+    const dot = document.createElement("span");
+    dot.className = "ui-status-dot";
+    dot.setAttribute("aria-hidden", "true");
     const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     icon.setAttribute("class", "icon");
     icon.setAttribute("viewBox", "0 0 24 24");
@@ -388,38 +412,31 @@ function paintLabel(button, name) {
     rect.setAttribute("width", "10");
     rect.setAttribute("height", "20");
     rect.setAttribute("rx", "2");
-    const dot = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    dot.setAttribute("d", "M11 18h2");
-    icon.append(rect, dot);
+    const dotPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    dotPath.setAttribute("d", "M11 18h2");
+    icon.append(rect, dotPath);
     title = document.createElement("span");
     title.className = "device-name";
     const state = document.createElement("span");
     state.className = "device-state";
-    button.append(icon, title, state);
+    button.append(dot, icon, title, state);
   }
   if (title.textContent !== name) title.textContent = name;
 }
 
 function paintState(button, device) {
   const state = deviceStateOf(device);
+  const dotStatus = state.key === "recent" ? "ok" : "idle";
+  const dotLabel = state.key === "recent" ? "在线" : (state.key === "stale" ? "离线" : "未上报");
+  const dot = button.querySelector(".ui-status-dot");
+  if (dot && dot.getAttribute("data-status") !== dotStatus) {
+    dot.setAttribute("data-status", dotStatus);
+  }
   const node = button.querySelector(".device-state");
   if (node && node.textContent !== state.text) node.textContent = state.text;
   if (button.getAttribute("data-state") !== state.key) button.setAttribute("data-state", state.key);
-}
-
-function openMore() {
-  const sheet = document.querySelector("#more-sheet");
-  if (!sheet) return;
-  sheet.hidden = false;
-  document.body.classList.add("modal-open");
-  document.querySelector("#more-close")?.focus();
-}
-
-function closeMore() {
-  const sheet = document.querySelector("#more-sheet");
-  if (!sheet || sheet.hidden) return;
-  sheet.hidden = true;
-  document.body.classList.remove("modal-open");
+  const name = button.querySelector(".device-name")?.textContent || "";
+  button.title = name ? `${name} (${dotLabel} · ${state.text})` : state.text;
 }
 
 function pad(value) {

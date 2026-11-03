@@ -177,7 +177,6 @@ async function navigate(href, options = {}) {
     markActiveNav(path);
     closeMenu();
     closeSidebar();
-    closeMoreSheet();
     document.querySelector(".modal-root")?.remove();
     document.body.classList.remove("modal-open", "drawer-open", "nav-open");
     const nextUrl = `${path}${url.search}${url.hash}`;
@@ -226,7 +225,7 @@ function swapPortals(doc) {
 }
 
 function markActiveNav(path) {
-  for (const link of document.querySelectorAll(".sidebar-nav a, .tabbar a")) {
+  for (const link of document.querySelectorAll(".sidebar-nav a")) {
     const href = link.getAttribute("href") || "";
     let linkPath = "";
     try {
@@ -239,11 +238,4 @@ function markActiveNav(path) {
     if (on) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
   }
-}
-
-function closeMoreSheet() {
-  const sheet = document.querySelector("#more-sheet");
-  if (!sheet || sheet.hidden) return;
-  sheet.hidden = true;
-  document.body.classList.remove("modal-open");
 }

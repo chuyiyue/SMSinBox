@@ -667,7 +667,7 @@ kbd {
   .toasts {
     left: 50%;
     right: auto;
-    bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom) + 12px);
+    bottom: calc(env(safe-area-inset-bottom) + 12px);
     transform: translateX(-50%);
   }
   button.chip, .code-chip { min-height: 36px; }
@@ -812,6 +812,7 @@ kbd {
 .ui-status-dot[data-status="ok"] { background: var(--success); }
 .ui-status-dot[data-status="warn"] { background: var(--warning); }
 .ui-status-dot[data-status="bad"] { background: var(--danger); }
+.ui-status-dot[data-status="idle"] { background: var(--text-3); }
 
 @media (max-width: 639px) {
   .ui-drawer-panel { width: 100%; border-left: 0; }

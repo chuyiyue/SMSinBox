@@ -397,7 +397,7 @@
   .channel-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-@media (min-width: 1080px) {
+@media (min-width: 1024px) {
   .channel-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
@@ -415,11 +415,11 @@
 
 #device-form, #ios-setup, #username-form, #password-form { scroll-margin-top: 80px; }
 
-@media (min-width: 1280px) {
+@media (min-width: 1024px) {
   .devices.cards { grid-template-columns: 1fr 1fr; }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .filterbar { align-items: stretch; }
   .filters { flex-basis: 100%; }
   .filter-summary { margin: 0; }
@@ -630,8 +630,9 @@
 .setup-details > summary { font-size: var(--fs-md); }
 .setup-details > summary::marker { color: var(--text-3); }
 
-@media (max-width: 640px) {
-  .page { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+/* Unified mobile drawer breakpoint (< 640px). Note: replaces legacy @media (max-width: 640px) */
+@media (max-width: 639px) {
+  .page { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
   .add-device-form button { width: 100%; }
   .api-facts { grid-template-columns: 1fr; }
   .device-head { align-items: flex-start; }
