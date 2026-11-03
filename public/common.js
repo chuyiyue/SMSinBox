@@ -260,7 +260,6 @@ export function renderSidebarDevices(devices, activeId = getActiveId()) {
     if (current[index] !== button) box.insertBefore(button, current[index] || box.querySelector(".sidebar-empty"));
   });
   let empty = box.querySelector(".sidebar-empty");
-  let add = box.querySelector(".sidebar-empty-add");
   if (!devices?.length) {
     if (!empty) {
       empty = document.createElement("p");
@@ -268,16 +267,8 @@ export function renderSidebarDevices(devices, activeId = getActiveId()) {
       empty.textContent = "还没有设备。";
       box.append(empty);
     }
-    if (!add) {
-      add = document.createElement("a");
-      add.className = "sidebar-empty-add";
-      add.href = "/devices.html#add";
-      add.textContent = "添加设备";
-      box.append(add);
-    }
   } else {
     empty?.remove();
-    add?.remove();
   }
 }
 

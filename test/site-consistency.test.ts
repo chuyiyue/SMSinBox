@@ -119,12 +119,25 @@ describe("site consistency", () => {
   it("links sidebar devices to their device-page card and scrolls long device lists", () => {
     const common = readFileSync("public/common.js", "utf8");
     const css = readFileSync("public/css/pages.css", "utf8");
+    const shellCss = readFileSync("public/css/shell.css", "utf8");
     expect(common).toContain('`/devices.html#dev-${encodeURIComponent(id)}`');
     expect(common).toContain('"/devices.html"');
     expect(common).toContain("还没有设备。");
-    expect(common).toContain('add.href = "/devices.html#add"');
+    expect(common).not.toContain("sidebar-empty-add");
+    expect(shellCss).toContain(".sidebar-add-row");
+    expect(readFileSync("public/sidebar-boot.js", "utf8")).toContain("relocateAddDeviceLink");
     expect(css).toMatch(/\.sidebar \.device-list \{[\s\S]*?max-height:[^;]+;[\s\S]*?overflow-y: auto;/);
     expect(css).toMatch(/\.sidebar \.sidebar-devices \{[\s\S]*?border-top:/);
+  });
+
+  it("places the collapse control beside the brand and keeps the add link aligned", () => {
+    const boot = readFileSync("public/sidebar-boot.js", "utf8");
+    const css = readFileSync("public/css/shell.css", "utf8");
+    expect(boot).toContain('row.className = "sidebar-brand-row"');
+    expect(boot).toContain('row.className = "sidebar-add-row"');
+    expect(boot).toContain('button.setAttribute("aria-expanded", collapsed ? "false" : "true")');
+    expect(css).toContain(":root[data-sidebar=\"collapsed\"] .sidebar-brand-row");
+    expect(css).toContain(".sidebar-collapse { display: none; }");
   });
 
   it("labels the admin entry as system management on every page", () => {

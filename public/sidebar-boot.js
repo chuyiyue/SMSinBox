@@ -84,27 +84,45 @@
       var label = collapsed ? "展开侧栏" : "收起侧栏";
       button.setAttribute("aria-label", label);
       button.setAttribute("title", label);
-      var text = button.querySelector(".nav-label");
-      if (text) text.textContent = label;
+      button.setAttribute("aria-expanded", collapsed ? "false" : "true");
     }
   }
 
   function injectCollapseButton() {
     var nav = document.querySelector(".sidebar-nav");
-    if (!nav) return;
+    var brand = document.querySelector(".sidebar > .brand");
+    if (!nav || !brand) return;
     var button = document.createElement("button");
     button.type = "button";
-    button.className = "sidebar-collapse";
+    button.className = "sidebar-collapse ghost icon-btn";
     button.setAttribute("aria-label", "收起侧栏");
     button.setAttribute("title", "收起侧栏");
     button.innerHTML =
-      '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-chevron-left"/></svg>' +
-      '<span class="nav-label">收起侧栏</span>';
+      '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-chevron-left"/></svg>';
     button.addEventListener("click", function () {
       var collapsed = document.documentElement.getAttribute("data-sidebar") === "collapsed";
       applySidebarState(!collapsed, true);
     });
-    nav.after(button);
+    var row = document.createElement("div");
+    row.className = "sidebar-brand-row";
+    brand.parentNode.insertBefore(row, brand);
+    row.append(brand, button);
+    relocateAddDeviceLink();
+  }
+
+  function relocateAddDeviceLink() {
+    var section = document.querySelector(".sidebar-devices");
+    var add = document.querySelector(".sidebar-add");
+    if (!section || !add) return;
+    var row = document.createElement("div");
+    row.className = "sidebar-add-row";
+    row.append(add);
+    var footer = document.querySelector(".sidebar-footer");
+    if (footer) {
+      footer.before(row);
+    } else {
+      section.after(row);
+    }
   }
 
   function initDevicesCollapse() {
@@ -180,11 +198,6 @@
       empty.className = "sidebar-empty";
       empty.textContent = "还没有设备。";
       box.append(empty);
-      var add = document.createElement("a");
-      add.className = "sidebar-empty-add";
-      add.href = "/devices.html#add";
-      add.textContent = "添加设备";
-      box.append(add);
       return;
     }
     for (var index = 0; index < devices.length; index += 1) {
