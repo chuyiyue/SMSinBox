@@ -9,7 +9,176 @@ import {
 import { ensureDevices, getDevices } from "./device-store.js";
 import { registerView } from "./shell.js";
 
-let tokenListEl;
+const PERMISSION_DEFS = [
+  {
+    key: "messages:read",
+    name: "读取短信",
+    description: "读取短信列表与正文",
+    reads: "短信列表、正文、单条短信详情、按关键词/号码筛选的短信查询",
+  },
+  {
+    key: "otp:read",
+    name: "读取验证码",
+    description: "读取最新验证码及检索验证码",
+    reads: "最新验证码、验证码检索、带验证码的短信内容与来源",
+  },
+  {
+    key: "devices:read",
+    name: "读取设备",
+    description: "查看授权设备列表",
+    reads: "设备列表、设备名称、平台、创建时间、最后在线时间",
+  },
+  {
+    key: "devices:status",
+    name: "读取设备状态",
+    description: "查看设备在线状态与最后上报时间",
+    reads: "单台设备状态、在线/离线/未见、最后消息时间",
+  },
+];
+
+const MCP_TOOLS = [
+  {
+    name: "list_messages",
+    description: "按时间顺序列出区间内的短信，支持分页与设备/发送方过滤。",
+    inputSchema: { limit: 10, offset: 0, device_id: "<device uuid>", since: 1710000000000 },
+  },
+  {
+    name: "search_messages",
+    description: "按关键词检索短信正文、发件人或验证码。",
+    inputSchema: { q: "验证码", from: "10086", limit: 10, offset: 0 },
+  },
+  {
+    name: "get_message",
+    description: "读取单条短信的完整详情。",
+    inputSchema: { id: "<message uuid>" },
+  },
+  {
+    name: "get_latest_otp",
+    description: "读取最新一条带验证码的短信。",
+    inputSchema: { device_id: "<device uuid>", from: "10086" },
+  },
+  {
+    name: "search_otp",
+    description: "检索带验证码短信，支持时间范围与设备/发送方过滤。",
+    inputSchema: { device_id: "<device uuid>", since: 1710000000000, until: 1710003600000 },
+  },
+  {
+    name: "list_devices",
+    description: "列出当前 Token 授权范围内的全部设备。",
+    inputSchema: {},
+  },
+  {
+    name: "get_device_status",
+    description: "查询单个设备的状态与最近消息时间。",
+    inputSchema: { id: "<device uuid>" },
+  },
+];
+
+const API_ENDPOINTS = [
+  {
+    method: "GET",
+    path: "/health",
+    summary: "健康检查",
+    description: "验证 API 是否在线且当前 Token 有效。",
+    permission: "无需额外权限；有效 Token 即可",
+    params: [],
+    request: "curl -H \"Authorization: Bearer <token>" "${base}/health\"",
+    response: JSON.stringify({ ok: true, data: { status: "ok", version: "1.2.3", time: 1710000000000 } }, null, 2),
+  },
+  {
+    method: "GET",
+    path: "/me",
+    summary: "当前 Token 详情",
+    description: "返回 Token 的名称、权限、设备范围和过期时间。",
+    permission: "有效 Token",
+    params: [],
+    request: "curl -H \"Authorization: Bearer <token>" "${base}/me\"",
+    response: JSON.stringify({ ok: true, data: { id: "<token-id>", name: "Cursor Agent", permissions: ["messages:read", "otp:read"], device_scope: [], expires_at: 1710000000000 } }, null, 2),
+  },
+  {
+    method: "GET",
+    path: "/messages",
+    summary: "短信列表",
+    description: "按分页与过滤条件返回短信列表。",
+    permission: "messages:read",
+    params: [
+      { name: "limit", required: false, meaning: "返回数量，默认 20，最大 100" },
+      { name: "offset", required: false, meaning: "分页偏移，默认 0" },
+      { name: "device_id", required: false, meaning: "按设备 UUID 过滤" },
+      { name: "from", required: false, meaning: "按发件人号码或名称过滤" },
+      { name: "since", required: false, meaning: "只返回收到时间 >= 此毫秒时间戳的短信" },
+      { name: "until", required: false, meaning: "只返回收到时间 <= 此毫秒时间戳的短信" },
+      { name: "q", required: false, meaning: "按正文、发件人或验证码关键字搜索" },
+    ],
+    request: "curl -H \"Authorization: Bearer <token>" "${base}/messages?limit=2&device_id=<device-id>&q=验证码\"",
+    response: JSON.stringify({ ok: true, data: [{ id: "<message-id>", device_id: "<device-id>", device_name: "Device Alpha", from: "10086", from_number: "10086", to: "13800000000", to_number: "13800000000", content: "【中国移动】您的验证码是 889900，请勿泄露给他人。", code: "889900", received_at: 1710000000000, created_at: 1710000000000 }], page: { limit: 2, offset: 0, total: 1 } }, null, 2),
+  },
+  {
+    method: "GET",
+    path: "/messages/{id}",
+    summary: "单条短信详情",
+    description: "返回指定 messageId 的完整内容与识别结果。",
+    permission: "messages:read",
+    params: [
+      { name: "id", required: true, meaning: "短信 UUID，需与当前 Token 授权范围内的消息匹配" },
+    ],
+    request: "curl -H \"Authorization: Bearer <token>" "${base}/messages/<message-id>\"",
+    response: JSON.stringify({ ok: true, data: { id: "<message-id>", device_id: "<device-id>", device_name: "Device Alpha", from: "10086", from_number: "10086", to: "13800000000", to_number: "13800000000", content: "【中国移动】您的验证码是 889900，请勿泄露给他人。", code: "889900", received_at: 1710000000000, created_at: 1710000000000 } }, null, 2),
+  },
+  {
+    method: "GET",
+    path: "/otp/latest",
+    summary: "最新验证码",
+    description: "返回当前范围内最新一条带验证码的短信。",
+    permission: "otp:read",
+    params: [
+      { name: "device_id", required: false, meaning: "按设备 UUID 过滤" },
+      { name: "from", required: false, meaning: "按发件人过滤" },
+      { name: "since", required: false, meaning: "只返回收到时间 >= 此毫秒时间戳的验证码" },
+    ],
+    request: "curl -H \"Authorization: Bearer <token>" "${base}/otp/latest?device_id=<device-id>\"",
+    response: JSON.stringify({ ok: true, data: { id: "<message-id>", code: "889900", from: "10086", content: "【中国移动】您的验证码是 889900，请勿泄露给他人。", device_id: "<device-id>", device_name: "Device Alpha", received_at: 1710000000000, code_source: "regex", code_status: "recognized" } }, null, 2),
+  },
+  {
+    method: "GET",
+    path: "/otp/search",
+    summary: "验证码检索",
+    description: "按时间范围和设备/发件人条件搜索验证码列表。",
+    permission: "otp:read",
+    params: [
+      { name: "limit", required: false, meaning: "返回数量，默认 20，最大 100" },
+      { name: "offset", required: false, meaning: "分页偏移，默认 0" },
+      { name: "device_id", required: false, meaning: "按设备 UUID 过滤" },
+      { name: "from", required: false, meaning: "按发件人过滤" },
+      { name: "since", required: false, meaning: "起始时间戳，毫秒" },
+      { name: "until", required: false, meaning: "结束时间戳，毫秒" },
+    ],
+    request: "curl -H \"Authorization: Bearer <token>" "${base}/otp/search?limit=20&since=1710000000000\"",
+    response: JSON.stringify({ ok: true, data: [{ id: "<message-id>", code: "889900", from: "10086", content: "【中国移动】您的验证码是 889900，请勿泄露给他人。", device_id: "<device-id>", device_name: "Device Alpha", received_at: 1710000000000, code_source: "regex", code_status: "recognized" }], page: { limit: 20, offset: 0, total: 1 } }, null, 2),
+  },
+  {
+    method: "GET",
+    path: "/devices",
+    summary: "授权设备列表",
+    description: "返回当前 Token 授权范围内的设备列表与派生状态。",
+    permission: "devices:read",
+    params: [],
+    request: "curl -H \"Authorization: Bearer <token>" "${base}/devices\"",
+    response: JSON.stringify({ ok: true, data: [{ id: "<device-id>", name: "Device Alpha", platform: "ios", created_at: 1700000000000, last_seen_at: 1710000000000, status: "online" }] }, null, 2),
+  },
+  {
+    method: "GET",
+    path: "/devices/{id}/status",
+    summary: "单设备状态",
+    description: "返回指定设备的在线状态和最后一条消息时间。",
+    permission: "devices:status",
+    params: [
+      { name: "id", required: true, meaning: "设备 UUID，需在当前 Token 授权范围内" },
+    ],
+    request: "curl -H \"Authorization: Bearer <token>" "${base}/devices/<device-id>/status\"",
+    response: JSON.stringify({ ok: true, data: { id: "<device-id>", name: "Device Alpha", platform: "ios", last_seen_at: 1710000000000, status: "online", last_message_at: 1710000000000 } }, null, 2),
+  },
+];
 let tokenCountEl;
 let pageErrorEl;
 let pageStatusEl;
@@ -36,7 +205,6 @@ export function start() {
   scopePickerEl = document.querySelector("#scope-device-picker");
   deviceCheckboxListEl = document.querySelector("#device-checkbox-list");
 
-  // Populate URLs and samples
   const origin = window.location.origin;
   const apiBase = `${origin}/api/ext/v1`;
   const mcpUrl = `${origin}/mcp`;
@@ -53,7 +221,7 @@ export function start() {
         smsinbox: {
           url: mcpUrl,
           headers: {
-            Authorization: "Bearer smsx_YOUR_TOKEN_HERE",
+            Authorization: "Bearer <token>",
           },
         },
       },
@@ -65,11 +233,10 @@ export function start() {
   const mcpConfigEl = document.querySelector("#mcp-config-sample");
   if (mcpConfigEl) mcpConfigEl.textContent = mcpConfig;
 
-  const curlExample = `curl -H "Authorization: Bearer smsx_YOUR_TOKEN_HERE" \\\n  "${apiBase}/messages?limit=10"`;
+  const curlExample = `curl -H "Authorization: Bearer <token>" "${apiBase}/messages?limit=10"`;
   const curlExampleEl = document.querySelector("#curl-example");
   if (curlExampleEl) curlExampleEl.textContent = curlExample;
 
-  // Copy buttons
   document.querySelector("#copy-base-url")?.addEventListener("click", async (e) => {
     const copied = await flashLabel(e.currentTarget, apiBase, "复制");
     if (copied) toast("已复制 API 地址");
@@ -96,15 +263,19 @@ export function start() {
     if (copied) toast("Token 已复制到剪贴板");
   });
 
+  renderMcpTools();
+  renderApiDocs(apiBase);
+
   bindTabs();
   const initialTab = location.hash === "#mcp-panel" || location.hash === "#panel-mcp"
     ? "mcp"
-    : location.hash === "#api-panel" || location.hash === "#panel-docs"
-      ? "docs"
-      : "tokens";
+    : location.hash === "#permissions-panel" || location.hash === "#panel-permissions"
+      ? "permissions"
+      : location.hash === "#api-panel" || location.hash === "#panel-docs"
+        ? "docs"
+        : "tokens";
   switchTab(initialTab);
 
-  // Modal open & close
   document.querySelector("#add-token")?.addEventListener("click", () => {
     switchTab("tokens");
     openCreateModal();
@@ -116,10 +287,9 @@ export function start() {
     loadTokens();
   });
 
-  // Scope radio toggle
   formEl?.querySelectorAll('input[name="scope_type"]').forEach((radio) => {
     radio.addEventListener("change", (e) => {
-      const isCustom = (e.target).value === "custom";
+      const isCustom = e.target.value === "custom";
       scopePickerEl.hidden = !isCustom;
     });
   });
@@ -170,6 +340,170 @@ async function loadTokens() {
   const tokens = result.data?.tokens || [];
   if (tokenCountEl) tokenCountEl.textContent = String(tokens.length);
   renderTokenList(tokens);
+  renderPermissionSummary(tokens);
+}
+
+function renderPermissionSummary(tokens) {
+  const container = document.querySelector("#permissions-list");
+  if (!container) return;
+
+  const counts = Object.create(null);
+  for (const token of tokens) {
+    for (const perm of token.permissions || []) {
+      counts[perm] = (counts[perm] || 0) + 1;
+    }
+  }
+
+  container.replaceChildren();
+  const total = tokens.length || 1;
+
+  for (const perm of PERMISSION_DEFS) {
+    const card = document.createElement("article");
+    card.className = "record stack permission-card";
+
+    const head = document.createElement("div");
+    head.className = "record-head";
+
+    const titleArea = document.createElement("div");
+    titleArea.className = "device-title";
+    const name = document.createElement("strong");
+    name.className = "device-name";
+    name.textContent = perm.name;
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = `${counts[perm.key] || 0}/${tokens.length} 个 Token`;
+    titleArea.append(name, badge);
+
+    const hint = document.createElement("span");
+    hint.className = "subtle";
+    hint.textContent = `${Math.round(((counts[perm.key] || 0) / total) * 100)}% 已分配`;
+    head.append(titleArea, hint);
+
+    const meta = document.createElement("dl");
+    meta.className = "device-facts";
+
+    const idRow = document.createElement("div");
+    idRow.innerHTML = `<dt>标识</dt><dd><code>${escapeHtml(perm.key)}</code></dd>`;
+    const descRow = document.createElement("div");
+    descRow.innerHTML = `<dt>说明</dt><dd>${escapeHtml(perm.description)}</dd>`;
+    const readsRow = document.createElement("div");
+    readsRow.className = "span-2";
+    readsRow.innerHTML = `<dt>能读什么</dt><dd>${escapeHtml(perm.reads)}</dd>`;
+
+    meta.append(idRow, descRow, readsRow);
+    card.append(head, meta);
+    container.append(card);
+  }
+}
+
+function renderMcpTools() {
+  const list = document.querySelector("#mcp-tools-list");
+  if (!list) return;
+  list.replaceChildren();
+
+  for (const tool of MCP_TOOLS) {
+    const article = document.createElement("article");
+    article.className = "record stack tool-card";
+
+    const head = document.createElement("div");
+    head.className = "record-head";
+    const title = document.createElement("strong");
+    title.className = "device-name";
+    title.textContent = tool.name;
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "ghost";
+    copy.textContent = "复制示例";
+    const example = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: tool.name, arguments: tool.inputSchema } }, null, 2);
+    copy.addEventListener("click", async (event) => {
+      const copied = await flashLabel(event.currentTarget, example, "复制示例");
+      if (copied) toast(`已复制 ${tool.name} 调用示例`);
+    });
+    head.append(title, copy);
+
+    const desc = document.createElement("p");
+    desc.className = "subtle";
+    desc.textContent = tool.description;
+
+    const codeWrap = document.createElement("div");
+    codeWrap.className = "code-block compact";
+    const pre = document.createElement("pre");
+    pre.textContent = example;
+    codeWrap.append(pre);
+
+    article.append(head, desc, codeWrap);
+    list.append(article);
+  }
+}
+
+function renderApiDocs(baseUrl) {
+  const target = document.querySelector("#api-endpoints-details");
+  if (!target) return;
+  target.replaceChildren();
+
+  for (const endpoint of API_ENDPOINTS) {
+    const card = document.createElement("article");
+    card.className = "record stack endpoint-detail";
+
+    const brief = document.createElement("div");
+    brief.className = "record-head";
+    const methodPill = document.createElement("span");
+    methodPill.className = "method";
+    methodPill.textContent = endpoint.method;
+    const path = document.createElement("code");
+    path.className = "endpoint-path";
+    path.textContent = endpoint.path;
+    brief.append(methodPill, path);
+
+    const summary = document.createElement("p");
+    summary.className = "subtle";
+    summary.textContent = endpoint.summary;
+
+    const desc = document.createElement("p");
+    desc.textContent = endpoint.description;
+
+    const line = document.createElement("div");
+    line.className = "device-facts";
+    const perm = document.createElement("div");
+    perm.innerHTML = `<dt>权限</dt><dd>${escapeHtml(endpoint.permission)}</dd>`;
+    const req = document.createElement("div");
+    req.className = "span-2";
+    req.innerHTML = `<dt>参数</dt><dd>${renderParamList(endpoint.params)}</dd>`;
+    line.append(perm, req);
+
+    const requestExample = endpoint.request.replace("${base}", baseUrl);
+    const responseExample = endpoint.response;
+
+    const sampleBlock = document.createElement("div");
+    sampleBlock.className = "stack";
+    const reqHead = document.createElement("h4");
+    reqHead.textContent = "请求示例";
+    const reqCode = document.createElement("div");
+    reqCode.className = "code-block compact";
+    const reqPre = document.createElement("pre");
+    reqPre.textContent = requestExample;
+    reqCode.append(reqPre);
+
+    const resHead = document.createElement("h4");
+    resHead.textContent = "返回示例";
+    const resCode = document.createElement("div");
+    resCode.className = "code-block compact";
+    const resPre = document.createElement("pre");
+    resPre.textContent = responseExample;
+    resCode.append(resPre);
+
+    sampleBlock.append(reqHead, reqCode, resHead, resCode);
+    card.append(brief, summary, desc, line, sampleBlock);
+    target.append(card);
+  }
+}
+
+function renderParamList(params) {
+  if (!params || params.length === 0) return "无";
+  return params.map((param) => {
+    const reqLabel = param.required ? "必填" : "可选";
+    return `<code>${escapeHtml(param.name)}</code> (${reqLabel}): ${escapeHtml(param.meaning)}`;
+  }).join("； ");
 }
 
 function renderTokenList(tokens) {
@@ -190,7 +524,6 @@ function renderTokenList(tokens) {
     card.className = "record stack";
     card.id = `token-${token.id}`;
 
-    // Header
     const head = document.createElement("div");
     head.className = "record-head";
 
@@ -251,17 +584,13 @@ function renderTokenList(tokens) {
 
     head.append(titleArea, actions);
 
-    // Facts
     const facts = document.createElement("dl");
     facts.className = "device-facts";
 
     const prefixGroup = document.createElement("div");
     prefixGroup.innerHTML = `<dt>Token 前缀</dt><dd><code>${escapeHtml(token.token_prefix)}</code></dd>`;
 
-    const scopeDesc =
-      !token.device_scope || token.device_scope.length === 0
-        ? "全部设备"
-        : `${token.device_scope.length} 台指定设备`;
+    const scopeDesc = !token.device_scope || token.device_scope.length === 0 ? "全部设备" : `${token.device_scope.length} 台指定设备`;
     const scopeGroup = document.createElement("div");
     scopeGroup.innerHTML = `<dt>设备范围</dt><dd>${escapeHtml(scopeDesc)}</dd>`;
 
@@ -282,7 +611,6 @@ function renderTokenList(tokens) {
     expiresGroup.innerHTML = `<dt>有效期</dt><dd>${expireText}</dd>`;
 
     facts.append(prefixGroup, scopeGroup, permsGroup, createdGroup, usedGroup, expiresGroup);
-
     card.append(head, facts);
     tokenListEl.append(card);
   }
@@ -295,7 +623,6 @@ async function openCreateModal() {
   resultBoxEl.hidden = true;
   scopePickerEl.hidden = true;
 
-  // Populate devices for scope
   await ensureDevices();
   const devices = getDevices();
   if (deviceCheckboxListEl) {
