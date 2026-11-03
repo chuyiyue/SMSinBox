@@ -264,16 +264,8 @@ function buildDeviceDetailShell(device, entry = null) {
   const factList = document.createElement("dl");
   factList.className = "device-facts";
   addFact(factList, "平台", view.platformDetail, { wide: true });
-  addFact(factList, "创建时间", formatTime(device.created_at), {
-    title: device.created_at ? absoluteTime(device.created_at) : "",
-  });
-  addFact(factList, "最近活动", receiveText(view.received), {
-    title: view.received.at ? absoluteTime(view.received.at) : "",
-  });
   if (total !== null) addFact(factList, "短信数量", `${total} 条`);
   addFact(factList, "设备 ID", null, { wide: true, node: idLine(device.id) });
-  addFact(factList, "推送链接", view.pushHint, { wide: true });
-  addFact(factList, "快捷指令状态", view.shortcut, { wide: true });
   status.append(factList);
   summary.append(status);
 
@@ -368,7 +360,6 @@ function buildOverviewPanel(device, view, total) {
   addFact(meta, "最近状态", presenceLabel(deviceStateOf(device)), { wide: true });
   addFact(meta, "平台", view.platformBadge, { wide: true });
   if (total !== null) addFact(meta, "短信数", `${total} 条`, { wide: true });
-  addFact(meta, "推送状态", view.pushLabel, { wide: true });
   summary.append(heading, meta);
   panel.append(summary);
   return panel;
@@ -436,9 +427,6 @@ function buildPushPanel(device, view) {
   summary.className = "device-detail-card";
   const title = document.createElement("h3");
   title.textContent = "推送配置";
-  const strong = document.createElement("p");
-  strong.className = "device-detail-value";
-  strong.textContent = view.pushLabel;
   const actions = document.createElement("div");
   actions.className = "actions device-detail-actions";
   for (const action of view.actions) {
@@ -449,7 +437,7 @@ function buildPushPanel(device, view) {
     button.addEventListener("click", () => runPush(device, action.action));
     actions.append(button);
   }
-  summary.append(title, strong, actions);
+  summary.append(title, actions);
   panel.append(summary);
   return panel;
 }
@@ -694,15 +682,7 @@ function renderDevice(device, entry) {
   const facts = document.createElement("dl");
   facts.className = "device-facts";
   addFact(facts, "平台", view.platformDetail, { wide: true });
-  addFact(facts, "创建时间", formatTime(device.created_at), {
-    title: device.created_at ? absoluteTime(device.created_at) : "",
-  });
-  addFact(facts, "最近活动", receiveText(view.received), {
-    title: view.received.at ? absoluteTime(view.received.at) : "",
-  });
   if (total !== null) addFact(facts, "短信数量", `${total} 条`);
-  addFact(facts, "推送链接", view.pushLabel, { wide: true });
-  addFact(facts, "快捷指令", view.shortcut, { wide: true });
   addFact(facts, "设备 ID", null, { wide: true, node: idLine(view.id) });
 
   const actions = document.createElement("div");
@@ -814,12 +794,6 @@ function idLine(id) {
   });
   line.append(code, button);
   return line;
-}
-
-function receiveText(received) {
-  if (received.kind === "message") return formatTime(received.at);
-  if (received.kind === "seen-without-message") return `收件箱里已经没有短信。最近上报 ${formatTime(received.at)}`;
-  return "还没有短信";
 }
 
 function isStale(received) {

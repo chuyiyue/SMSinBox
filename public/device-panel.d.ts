@@ -1,9 +1,5 @@
 export function canRevealPushSecret(): boolean;
 
-export function pushLabel(push: string | null | undefined): string;
-
-export function pushLinkHint(push: string | null | undefined): string;
-
 export interface PushAction {
   action: "issue" | "rotate" | "revoke";
   label: string;
@@ -56,11 +52,7 @@ export interface DeviceCardModel {
   platform: PlatformView;
   platformBadge: string;
   platformDetail: string;
-  push: "none" | "active" | "revoked";
-  pushLabel: string;
-  pushHint: string;
   received: ReceiveTime;
-  shortcut: string;
   actions: PushAction[];
 }
 
