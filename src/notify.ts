@@ -4,7 +4,7 @@ import { openSmtpSocket, sendSmtp, type LineSocket } from "./smtp";
 import type { NotifyChannelRow } from "./types";
 
 export const MAX_NOTIFY_CHANNELS = 10;
-export const NOTIFY_KINDS = ["telegram", "wecom", "bark", "email"] as const;
+export const NOTIFY_KINDS = ["telegram", "wecom", "bark", "email", "feishu", "dingtalk"] as const;
 export type NotifyKind = (typeof NOTIFY_KINDS)[number];
 
 export interface TelegramConfig {
@@ -31,7 +31,23 @@ export interface EmailConfig {
   smtp_password?: string;
 }
 
-export type ChannelConfig = TelegramConfig | WecomConfig | BarkConfig | EmailConfig;
+export interface FeishuConfig {
+  webhook_url: string;
+  secret?: string;
+}
+
+export interface DingtalkConfig {
+  webhook_url: string;
+  secret?: string;
+}
+
+export type ChannelConfig =
+  | TelegramConfig
+  | WecomConfig
+  | BarkConfig
+  | EmailConfig
+  | FeishuConfig
+  | DingtalkConfig;
 
 export interface StoredChannel {
   id: string;
@@ -65,6 +81,10 @@ const CHAT_ID = /^(?:-?\d{1,20}|@[A-Za-z][A-Za-z0-9_]{3,31})$/;
 const BARK_KEY = /^[A-Za-z0-9]{8,64}$/;
 const EMAIL = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 const HOSTNAME = /^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/;
+const FEISHU_HOSTS = ["open.feishu.cn", "open.larksuite.com"];
+const FEISHU_HOOK_PATH = "/open-apis/bot/v2/hook/";
+const HOOK_SECRET = /^[A-Za-z0-9+/=_-]{8,256}$/;
+const ACCESS_TOKEN = /^[A-Za-z0-9_-]{8,128}$/;
 
 export function renderNotification(input: {
   from: string;
@@ -88,6 +108,8 @@ export function parseChannelInput(
   if (record.kind === "wecom") return parseWecom(record);
   if (record.kind === "bark") return parseBark(record);
   if (record.kind === "email") return parseEmail(record);
+  if (record.kind === "feishu") return parseFeishu(record);
+  if (record.kind === "dingtalk") return parseDingtalk(record);
   return { ok: false, error: "不支持的推送渠道" };
 }
 
@@ -123,6 +145,12 @@ export function redactConfig(kind: NotifyKind, config: ChannelConfig): Record<st
   if (kind === "bark") {
     const bark = config as BarkConfig;
     return { server: bark.server, device_key: mask(bark.device_key) };
+  }
+  if (kind === "feishu" || kind === "dingtalk") {
+    const hook = config as FeishuConfig | DingtalkConfig;
+    const redacted: Record<string, string | number> = { webhook_url: redactHookUrl(kind, hook.webhook_url) };
+    if (hook.secret) redacted.secret = mask(hook.secret);
+    return redacted;
   }
   const email = config as EmailConfig;
   const redacted: Record<string, string | number> = { to: email.to, from: email.from };
@@ -208,6 +236,8 @@ export function scrub(message: string): string {
   return message
     .replace(/bot\d{6,}:[A-Za-z0-9_-]+/gi, "bot***")
     .replace(/key=[^&\s]+/gi, "key=***")
+    .replace(/access_token=[^&\s]+/gi, "access_token=***")
+    .replace(/sign=[^&\s]+/gi, "sign=***")
     .replace(/[\r\n]/g, " ")
     .slice(0, 180);
 }
@@ -248,6 +278,66 @@ async function deliverOne(channel: StoredChannel, payload: NotifyText, deps: Not
       title: payload.title,
       body: payload.text,
       group: "SMSinBox",
+    });
+    return;
+  }
+  if (channel.kind === "feishu") {
+    const config = channel.config as FeishuConfig;
+    const body: Record<string, unknown> = {
+      msg_type: "interactive",
+      card: {
+        header: {
+          title: { tag: "plain_text", content: payload.title },
+          template: "blue",
+        },
+        elements: [
+          {
+            tag: "div",
+            text: { tag: "lark_md", content: escapeLark(payload.text) },
+          },
+          {
+            tag: "note",
+            elements: [{ tag: "plain_text", content: "来自 SMSinBox" }],
+          },
+        ],
+      },
+    };
+    if (config.secret) {
+      const timestamp = String(Math.floor(Date.now() / 1000));
+      body.timestamp = timestamp;
+      body.sign = await signFeishu(config.secret, timestamp);
+    }
+    await postJson(deps, config.webhook_url, "飞书", body, (parsed) => {
+      const record = asRecord(parsed);
+      if (record && typeof record.code === "number" && record.code !== 0) {
+        throw new Error("飞书拒绝了这条通知");
+      }
+    });
+    return;
+  }
+  if (channel.kind === "dingtalk") {
+    const config = channel.config as DingtalkConfig;
+    const url = new URL(config.webhook_url);
+    if (config.secret) {
+      const timestamp = String(Date.now());
+      url.searchParams.set("timestamp", timestamp);
+      url.searchParams.set("sign", await signDingtalk(config.secret, timestamp));
+    }
+    await postJson(deps, url.toString(), "钉钉", {
+      msgtype: "actionCard",
+      actionCard: {
+        title: payload.title,
+        text: `### ${escapeDingtalkMarkdown(payload.title)}\n\n${escapeDingtalkMarkdown(payload.text)}`,
+        hideAvatar: "0",
+        btnOrientation: "0",
+        singleTitle: "查看详情",
+        singleURL: "dingtalk://dingtalkclient/action/openapp",
+      },
+    }, (parsed) => {
+      const record = asRecord(parsed);
+      if (record && typeof record.errcode === "number" && record.errcode !== 0) {
+        throw new Error("钉钉拒绝了这条通知");
+      }
     });
     return;
   }
@@ -372,6 +462,67 @@ function parseEmail(record: Record<string, unknown>): { ok: true; kind: "email";
   };
 }
 
+function parseFeishu(record: Record<string, unknown>): { ok: true; kind: "feishu"; config: FeishuConfig } | { ok: false; error: string } {
+  const webhook = stringField(record, "webhook_url");
+  const url = webhook ? publicHttpsUrl(webhook) : null;
+  if (!url || !FEISHU_HOSTS.includes(url.hostname) || !url.pathname.startsWith(FEISHU_HOOK_PATH) || url.search || url.hash) {
+    return { ok: false, error: "飞书 Webhook 必须是 open.feishu.cn 的 https 地址" };
+  }
+  const token = url.pathname.slice(FEISHU_HOOK_PATH.length);
+  if (!ACCESS_TOKEN.test(token)) return { ok: false, error: "飞书 Webhook 缺少 token" };
+  const secret = stringField(record, "secret");
+  if (secret && !HOOK_SECRET.test(secret)) return { ok: false, error: "飞书签名密钥无效" };
+  return {
+    ok: true,
+    kind: "feishu",
+    config: secret ? { webhook_url: url.toString(), secret } : { webhook_url: url.toString() },
+  };
+}
+
+function parseDingtalk(record: Record<string, unknown>): { ok: true; kind: "dingtalk"; config: DingtalkConfig } | { ok: false; error: string } {
+  const webhook = stringField(record, "webhook_url");
+  const url = webhook ? publicHttpsUrl(webhook) : null;
+  if (!url || url.hostname !== "oapi.dingtalk.com" || url.pathname !== "/robot/send" || url.hash) {
+    return { ok: false, error: "钉钉 Webhook 必须是 oapi.dingtalk.com 的 https 地址" };
+  }
+  const accessToken = url.searchParams.get("access_token") ?? "";
+  if (!ACCESS_TOKEN.test(accessToken)) return { ok: false, error: "钉钉 Webhook 缺少 access_token" };
+  const secret = stringField(record, "secret");
+  if (secret && !HOOK_SECRET.test(secret)) return { ok: false, error: "钉钉签名密钥无效" };
+  // 签名在发送时按当前时间生成；粘贴来的旧 timestamp/sign 不保存。
+  const normalized = new URL("https://oapi.dingtalk.com/robot/send");
+  normalized.searchParams.set("access_token", accessToken);
+  return {
+    ok: true,
+    kind: "dingtalk",
+    config: secret
+      ? { webhook_url: normalized.toString(), secret }
+      : { webhook_url: normalized.toString() },
+  };
+}
+
+export async function signFeishu(secret: string, timestamp: string | number): Promise<string> {
+  // 飞书官方规则：HMAC-SHA256 的 key 为 "{timestamp}\n{secret}"，待签名内容为空。
+  const key = new TextEncoder().encode(`${timestamp}\n${secret}`);
+  const cryptoKey = await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", cryptoKey, new Uint8Array(0));
+  return toBase64(new Uint8Array(signature));
+}
+
+export async function signDingtalk(secret: string, timestamp: string | number): Promise<string> {
+  const stringToSign = `${timestamp}\n${secret}`;
+  const key = new TextEncoder().encode(secret);
+  const cryptoKey = await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(stringToSign));
+  return toBase64(new Uint8Array(signature));
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
 function publicHttpsUrl(value: string): URL | null {
   let url: URL;
   try {
@@ -437,6 +588,33 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function isKind(value: string): value is NotifyKind {
   return (NOTIFY_KINDS as readonly string[]).includes(value);
+}
+
+function redactHookUrl(kind: NotifyKind, value: string): string {
+  try {
+    const url = new URL(value);
+    if (kind === "dingtalk") {
+      if (url.searchParams.has("access_token")) url.searchParams.set("access_token", "****");
+      if (url.searchParams.has("sign")) url.searchParams.set("sign", "****");
+    } else if (url.pathname.startsWith(FEISHU_HOOK_PATH)) {
+      url.pathname = `${FEISHU_HOOK_PATH}${mask(url.pathname.slice(FEISHU_HOOK_PATH.length))}`;
+    }
+    if (url.username || url.password) {
+      url.username = "";
+      url.password = "";
+    }
+    return url.toString();
+  } catch {
+    return mask(value);
+  }
+}
+
+function escapeLark(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/\*/g, "\\*").replace(/`/g, "\\`");
+}
+
+function escapeDingtalkMarkdown(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\*/g, "\\*").replace(/_/g, "\\_");
 }
 
 function redactUrl(value: string): string {

@@ -8,6 +8,8 @@ import {
   renderNotification,
   scheduleNotify,
   scrub,
+  signDingtalk,
+  signFeishu,
   type StoredChannel,
 } from "../src/notify";
 import { notifyStoredSms } from "../src/notify";
@@ -16,6 +18,10 @@ import type { NotifyChannelRow } from "../src/types";
 
 const TOKEN = "123456789:AAHabcdefghijklmnopqrstuvwxyz0123456789";
 const WEBHOOK = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abcDEF123456";
+const FEISHU_WEBHOOK = "https://open.feishu.cn/open-apis/bot/v2/hook/abcd1234-efgh-5678";
+const FEISHU_SECRET = "feishu-secret";
+const DINGTALK_WEBHOOK = "https://oapi.dingtalk.com/robot/send?access_token=abcDEF1234567890";
+const DINGTALK_SECRET = "SECtestsecret";
 
 class ScriptedSocket implements LineSocket {
   written: string[] = [];
@@ -103,7 +109,7 @@ describe("notification text and config", () => {
     expect(note.text.endsWith("…")).toBe(true);
   });
 
-  it("accepts the four channels and rejects unsafe endpoints", () => {
+  it("accepts the supported channels and rejects unsafe endpoints", () => {
     expect(parseChannelInput({ kind: "telegram", bot_token: TOKEN, chat_id: "-100123" }).ok).toBe(true);
     expect(parseChannelInput({ kind: "telegram", bot_token: TOKEN, chat_id: "@alerts" }).ok).toBe(true);
     expect(parseChannelInput({ kind: "telegram", bot_token: "nope", chat_id: "1" }).ok).toBe(false);
@@ -163,6 +169,189 @@ describe("notification text and config", () => {
     expect(JSON.stringify(redactConfig(wecom.kind, wecom.config))).not.toContain("abcDEF123456");
     expect(scrub(`failed bot${TOKEN} key=abcDEF123456`)).toBe("failed bot*** key=***");
     expect(scrub(`failed bot${TOKEN} key=abcDEF123456`)).not.toContain("AAHabc");
+    expect(scrub(`failed https://oapi.dingtalk.com/robot/send?access_token=abcDEF&timestamp=1&sign=xyz`))
+      .toBe("failed https://oapi.dingtalk.com/robot/send?access_token=***&timestamp=1&sign=***");
+  });
+});
+
+describe("feishu and dingtalk", () => {
+  it("parses official webhook hosts and validates optional secrets", () => {
+    const feishu = parseChannelInput({ kind: "feishu", webhook_url: FEISHU_WEBHOOK, secret: FEISHU_SECRET });
+    expect(feishu.ok).toBe(true);
+    if (feishu.ok) expect(feishu.config).toEqual({ webhook_url: FEISHU_WEBHOOK, secret: FEISHU_SECRET });
+    expect(parseChannelInput({
+      kind: "feishu",
+      webhook_url: "https://open.larksuite.com/open-apis/bot/v2/hook/abcd1234",
+    }).ok).toBe(true);
+    expect(parseChannelInput({
+      kind: "feishu",
+      webhook_url: "http://open.feishu.cn/open-apis/bot/v2/hook/abcd1234",
+    }).ok).toBe(false);
+    expect(parseChannelInput({
+      kind: "feishu",
+      webhook_url: "https://evil.example/open-apis/bot/v2/hook/abcd1234",
+    }).ok).toBe(false);
+    expect(parseChannelInput({
+      kind: "feishu",
+      webhook_url: "https://open.feishu.cn/other/abcd1234",
+    }).ok).toBe(false);
+    expect(parseChannelInput({
+      kind: "feishu",
+      webhook_url: `${FEISHU_WEBHOOK}?from=1`,
+    }).ok).toBe(false);
+    expect(parseChannelInput({
+      kind: "feishu",
+      webhook_url: FEISHU_WEBHOOK,
+      secret: "short",
+    }).ok).toBe(false);
+
+    const dingtalk = parseChannelInput({ kind: "dingtalk", webhook_url: DINGTALK_WEBHOOK, secret: DINGTALK_SECRET });
+    expect(dingtalk.ok).toBe(true);
+    if (dingtalk.ok) expect(dingtalk.config).toEqual({ webhook_url: DINGTALK_WEBHOOK, secret: DINGTALK_SECRET });
+    expect(parseChannelInput({
+      kind: "dingtalk",
+      webhook_url: "https://oapi.dingtalk.com/robot/send",
+    }).ok).toBe(false);
+    expect(parseChannelInput({
+      kind: "dingtalk",
+      webhook_url: "http://oapi.dingtalk.com/robot/send?access_token=abcDEF1234567890",
+    }).ok).toBe(false);
+    expect(parseChannelInput({
+      kind: "dingtalk",
+      webhook_url: "https://evil.example/robot/send?access_token=abcDEF1234567890",
+    }).ok).toBe(false);
+    expect(parseChannelInput({
+      kind: "dingtalk",
+      webhook_url: DINGTALK_WEBHOOK,
+      secret: "short",
+    }).ok).toBe(false);
+    const legacy = parseChannelInput({
+      kind: "dingtalk",
+      webhook_url: `${DINGTALK_WEBHOOK}&timestamp=1&sign=old`,
+    });
+    expect(legacy.ok).toBe(true);
+    if (legacy.ok) expect((legacy.config as { webhook_url: string }).webhook_url).toBe(DINGTALK_WEBHOOK);
+  });
+
+  it("masks Feishu path tokens and DingTalk access tokens", () => {
+    const feishu = parseChannelInput({ kind: "feishu", webhook_url: FEISHU_WEBHOOK, secret: FEISHU_SECRET });
+    expect(feishu.ok).toBe(true);
+    if (feishu.ok) {
+      const redacted = redactConfig(feishu.kind, feishu.config);
+      expect(JSON.stringify(redacted)).not.toContain("abcd1234-efgh");
+      expect(redacted.secret).toBe("****cret");
+    }
+    const dingtalk = parseChannelInput({ kind: "dingtalk", webhook_url: DINGTALK_WEBHOOK, secret: DINGTALK_SECRET });
+    expect(dingtalk.ok).toBe(true);
+    if (dingtalk.ok) {
+      const redacted = redactConfig(dingtalk.kind, dingtalk.config);
+      expect(JSON.stringify(redacted)).not.toContain("abcDEF1234567890");
+      expect(JSON.stringify(redacted)).not.toContain(DINGTALK_SECRET);
+      expect(redacted.secret).toBe("****cret");
+    }
+  });
+
+  it("computes Feishu and DingTalk signatures with the official rules", async () => {
+    expect(await signFeishu("feishu-secret", 1_700_000_000)).toBe("OrBzY1Y01Gq+HgJsl+7OfWcMVwc7YocohQm5iiZwjhU=");
+    expect(await signDingtalk("SECtestsecret", 1_700_000_000_000)).toBe("7LVwF0dAF3/+MRRulbpE4y72Ogzykc6bS2nG4I99T4s=");
+  });
+
+  it("builds and signs Feishu interactive card requests", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const results = await deliverChannels(
+      [channel({ kind: "feishu", config: { webhook_url: FEISHU_WEBHOOK, secret: FEISHU_SECRET } })],
+      { title: "验证码 123456", text: "pixel · 10086\n2026-01-02T03:04:05.000Z\n您的验证码是 123456" },
+      {
+        fetch: async (input, init) => {
+          calls.push({ url: String(input), init: init ?? {} });
+          return Response.json({ code: 0 });
+        },
+        openSmtp: async () => {
+          throw new Error("unused");
+        },
+      },
+    );
+    expect(results[0]?.ok).toBe(true);
+    expect(calls[0]?.url).toBe(FEISHU_WEBHOOK);
+    expect(calls[0]?.init.method).toBe("POST");
+    expect((calls[0]?.init.headers as Record<string, string>)["content-type"]).toBe("application/json");
+    const body = JSON.parse(String(calls[0]?.init.body)) as {
+      msg_type: string;
+      timestamp: string;
+      sign: string;
+      card: { header: { title: { content: string } }; elements: Array<{ text?: { content: string } }> };
+    };
+    expect(body.msg_type).toBe("interactive");
+    expect(body.card.header.title.content).toBe("验证码 123456");
+    expect(body.card.elements[0]?.text?.content).toContain("10086");
+    expect(body.timestamp).toBe("1700000000");
+    expect(body.sign).toBe("OrBzY1Y01Gq+HgJsl+7OfWcMVwc7YocohQm5iiZwjhU=");
+    now.mockRestore();
+  });
+
+  it("builds and signs DingTalk ActionCard requests", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const results = await deliverChannels(
+      [channel({ kind: "dingtalk", config: { webhook_url: DINGTALK_WEBHOOK, secret: DINGTALK_SECRET } })],
+      { title: "验证码 123456", text: "pixel · 10086\n2026-01-02T03:04:05.000Z\n您的验证码是 123456" },
+      {
+        fetch: async (input, init) => {
+          calls.push({ url: String(input), init: init ?? {} });
+          return Response.json({ errcode: 0, errmsg: "ok" });
+        },
+        openSmtp: async () => {
+          throw new Error("unused");
+        },
+      },
+    );
+    expect(results[0]?.ok).toBe(true);
+    const url = new URL(calls[0]?.url ?? "");
+    expect(url.origin + url.pathname).toBe("https://oapi.dingtalk.com/robot/send");
+    expect(url.searchParams.get("access_token")).toBe("abcDEF1234567890");
+    expect(url.searchParams.get("timestamp")).toBe("1700000000000");
+    expect(url.searchParams.get("sign")).toBe("7LVwF0dAF3/+MRRulbpE4y72Ogzykc6bS2nG4I99T4s=");
+    const body = JSON.parse(String(calls[0]?.init.body)) as {
+      msgtype: string;
+      actionCard: { title: string; text: string };
+    };
+    expect(body.msgtype).toBe("actionCard");
+    expect(body.actionCard.title).toBe("验证码 123456");
+    expect(body.actionCard.text).toContain("10086");
+    expect(body.actionCard.text).toContain("您的验证码是 123456");
+    now.mockRestore();
+  });
+
+  it("treats provider error codes as failures without leaking webhook secrets", async () => {
+    const results = await deliverChannels(
+      [
+        channel({ kind: "feishu", config: { webhook_url: FEISHU_WEBHOOK, secret: FEISHU_SECRET } }),
+        channel({
+          id: "22222222-2222-4222-8222-222222222222",
+          kind: "dingtalk",
+          config: { webhook_url: DINGTALK_WEBHOOK, secret: DINGTALK_SECRET },
+        }),
+      ],
+      { title: "测试", text: "不含短信" },
+      {
+        fetch: async (input) => {
+          if (String(input).includes("open.feishu.cn")) {
+            return Response.json({ code: 19001, msg: "bad request" });
+          }
+          return Response.json({ errcode: 310000, errmsg: "bad request" });
+        },
+        openSmtp: async () => {
+          throw new Error("unused");
+        },
+      },
+    );
+    expect(results.map((result) => result.ok)).toEqual([false, false]);
+    expect(results[0]?.error).toBe("飞书拒绝了这条通知");
+    expect(results[1]?.error).toBe("钉钉拒绝了这条通知");
+    expect(JSON.stringify(results)).not.toContain(FEISHU_SECRET);
+    expect(JSON.stringify(results)).not.toContain(DINGTALK_SECRET);
+    expect(JSON.stringify(results)).not.toContain("abcDEF1234567890");
   });
 });
 

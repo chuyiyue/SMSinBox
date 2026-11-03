@@ -27,6 +27,18 @@ const KINDS = [
     hint: "Webhook 或 SMTP",
     icon: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/>',
   },
+  {
+    kind: "feishu",
+    label: "飞书",
+    hint: "群机器人",
+    icon: '<path d="M4 6h16v10H9l-5 4V6z"/><path d="M8 10h8M8 13h5"/>',
+  },
+  {
+    kind: "dingtalk",
+    label: "钉钉",
+    hint: "群机器人",
+    icon: '<path d="M4 5h16v11H8l-4 3V5z"/><path d="M8 9h8M8 12h6"/>',
+  },
 ];
 
 let form;
@@ -158,6 +170,46 @@ function renderFields() {
     );
     return;
   }
+  if (selectedKind === "feishu") {
+    const input = field("Webhook URL", "webhook_url", "https://open.feishu.cn/open-apis/bot/v2/hook/", "off");
+    const error = document.createElement("p");
+    error.className = "field-error";
+    error.hidden = true;
+    input.querySelector("input").addEventListener("input", () => {
+      const value = input.querySelector("input").value.trim();
+      const bad = value && !feishuHostOk(value);
+      error.hidden = !bad;
+      error.textContent = bad ? "飞书 Webhook 必须是 open.feishu.cn 的 https 地址" : "";
+      input.querySelector("input").setAttribute("aria-invalid", bad ? "true" : "false");
+    });
+    fields.append(
+      input,
+      error,
+      secretField("签名密钥（可选）", "secret"),
+      help("在哪里获取", "在飞书群里添加自定义机器人，复制 Webhook 地址。开启签名校验时再填入密钥；不填则按未开启校验发送。", "https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot"),
+    );
+    return;
+  }
+  if (selectedKind === "dingtalk") {
+    const input = field("Webhook URL", "webhook_url", "https://oapi.dingtalk.com/robot/send?access_token=", "off");
+    const error = document.createElement("p");
+    error.className = "field-error";
+    error.hidden = true;
+    input.querySelector("input").addEventListener("input", () => {
+      const value = input.querySelector("input").value.trim();
+      const bad = value && !dingtalkHostOk(value);
+      error.hidden = !bad;
+      error.textContent = bad ? "钉钉 Webhook 必须是 oapi.dingtalk.com 的 https 地址" : "";
+      input.querySelector("input").setAttribute("aria-invalid", bad ? "true" : "false");
+    });
+    fields.append(
+      input,
+      error,
+      secretField("签名密钥（可选）", "secret"),
+      help("在哪里获取", "在钉钉群里添加自定义机器人，复制 Webhook 地址。安全设置选择「加签」时，把密钥填到这里。", "https://open.dingtalk.com/document/robots/custom-robot-access"),
+    );
+    return;
+  }
   const modes = document.createElement("div");
   modes.className = "segmented";
   modes.setAttribute("role", "group");
@@ -242,6 +294,14 @@ function readForm() {
   if (selectedKind === "wecom") {
     const webhook = String(payload.get("webhook_url") || "").trim();
     if (!wecomHostOk(webhook)) return { error: "企业微信 Webhook 必须是 qyapi.weixin.qq.com 的 https 地址" };
+  }
+  if (selectedKind === "feishu") {
+    const webhook = String(payload.get("webhook_url") || "").trim();
+    if (!feishuHostOk(webhook)) return { error: "飞书 Webhook 必须是 open.feishu.cn 的 https 地址" };
+  }
+  if (selectedKind === "dingtalk") {
+    const webhook = String(payload.get("webhook_url") || "").trim();
+    if (!dingtalkHostOk(webhook)) return { error: "钉钉 Webhook 必须是 oapi.dingtalk.com 的 https 地址" };
   }
   for (const [key, value] of payload.entries()) {
     const text = String(value).trim();
@@ -409,6 +469,9 @@ function describe(channel) {
   if (channel.kind === "telegram") return `chat ${config.chat_id || ""} · token ${config.bot_token || ""}`;
   if (channel.kind === "wecom") return config.webhook_url || "";
   if (channel.kind === "bark") return `${config.server || ""} · ${config.device_key || ""}`;
+  if (channel.kind === "feishu" || channel.kind === "dingtalk") {
+    return config.secret ? `${config.webhook_url || ""} · 已签名` : config.webhook_url || "";
+  }
   if (config.webhook_url) return `${config.from || ""} → ${config.to || ""} · Webhook ${config.webhook_url}`;
   return `${config.from || ""} → ${config.to || ""} · ${config.smtp_host || "SMTP"}`;
 }
@@ -439,7 +502,7 @@ function emptyChannels() {
   title.className = "empty-title";
   title.textContent = "还没有推送渠道";
   const text = document.createElement("p");
-  text.textContent = "短信入库后，可以推到 Telegram、企业微信、Bark 或邮箱。";
+  text.textContent = "短信入库后，可以推到 Telegram、企业微信、Bark、飞书、钉钉或邮箱。";
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = "添加渠道";
@@ -452,6 +515,24 @@ function wecomHostOk(value) {
   try {
     const url = new URL(value);
     return url.protocol === "https:" && url.hostname === "qyapi.weixin.qq.com";
+  } catch {
+    return false;
+  }
+}
+
+function feishuHostOk(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && (url.hostname === "open.feishu.cn" || url.hostname === "open.larksuite.com");
+  } catch {
+    return false;
+  }
+}
+
+function dingtalkHostOk(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "oapi.dingtalk.com";
   } catch {
     return false;
   }

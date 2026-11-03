@@ -792,7 +792,7 @@ async function testNotification(request: Request, env: Env, rawId: string): Prom
 
 function presentChannel(channel: {
   id: string;
-  kind: "telegram" | "wecom" | "bark" | "email";
+  kind: Parameters<typeof redactConfig>[0];
   config: Parameters<typeof redactConfig>[1];
   enabled: boolean;
   createdAt: number;
