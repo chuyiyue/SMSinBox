@@ -75,6 +75,32 @@ describe("site consistency", () => {
     expect(readFileSync("public/devices.js", "utf8")).toContain("refreshDevices");
   });
 
+  it("shows inbox item and detail times in absolute device-receive format", () => {
+    const common = readFileSync("public/common.js", "utf8");
+    const inbox = readFileSync("public/inbox.js", "utf8");
+    expect(common).toContain("export function formatDateTime(ms)");
+    expect(common).toContain("export function formatTime(ms)");
+    expect(common).toMatch(/export function receivedStamp\(ms\)[\s\S]*?formatDateTime\(ms\)/);
+
+    const timeNode = inbox.match(/function timeNode\([\s\S]*?\n\}/)?.[0] ?? "";
+    expect(timeNode).toContain("Number(message.received_at)");
+    expect(timeNode).toContain("time.textContent = formatDateTime(at)");
+    expect(timeNode).not.toContain("formatTime(");
+    expect(timeNode).not.toContain("created_at");
+    expect(inbox).toContain("receivedStamp(message.received_at)");
+  });
+
+  it("links sidebar devices to their device-page card and scrolls long device lists", () => {
+    const common = readFileSync("public/common.js", "utf8");
+    const css = readFileSync("public/style.css", "utf8");
+    expect(common).toContain('`/devices.html#dev-${encodeURIComponent(id)}`');
+    expect(common).toContain('"/devices.html"');
+    expect(common).toContain("还没有设备。");
+    expect(common).toContain('add.href = "/devices.html#add"');
+    expect(css).toMatch(/\.sidebar \.device-list \{[\s\S]*?max-height:[^;]+;[\s\S]*?overflow-y: auto;/);
+    expect(css).toMatch(/\.sidebar \.sidebar-devices \{[\s\S]*?border-top:/);
+  });
+
   it("labels the admin entry as system management on every page", () => {
     for (const file of pages) {
       const html = readFileSync(file, "utf8");

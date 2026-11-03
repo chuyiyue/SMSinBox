@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { bytesToBase64Url, sha256Hex, signHmacHex } from "../src/auth";
+import { bytesToBase64Url, sha256Hex } from "../src/auth";
 import {
   deleteDevice,
   deleteUserCascade,
@@ -208,11 +208,11 @@ function createDb() {
               name: String(args[2]),
               platform: args[3] == null ? null : String(args[3]),
               token_hash: String(args[4]),
-              secret: args[5] == null ? null : String(args[5]),
-              token_version: Number(args[6]),
+              secret: null,
+              token_version: Number(args[5]),
               last_seen_at: null,
-              created_at: Number(args[7]),
-              push_token_hash: args[8] == null ? null : String(args[8]),
+              created_at: Number(args[6]),
+              push_token_hash: args[7] == null ? null : String(args[7]),
               push_revoked_at: null,
             });
             return { meta: { changes: 1 } };
@@ -465,54 +465,29 @@ describe("handleSms bearer", () => {
     expect(logs.join("")).not.toContain("123456");
   });
 
-  it("keeps the HMAC rules for devices with and without a secret", async () => {
-    const plain = createDb();
-    await seedDevice(plain.state, TOKEN, null);
-    const unsigned = await handleSms(
-      smsRequest(TOKEN, smsBody("验证码 123456"), { "x-signature": "aa", "x-timestamp": String(NOW) }),
-      envFor(plain.db),
+  it("authenticates legacy bearer rows by token alone and ignores signature headers", async () => {
+    // A row created before the JWT migration may still hold a `secret` value in
+    // D1. That column is no longer read, so the bearer token is the only
+    // credential and stray X-Signature / X-Timestamp headers are ignored.
+    const legacy = createDb();
+    await seedDevice(legacy.state, TOKEN, "leftover-hmac-secret");
+    const unsigned = await handleSms(smsRequest(TOKEN, smsBody("验证码 123456")), envFor(legacy.db), waitCtx().ctx);
+    expect(unsigned.status).toBe(200);
+    expect(await unsigned.json()).toMatchObject({ ok: true, code: "123456" });
+    expect(legacy.state.messages).toHaveLength(1);
+    expect(legacy.state.devices[0]?.last_seen_at).toBe(NOW);
+
+    const stale = await handleSms(
+      smsRequest(TOKEN, smsBody("验证码 654321"), {
+        "x-timestamp": String(NOW - 10 * 60 * 1000),
+        "x-signature": "ab".repeat(32),
+      }),
+      envFor(legacy.db),
       waitCtx().ctx,
     );
-    expect(unsigned.status).toBe(401);
-    expect(await unsigned.json()).toEqual({ ok: false, error: "该设备未启用签名" });
-    expect(plain.state.rates.size).toBe(0);
-
-    const secret = "hmac-secret-value";
-    const signed = createDb();
-    await seedDevice(signed.state, TOKEN, secret);
-    const body = smsBody("验证码 654321");
-    const missing = await handleSms(smsRequest(TOKEN, body), envFor(signed.db), waitCtx().ctx);
-    expect(missing.status).toBe(401);
-    expect(await missing.json()).toEqual({ ok: false, error: "该设备要求 HMAC 签名" });
-
-    const stale = String(NOW - 10 * 60 * 1000);
-    const staleSignature = await signHmacHex(secret, stale, new TextEncoder().encode(body));
-    const expired = await handleSms(
-      smsRequest(TOKEN, body, { "x-timestamp": stale, "x-signature": staleSignature }),
-      envFor(signed.db),
-      waitCtx().ctx,
-    );
-    expect(expired.status).toBe(401);
-    expect(await expired.json()).toEqual({ ok: false, error: "签名无效" });
-
-    const bad = await handleSms(
-      smsRequest(TOKEN, body, { "x-timestamp": String(NOW), "x-signature": "ab".repeat(32) }),
-      envFor(signed.db),
-      waitCtx().ctx,
-    );
-    expect(bad.status).toBe(401);
-    expect(await bad.json()).toEqual({ ok: false, error: "签名无效" });
-    expect(signed.state.messages).toHaveLength(0);
-
-    const signature = await signHmacHex(secret, String(NOW), new TextEncoder().encode(body));
-    const accepted = await handleSms(
-      smsRequest(TOKEN, body, { "x-timestamp": String(NOW), "x-signature": signature }),
-      envFor(signed.db),
-      waitCtx().ctx,
-    );
-    expect(accepted.status).toBe(200);
-    expect(await accepted.json()).toMatchObject({ ok: true, code: "654321" });
-    expect(signed.state.messages).toHaveLength(1);
+    expect(stale.status).toBe(200);
+    expect(await stale.json()).toMatchObject({ ok: true, code: "654321" });
+    expect(legacy.state.messages).toHaveLength(2);
   });
 
   it("returns the existing id when the same bucket is reported again", async () => {
@@ -616,7 +591,6 @@ describe("device push rows", () => {
       userId: USER_ID,
       name: "pixel",
       tokenHash: await sha256Hex(TOKEN),
-      secret: null,
       createdAt: NOW,
       pushTokenHash,
     });
@@ -625,7 +599,7 @@ describe("device push rows", () => {
 
   it("lists none, active, and revoked without the hash or the secret", async () => {
     const none = await seed(null);
-    expect(await listDevices(none.db, USER_ID)).toMatchObject([{ id: DEVICE_ID, push: "none", has_secret: false }]);
+    expect(await listDevices(none.db, USER_ID)).toMatchObject([{ id: DEVICE_ID, push: "none" }]);
 
     const activeHash = await sha256Hex(issued);
     const active = await seed(activeHash);
@@ -700,7 +674,6 @@ describe("device push rows", () => {
       userId: otherUser,
       name: "other",
       tokenHash: stranger,
-      secret: null,
       createdAt: NOW,
       pushTokenHash: null,
     });
@@ -754,7 +727,7 @@ describe("push ingest", () => {
       token_type: string;
       token_expires_at: number;
       push_url: string;
-      device: { id: string; push: string; has_secret: boolean; platform: string };
+      device: { id: string; push: string; platform: string };
     }>;
   }
 
@@ -767,7 +740,7 @@ describe("push ingest", () => {
     expect(created.token_type).toBe("Bearer");
     expect(created.token_expires_at).toBeGreaterThan(NOW);
     expect(created.push_url).toMatch(/^https:\/\/sms\.example\/api\/v1\/ingest\/psh_[A-Za-z0-9_-]{20,}$/);
-    expect(created.device).toMatchObject({ push: "active", has_secret: false, platform: "android" });
+    expect(created.device).toMatchObject({ push: "active", platform: "android" });
     const secret = created.push_url.split("/").pop() ?? "";
     expect(harness.state.devices[0]?.push_token_hash).toBe(await sha256Hex(secret));
     expect(harness.state.devices[0]?.token_hash).toMatch(/^[0-9a-f]{64}$/);
@@ -868,7 +841,7 @@ describe("push ingest", () => {
     expect(await asBearer.json()).toEqual({ ok: false, error: "设备 token 无效" });
   });
 
-  it("ignores Authorization, skips HMAC, and deduplicates with the bearer path", async () => {
+  it("ignores Authorization and stray signature headers, and deduplicates with the bearer path", async () => {
     const harness = createDb();
     const created = await createDevice(harness);
     const other = await handleApi(authed("/api/v1/devices", "POST", { name: "other" }), envFor(harness.db));
@@ -893,9 +866,16 @@ describe("push ingest", () => {
     expect(await duplicate.json()).toMatchObject({ duplicate: true, code: "123456" });
     expect(harness.state.messages).toHaveLength(1);
 
-    // New devices use the system JWT and never sign, so the bearer door needs
-    // no X-Signature. The HMAC path is covered for legacy rows below.
-    const unsigned = await handleSms(smsRequest(created.token, smsBody("验证码 222222")), envFor(harness.db), waitCtx().ctx);
+    // New devices use the system JWT and never sign. Signature headers are
+    // ignored rather than rejected, so old clients still authenticate by token.
+    const unsigned = await handleSms(
+      smsRequest(created.token, smsBody("验证码 222222"), {
+        "x-timestamp": String(NOW),
+        "x-signature": "ab".repeat(32),
+      }),
+      envFor(harness.db),
+      waitCtx().ctx,
+    );
     expect(unsigned.status).toBe(200);
     expect(await unsigned.json()).toMatchObject({ ok: true, code: "222222" });
 
@@ -1026,7 +1006,6 @@ describe("push ingest", () => {
       userId: USER_ID,
       name: "blank",
       tokenHash: await sha256Hex("sms_blank_device_token_value_0001"),
-      secret: null,
       createdAt: NOW,
       pushTokenHash: null,
     });

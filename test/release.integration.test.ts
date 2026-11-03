@@ -5,7 +5,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import pkg from "../package.json";
 import { Miniflare } from "miniflare";
-import { bytesToBase64Url, hashPassword, sha256Hex, signHmacHex } from "../src/auth";
+import { bytesToBase64Url, hashPassword, sha256Hex } from "../src/auth";
 import { LOGIN_FAILURE_LIMIT, loginRateKey } from "../src/db";
 import { ENCRYPTED_PREFIX } from "../src/crypto";
 import worker from "../src/index";
@@ -303,7 +303,8 @@ describe("release migrations", () => {
     const listed = await expectStatus(await call("/api/v1/devices", {}, cookie), 200);
     const devices = listed.devices as Array<Record<string, unknown>>;
     const old = devices.find((device) => device.id === LEGACY_DEVICE);
-    expect(old).toMatchObject({ name: "旧手机", push: "none", has_secret: false });
+    expect(old).toMatchObject({ name: "旧手机", push: "none" });
+    expect(old).not.toHaveProperty("has_secret");
     expect(JSON.stringify(listed)).not.toContain(LEGACY_TOKEN);
     expect(JSON.stringify(listed)).not.toContain("psh_");
 
@@ -467,9 +468,6 @@ describe("release journey", () => {
     pushUrl: string;
     secret: string;
     messageId: string;
-    hmacId: string;
-    hmacToken: string;
-    hmacPush: string;
   } = {
     cookie: "",
     deviceId: "",
@@ -477,9 +475,6 @@ describe("release journey", () => {
     pushUrl: "",
     secret: "",
     messageId: "",
-    hmacId: "",
-    hmacToken: "",
-    hmacPush: "",
   };
 
   beforeAll(async () => {
@@ -525,7 +520,8 @@ describe("release journey", () => {
     expect(state.token.split(".")).toHaveLength(3);
     expect(created).toMatchObject({ token_type: "Bearer" });
     expect(Number(created.token_expires_at)).toBeGreaterThan(Date.now());
-    expect(created.device).toMatchObject({ name: "iPhone", push: "active", has_secret: false, platform: "other" });
+    expect(created.device).toMatchObject({ name: "iPhone", push: "active", platform: "other" });
+    expect(created.device).not.toHaveProperty("has_secret");
 
     const listed = await expectStatus(await call("/api/v1/devices", {}, state.cookie), 200);
     const text = JSON.stringify(listed);
@@ -612,16 +608,19 @@ describe("release journey", () => {
     expect(asBearer.error).toBe("设备 token 无效");
   });
 
-  it("rejects per-device secrets on create but still accepts a legacy HMAC row", async () => {
-    const rejected = await call(
-      "/api/v1/devices",
-      jsonInit({ name: "Pixel", secret: "signing-secret" }),
-      state.cookie,
+  it("ignores a per-device secret on create and authenticates legacy rows by bearer only", async () => {
+    // The `secret` column still exists in D1 but is never written or read. An
+    // old client that sends it on create is not rejected; the field is ignored.
+    const created = await expectStatus(
+      await call("/api/v1/devices", jsonInit({ name: "Pixel", secret: "signing-secret" }), state.cookie),
+      200,
     );
-    expect((await expectStatus(rejected, 400)).error).toContain("设备签名已停用");
+    expect(created.device).toMatchObject({ name: "Pixel", push: "active" });
+    expect(created.device).not.toHaveProperty("has_secret");
+    expect(String(created.token).startsWith("eyJ")).toBe(true);
 
     const admin = await env.DB.prepare("SELECT id FROM users ORDER BY created_at ASC").first<{ id: string }>();
-    const legacyToken = "sms_legacy_hmac_device_token_0001";
+    const legacyToken = "sms_legacy_bearer_device_token_0001";
     const legacyId = "99999999-9999-4999-8999-999999999999";
     await runSql(
       env.DB,
@@ -629,49 +628,34 @@ describe("release journey", () => {
       [legacyId, String(admin?.id), "旧 Pixel", await sha256Hex(legacyToken), "signing-secret", Date.now()],
     );
 
+    // A leftover secret no longer forces HMAC: the bearer works on its own.
     const unsigned = await expectStatus(
       await call("/api/v1/sms", {
         method: "POST",
         headers: { authorization: `Bearer ${legacyToken}`, "content-type": "application/json" },
         body: JSON.stringify({ from: "10000", content: "验证码 222333", device: "Pixel" }),
       }),
-      401,
-    );
-    expect(unsigned.error).toBe("该设备要求 HMAC 签名");
-
-    const body = JSON.stringify({ from: "10000", content: "验证码 333444", device: "Pixel" });
-    const timestamp = String(Math.floor(Date.now() / 1000));
-    const signature = await signHmacHex("signing-secret", timestamp, new TextEncoder().encode(body));
-    const signed = await expectStatus(
-      await call("/api/v1/sms", {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${legacyToken}`,
-          "content-type": "application/json",
-          "x-timestamp": timestamp,
-          "x-signature": signature,
-        },
-        body,
-      }),
       200,
     );
-    expect(signed).toMatchObject({ ok: true, code: "333444" });
-    // A JWT device rejects stray signature headers, so old HMAC clients cannot
-    // silently keep signing a new credential.
+    expect(unsigned).toMatchObject({ ok: true, code: "222333" });
+
+    // Signature headers are ignored rather than rejected, for legacy and JWT
+    // credentials alike, so an old client keeps working without signing.
+    const body = JSON.stringify({ from: "10000", content: "验证码 333444", device: "Pixel" });
     const jwtSigned = await expectStatus(
       await call("/api/v1/sms", {
         method: "POST",
         headers: {
           authorization: `Bearer ${state.token}`,
           "content-type": "application/json",
-          "x-timestamp": timestamp,
+          "x-timestamp": String(Math.floor(Date.now() / 1000)),
           "x-signature": "ab".repeat(32),
         },
-        body: JSON.stringify({ from: "10000", content: "验证码 444555", device: "Android" }),
+        body,
       }),
-      401,
+      200,
     );
-    expect(jwtSigned.error).toBe("该设备使用系统 JWT，不需要签名");
+    expect(jwtSigned).toMatchObject({ ok: true, code: "333444" });
   });
 
   it("rotates and revokes without deleting messages or the bearer", async () => {

@@ -3,7 +3,6 @@
 export const PBKDF2_ITERATIONS = 10_000;
 export const SESSION_COOKIE = "smsinbox_session";
 export const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
-export const HMAC_WINDOW_MS = 5 * 60 * 1000;
 
 const HASH_PREFIX = "pbkdf2-sha256";
 
@@ -89,51 +88,6 @@ export function sessionCookieHeader(token: string, secure: boolean, maxAgeSecond
   return parts.join("; ");
 }
 
-export async function signHmac(secret: string, timestamp: string, body: Uint8Array): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const prefix = new TextEncoder().encode(timestamp);
-  const payload = new Uint8Array(prefix.byteLength + body.byteLength);
-  payload.set(prefix, 0);
-  payload.set(body, prefix.byteLength);
-  const signature = await crypto.subtle.sign("HMAC", key, payload);
-  return new Uint8Array(signature);
-}
-
-export async function signHmacHex(secret: string, timestamp: string, body: Uint8Array): Promise<string> {
-  return bytesToHex(await signHmac(secret, timestamp, body));
-}
-
-export async function verifyHmacSignature(input: {
-  secret: string;
-  timestamp: string;
-  body: Uint8Array;
-  signature: string;
-  now: number;
-  windowMs?: number;
-}): Promise<boolean> {
-  const timestampMs = parseUnixTimestamp(input.timestamp.trim());
-  if (timestampMs === null) return false;
-  const windowMs = input.windowMs ?? HMAC_WINDOW_MS;
-  if (Math.abs(input.now - timestampMs) > windowMs) return false;
-  const expected = await signHmac(input.secret, input.timestamp, input.body);
-  const provided = decodeSignature(input.signature);
-  if (!provided) return equalBytes(expected, expected) && false;
-  return equalBytes(expected, provided);
-}
-
-export function parseUnixTimestamp(value: string): number | null {
-  if (!/^\d{1,16}$/.test(value)) return null;
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return null;
-  return numeric < 1e12 ? numeric * 1000 : numeric;
-}
-
 function parseStoredHash(stored: string): { iterations: number; salt: Uint8Array; hash: Uint8Array } | null {
   const parts = stored.split("$");
   if (parts.length !== 4 || parts[0] !== HASH_PREFIX) return null;
@@ -186,16 +140,4 @@ export function base64UrlToBytes(value: string): Uint8Array | null {
   } catch {
     return null;
   }
-}
-
-function decodeSignature(signature: string): Uint8Array | null {
-  const trimmed = signature.trim().replace(/^sha256=/i, "");
-  if (/^[0-9a-fA-F]+$/.test(trimmed) && trimmed.length % 2 === 0) {
-    const bytes = new Uint8Array(trimmed.length / 2);
-    for (let index = 0; index < bytes.length; index += 1) {
-      bytes[index] = Number.parseInt(trimmed.slice(index * 2, index * 2 + 2), 16);
-    }
-    return bytes;
-  }
-  return base64UrlToBytes(trimmed.replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, ""));
 }

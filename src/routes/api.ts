@@ -619,14 +619,14 @@ async function createDevice(request: Request, env: Env): Promise<Response> {
     platform: parsed.platform,
     tokenHash: issued.tokenHash,
     tokenVersion: version,
-    secret: null,
     pushTokenHash: await sha256Hex(pushToken),
     createdAt,
   });
   logInfo({ message: "device_created", device_id: id, user_id: user.id, platform: parsed.platform, auth: "jwt" });
   return json({
     ok: true,
-    // One-time credential. No per-device signing secret is issued any more.
+    // One-time credential. Per-device HMAC signing is gone; auth is the
+    // system-signed JWT or the push link.
     token: issued.token,
     token_type: "Bearer",
     token_expires_at: issued.expiresAt,
@@ -637,7 +637,6 @@ async function createDevice(request: Request, env: Env): Promise<Response> {
       platform: parsed.platform,
       created_at: createdAt,
       last_seen_at: null,
-      has_secret: false,
       push: "active" as const,
     },
   });
@@ -793,7 +792,7 @@ async function testNotification(request: Request, env: Env, rawId: string): Prom
 
 function presentChannel(channel: {
   id: string;
-  kind: "telegram" | "wecom" | "bark" | "email";
+  kind: Parameters<typeof redactConfig>[0];
   config: Parameters<typeof redactConfig>[1];
   enabled: boolean;
   createdAt: number;
@@ -1006,11 +1005,6 @@ function readDeviceBody(value: unknown): { name: string; platform: string } | { 
   if (typeof record.name !== "string") return { error: "请填写设备名称" };
   const name = record.name.trim();
   if (!name || name.length > 64 || /[\u0000-\u001f]/.test(name)) return { error: "设备名称需要 1 到 64 个字符" };
-  // Per-device HMAC is gone. Reject a secret instead of silently dropping it,
-  // otherwise a migrated client would keep signing and get confusing 401s.
-  if (record.secret !== undefined && record.secret !== null && record.secret !== "") {
-    return { error: "设备签名已停用，设备统一使用系统签发的 JWT，请去掉 secret 字段" };
-  }
   return { name, platform: readPlatform(record.platform) };
 }
 

@@ -18,7 +18,6 @@ const DEVICE = {
   name: "我的 iPhone",
   created_at: 1,
   last_seen_at: null,
-  has_secret: false,
   push: "none" as const,
 };
 
@@ -85,17 +84,15 @@ describe("device panel status", () => {
     expect(waiting.platform).toEqual({ key: "unknown", label: "尚未上报" });
     expect(waiting.platformBadge).toBe("尚未上报");
     expect(waiting.platformDetail).toContain("会变成 iOS");
-    expect(waiting.hmac).toBe("未启用 HMAC");
     expect(waiting.shortcut).toContain("要在 iPhone 上确认");
     expect(waiting.id).toBe(DEVICE.id);
 
     const ios = describeDevice(
-      { ...DEVICE, push: "active", has_secret: true, last_seen_at: 10 },
+      { ...DEVICE, push: "active", last_seen_at: 10 },
       { device_id: DEVICE.id, reported_device: "iOS", received_at: 20 },
     );
     expect(ios.platform.label).toBe("iOS");
     expect(ios.platformBadge).toBe("iOS");
-    expect(ios.hmac).toBe("已启用 HMAC");
     expect(ios.received).toEqual({ kind: "message", at: 20 });
     expect(ios.shortcut).toContain("已收到 iOS 短信");
     expect(ios.shortcut).toContain("不能证明自动化仍然开着");

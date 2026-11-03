@@ -47,7 +47,6 @@ export interface DeviceRecord {
   name: string;
   platform: string | null;
   token_hash: string;
-  secret: string | null;
   token_version: number;
   last_seen_at: number | null;
   created_at: number;
@@ -61,10 +60,6 @@ export interface DeviceView {
   platform: string | null;
   created_at: number;
   last_seen_at: number | null;
-  // True only for devices created before the system JWT migration. The UI no
-  // longer offers per-device signing; this stays so the migration window is
-  // observable from the API.
-  has_secret: boolean;
   push: PushState;
 }
 
