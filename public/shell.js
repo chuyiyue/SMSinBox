@@ -13,10 +13,11 @@ const VIEWS = {
   "/": "/inbox.js",
   "/devices.html": "/devices.js",
   "/notify.html": "/notify.js",
+  "/api-mcp.html": "/api-mcp.js",
   "/users.html": "/users.js",
 };
 
-const PORTALS = ["#message-drawer", "#device-dialog", "#notify-dialog"];
+const PORTALS = ["#message-drawer", "#device-dialog", "#notify-dialog", "#token-dialog"];
 
 const views = new Map();
 let shellReady = false;

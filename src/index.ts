@@ -2,6 +2,8 @@ import { purgeExpired } from "./db";
 import { json } from "./http";
 import { errorText, logError, logInfo } from "./log";
 import { handleApi } from "./routes/api";
+import { handleExtApi } from "./routes/ext-api";
+import { handleMcp } from "./routes/mcp";
 import { handleIngest, handleSms } from "./routes/sms";
 
 function pathForLog(pathname: string): string {
@@ -26,12 +28,16 @@ export default {
           request.method.toUpperCase() === "POST"
             ? await handleIngest(request, env, ctx)
             : json({ ok: false, error: "方法不允许" }, 405, { allow: "POST" });
+      } else if (url.pathname === "/api/ext/v1" || url.pathname.startsWith("/api/ext/v1/")) {
+        response = await handleExtApi(request, env, ctx);
+      } else if (url.pathname === "/mcp") {
+        response = await handleMcp(request, env, ctx);
       } else if (url.pathname.startsWith("/api/")) {
         response = await handleApi(request, env, ctx);
       } else {
         response = await env.ASSETS.fetch(request);
       }
-      if (url.pathname.startsWith("/api/")) {
+      if (url.pathname.startsWith("/api/") || url.pathname === "/mcp") {
         logInfo({
           message: "request",
           request_id: requestId,

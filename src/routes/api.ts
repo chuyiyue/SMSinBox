@@ -15,6 +15,7 @@ import {
   clearLoginFailures,
   countDevices,
   countNotifyChannels,
+  deleteApiToken,
   deleteDevice,
   deleteNotifyChannel,
   deleteOtherUserSessions,
@@ -30,11 +31,13 @@ import {
   findTotpUser,
   findUserRecordById,
   getMessage,
+  insertApiToken,
   insertDevice,
   insertMessage,
   insertNotifyChannel,
   insertUser,
   isUniqueViolation,
+  listApiTokens,
   listDevices,
   listMessages,
   listMessagesSince,
@@ -55,6 +58,8 @@ import {
   revokeDevicePush,
   setNotifyChannelEnabled,
   touchDevice,
+  updateApiTokenDisabled,
+  updateApiTokenRevoked,
   updatePasswordHash,
 } from "../db";
 import { dedupHash } from "../dedup";
@@ -88,6 +93,8 @@ import { buildTestSms } from "./sms";
 import { openSmtpSocket } from "../smtp";
 import { createInboxStream, resolveCursor, SSE_BATCH } from "../sse";
 import type { UserRecord } from "../types";
+import type { ApiTokenView } from "../types";
+import { EXT_PERMISSIONS, type ExtPermission, tokenRecordToView } from "./ext-auth";
 import { APP_VERSION } from "../version";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -212,6 +219,31 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
   if (deviceMatch?.[1]) {
     if (method !== "DELETE") return methodNotAllowed("DELETE");
     return removeDevice(request, env, deviceMatch[1]);
+  }
+  if (path === "/api/v1/api-tokens") {
+    if (method === "GET") return apiTokens(request, env);
+    if (method === "POST") return createApiToken(request, env);
+    return methodNotAllowed("GET, POST");
+  }
+  const tokenDisableMatch = /^\/api\/v1\/api-tokens\/([^/]+)\/disable$/.exec(path);
+  if (tokenDisableMatch?.[1]) {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return disableApiTokenEndpoint(request, env, tokenDisableMatch[1]);
+  }
+  const tokenEnableMatch = /^\/api\/v1\/api-tokens\/([^/]+)\/enable$/.exec(path);
+  if (tokenEnableMatch?.[1]) {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return enableApiTokenEndpoint(request, env, tokenEnableMatch[1]);
+  }
+  const tokenRevokeMatch = /^\/api\/v1\/api-tokens\/([^/]+)\/revoke$/.exec(path);
+  if (tokenRevokeMatch?.[1]) {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return revokeApiTokenEndpoint(request, env, tokenRevokeMatch[1]);
+  }
+  const tokenDeleteMatch = /^\/api\/v1\/api-tokens\/([^/]+)$/.exec(path);
+  if (tokenDeleteMatch?.[1]) {
+    if (method !== "DELETE") return methodNotAllowed("DELETE");
+    return deleteApiTokenEndpoint(request, env, tokenDeleteMatch[1]);
   }
   if (path === "/api/v1/system/info") {
     if (method !== "GET") return methodNotAllowed("GET");
@@ -1021,3 +1053,133 @@ function sseResponse(stream: ReadableStream<Uint8Array>): Response {
   headers.set("cross-origin-resource-policy", "same-origin");
   return new Response(stream, { status: 200, headers });
 }
+
+// ─── API Tokens (Admin) ──────────────────────────────────────────────────────
+
+async function apiTokens(request: Request, env: Env): Promise<Response> {
+  const auth = await requireUser(request, env);
+  if (auth instanceof Response) return auth;
+  const rows = await listApiTokens(env.DB, auth.id);
+  return json({ ok: true, tokens: rows.map((row) => tokenRecordToView(row)) });
+}
+
+async function createApiToken(request: Request, env: Env): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
+  const auth = await requireUser(request, env);
+  if (auth instanceof Response) return auth;
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+
+  const input = body.value as Record<string, unknown>;
+  const name = typeof input?.name === "string" ? input.name.trim() : "";
+  if (!name || name.length > 80 || /[\u0000-\u001f]/.test(name)) {
+    return json({ ok: false, error: "请填写 1 到 80 个字符的 Token 名称" }, 400);
+  }
+
+  // Parse permissions
+  const rawPerms = Array.isArray(input?.permissions) ? input.permissions : [];
+  const permissions = rawPerms.filter((p): p is ExtPermission =>
+    typeof p === "string" && (EXT_PERMISSIONS as readonly string[]).includes(p),
+  );
+  if (permissions.length === 0) {
+    return json({ ok: false, error: "请至少选择一项有效权限" }, 400);
+  }
+
+  // Parse device_scope (empty array = all devices)
+  let deviceScope: string[] = [];
+  if (Array.isArray(input?.device_scope)) {
+    deviceScope = input.device_scope.filter((d): d is string => typeof d === "string" && d.trim().length > 0);
+  }
+
+  // Parse expiry: support expires_in_days (number) or expires_at (timestamp)
+  let expiresAt: number | null = null;
+  if (typeof input?.expires_in_days === "number" && input.expires_in_days > 0) {
+    expiresAt = Date.now() + Math.floor(input.expires_in_days * 24 * 60 * 60 * 1000);
+  } else if (typeof input?.expires_at === "number" && input.expires_at > Date.now()) {
+    expiresAt = Math.floor(input.expires_at);
+  }
+
+  // Generate random token with smsx_ prefix
+  const randomBytes = crypto.getRandomValues(new Uint8Array(24));
+  const plaintext = `smsx_${bytesToBase64Url(randomBytes)}`;
+  const tokenPrefix = `${plaintext.slice(0, 10)}...`;
+  const tokenHash = await sha256Hex(plaintext);
+  const id = crypto.randomUUID();
+  const createdAt = Date.now();
+
+  await insertApiToken(env.DB, {
+    id,
+    userId: auth.id,
+    name,
+    tokenHash,
+    tokenPrefix,
+    permissions: JSON.stringify(permissions),
+    deviceScope: JSON.stringify(deviceScope),
+    expiresAt,
+    createdAt,
+  });
+
+  logInfo({
+    message: "api_token_created",
+    token_id: id,
+    user_id: auth.id,
+    name,
+  });
+
+  const record: ApiTokenView = {
+    id,
+    name,
+    token_prefix: tokenPrefix,
+    permissions,
+    device_scope: deviceScope,
+    expires_at: expiresAt,
+    disabled_at: null,
+    revoked_at: null,
+    created_at: createdAt,
+    last_used_at: null,
+    status: "active",
+  };
+
+  return json({ ok: true, token: plaintext, record });
+}
+
+async function disableApiTokenEndpoint(request: Request, env: Env, id: string): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
+  const auth = await requireUser(request, env);
+  if (auth instanceof Response) return auth;
+  const updated = await updateApiTokenDisabled(env.DB, auth.id, id, Date.now());
+  if (!updated) return json({ ok: false, error: "未找到 Token" }, 404);
+  logInfo({ message: "api_token_disabled", token_id: id, user_id: auth.id });
+  return json({ ok: true });
+}
+
+async function enableApiTokenEndpoint(request: Request, env: Env, id: string): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
+  const auth = await requireUser(request, env);
+  if (auth instanceof Response) return auth;
+  const updated = await updateApiTokenDisabled(env.DB, auth.id, id, null);
+  if (!updated) return json({ ok: false, error: "未找到 Token" }, 404);
+  logInfo({ message: "api_token_enabled", token_id: id, user_id: auth.id });
+  return json({ ok: true });
+}
+
+async function revokeApiTokenEndpoint(request: Request, env: Env, id: string): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
+  const auth = await requireUser(request, env);
+  if (auth instanceof Response) return auth;
+  const updated = await updateApiTokenRevoked(env.DB, auth.id, id, Date.now());
+  if (!updated) return json({ ok: false, error: "未找到 Token" }, 404);
+  logInfo({ message: "api_token_revoked", token_id: id, user_id: auth.id });
+  return json({ ok: true });
+}
+
+async function deleteApiTokenEndpoint(request: Request, env: Env, id: string): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
+  const auth = await requireUser(request, env);
+  if (auth instanceof Response) return auth;
+  const deleted = await deleteApiToken(env.DB, auth.id, id);
+  if (!deleted) return json({ ok: false, error: "未找到 Token" }, 404);
+  logInfo({ message: "api_token_deleted", token_id: id, user_id: auth.id });
+  return json({ ok: true });
+}
+
