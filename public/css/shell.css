@@ -335,6 +335,15 @@
 
 .topbar .icon-btn[data-theme-toggle] { color: var(--text-2); }
 
+/* Topbar icon buttons are standalone controls: give them the same bordered
+   surface container as .secondary instead of floating bare (overrides .ghost). */
+.topbar .icon-btn {
+  background: var(--surface);
+  border-color: var(--border-strong);
+}
+
+.topbar .icon-btn:hover { background: var(--surface-hover); }
+
 .main {
   margin-left: var(--sidebar-width);
   min-width: 0;

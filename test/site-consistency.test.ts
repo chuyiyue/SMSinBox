@@ -94,21 +94,28 @@ describe("site consistency", () => {
   it("keeps the inbox filter bar, code chips and empty state on shared components", () => {
     const html = readFileSync("public/index.html", "utf8");
     const inbox = readFileSync("public/inbox.js", "utf8");
+    const common = readFileSync("public/common.js", "utf8");
     const css = readFileSync("public/css/pages.css", "utf8");
 
-    // The device, number and search controls live in one FilterBar.
+    // The device and number controls live in one filter form; the search box
+    // sits in the FilterBar beside the icon-only filter toggle and stays
+    // bound to that form, so it remains visible when the form is sheeted.
     expect(html).toContain('class="filterbar"');
-    expect(html).toMatch(/<form id="filters" class="filters"[\s\S]*name="device_id"[\s\S]*name="from"[\s\S]*name="q"[\s\S]*<\/form>/);
+    expect(html).toMatch(/<form id="filters" class="filters"[\s\S]*name="device_id"[\s\S]*name="from"[\s\S]*<\/form>/);
+    expect(html).toMatch(/id="open-filters"[^>]*aria-label="筛选"[\s\S]*?icons\.svg#icon-filter[\s\S]*?name="q" form="filters"/);
 
     // First-run and filtered-empty views use the shared EmptyState helper.
     expect(inbox).toContain("emptyState({");
     expect(inbox).not.toContain("function emptyState(");
 
-    // Rows and the drawer share CodeChip's monospace value and source badge.
+    // Rows and the drawer share CodeChip's monospace value; the recognition
+    // source is never labelled on a message.
     expect(inbox).toContain("CodeChip(message.code");
-    expect(inbox).toContain("ui-codechip-source");
-    expect(inbox).toContain('"正则识别"');
-    expect(inbox).toContain('"AI 识别"');
+    expect(inbox).not.toContain("ui-codechip-source");
+    expect(inbox).not.toContain('"正则识别"');
+    expect(inbox).not.toContain('"AI 识别"');
+    expect(common).not.toContain("ui-codechip-source");
+    expect(common).not.toContain("codeSourceLabel");
     expect(css).toContain(".message-codechip");
 
     // Live arrivals may update the list but must not rebuild an open drawer.

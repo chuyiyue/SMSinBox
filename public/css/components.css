@@ -57,15 +57,17 @@ input.is-invalid, select.is-invalid, textarea.is-invalid { border-color: var(--d
   width: 36px;
   min-height: 32px;
   padding: 0;
+  background: transparent;
+  border-color: transparent;
 }
 
 .icon-btn {
   width: 38px;
   min-width: 38px;
   padding: 0;
-  background: transparent;
+  background: var(--surface);
   color: var(--text-2);
-  border-color: transparent;
+  border-color: var(--border-strong);
 }
 
 .icon-btn:hover { background: var(--surface-hover); }
@@ -701,7 +703,7 @@ kbd {
 .ui-drawer-meta-label { color: var(--text-3); }
 .ui-drawer-meta-value { color: var(--text); font-weight: 600; overflow-wrap: anywhere; }
 
-/* CodeChip: monospace value + copy button + optional source badge. */
+/* CodeChip: monospace value + copy button. */
 .ui-codechip {
   display: inline-flex;
   align-items: center;
@@ -727,14 +729,6 @@ kbd {
   background: var(--success-soft);
   color: var(--success-text);
   border-color: transparent;
-}
-
-.ui-codechip-source {
-  font-size: var(--fs-xs);
-  color: var(--text-3);
-  padding: 2px 8px;
-  border-radius: var(--r-pill);
-  background: var(--bg-sunken);
 }
 
 /* StatusDot */

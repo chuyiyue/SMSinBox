@@ -520,13 +520,7 @@ export function closeDrawer() {
   onClose?.();
 }
 
-function codeSourceLabel(source) {
-  if (source === "regex") return "正则识别";
-  if (source === "workers-ai") return "AI 识别";
-  return "";
-}
-
-export function CodeChip(code, source) {
+export function CodeChip(code) {
   const value = String(code ?? "");
   const box = document.createElement("span");
   box.className = "ui-codechip";
@@ -544,13 +538,6 @@ export function CodeChip(code, source) {
     else toast("复制失败，请手动复制", { tone: "danger" });
   });
   box.append(chip, copy);
-  const label = codeSourceLabel(source);
-  if (label) {
-    const badge = document.createElement("span");
-    badge.className = "ui-codechip-source";
-    badge.textContent = label;
-    box.append(badge);
-  }
   return box;
 }
 

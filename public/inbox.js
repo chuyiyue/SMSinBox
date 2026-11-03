@@ -437,7 +437,7 @@ function renderMessage(message) {
   else preview.textContent = "这条短信无法解密";
   const slot = document.createElement("div");
   slot.className = "chip-slot";
-  if (message.code && !unreadable(message)) slot.append(codeChip(message.code, message.code_source ?? "regex"));
+  if (message.code && !unreadable(message)) slot.append(codeChip(message.code));
   line.append(avatarNode(senderText), senderLine, timeNode(message, "time-end"), preview, slot);
   article.append(line);
   article.addEventListener("click", (event) => {
@@ -494,7 +494,7 @@ function buildDetail(message) {
       const label = document.createElement("h3");
       label.className = "message-detail-label";
       label.textContent = "验证码";
-      codeBlock.append(label, CodeChip(message.code, message.code_source ?? "regex"));
+      codeBlock.append(label, CodeChip(message.code));
       wrap.append(codeBlock);
     }
     const contentBlock = document.createElement("section");
@@ -553,23 +553,16 @@ function rawJsonFold(message) {
   return details;
 }
 
-function codeChip(code, source) {
-  const label = codeSourceLabel(source);
+function codeChip(code) {
   const chip = document.createElement("button");
   chip.type = "button";
   chip.className = "message-codechip";
   chip.title = "复制验证码";
-  chip.setAttribute("aria-label", label ? `复制验证码 ${code}（${label}）` : `复制验证码 ${code}`);
+  chip.setAttribute("aria-label", `复制验证码 ${code}`);
   const value = document.createElement("span");
   value.className = "ui-codechip-code";
   value.textContent = code;
   chip.append(value);
-  if (label) {
-    const badge = document.createElement("span");
-    badge.className = "ui-codechip-source";
-    badge.textContent = label;
-    chip.append(badge);
-  }
   chip.addEventListener("click", async (event) => {
     event.stopPropagation();
     const copied = await flashLabel(value, code, code);
@@ -595,12 +588,6 @@ function openFilterSheet() {
     },
   });
   drawer.classList.add("ui-drawer--filters");
-}
-
-function codeSourceLabel(source) {
-  if (source === "regex") return "正则识别";
-  if (source === "workers-ai") return "AI 识别";
-  return "";
 }
 
 function inboxEmptyState() {

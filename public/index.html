@@ -60,9 +60,14 @@
         </header>
         <div class="page">
           <div class="filterbar">
-            <button id="open-filters" class="secondary mobile-filter-toggle" type="button" aria-haspopup="dialog" aria-expanded="false">
-              筛选
+            <button id="open-filters" class="secondary mobile-filter-toggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="筛选" title="筛选">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-filter"/></svg>
             </button>
+            <div class="filter-search">
+              <svg class="icon filter-search-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-search"/></svg>
+              <input class="topbar-search" type="search" name="q" form="filters" maxlength="80" placeholder="搜索正文、号码或验证码" aria-label="搜索短信" />
+              <span id="q-count" class="q-count" hidden></span>
+            </div>
             <form id="filters" class="filters" role="search">
               <label class="filter-field">
                 <span class="filter-label">设备</span>
@@ -72,11 +77,6 @@
                 <span class="filter-label">号码</span>
                 <input name="from" placeholder="发件号码" maxlength="80" />
               </label>
-              <div class="filter-search">
-                <svg class="icon filter-search-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-search"/></svg>
-                <input class="topbar-search" type="search" name="q" maxlength="80" placeholder="搜索正文、号码或验证码" aria-label="搜索短信" />
-                <span id="q-count" class="q-count" hidden></span>
-              </div>
               <div class="filter-range" role="group" aria-label="时间筛选">
                 <div class="segmented" aria-label="时间范围">
                   <button class="segment" type="button" data-range="all" aria-pressed="true">全部</button>

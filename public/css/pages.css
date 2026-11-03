@@ -64,7 +64,13 @@
 .filter-search .q-count { right: 10px; }
 .filter-clear { flex: none; }
 .filter-summary { margin: 0 0 9px auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.mobile-filter-toggle { display: none; }
+.mobile-filter-toggle {
+  display: none;
+  flex: none;
+  width: 38px;
+  min-width: 38px;
+  padding: 0;
+}
 
 .new-pill {
   position: sticky;
@@ -169,7 +175,7 @@
 .message-row.is-read .preview { color: var(--text-3); }
 .chip-slot { grid-area: chip; justify-self: end; align-self: center; margin-top: 2px; }
 
-/* Row code chip: same type and source badge as the drawer CodeChip, but the
+/* Row code chip: same type as the drawer CodeChip, but the
    whole chip is the copy target so it stays compact in the list. */
 .message-codechip {
   display: inline-flex;
@@ -195,7 +201,6 @@
   color: var(--success-text);
   border-color: transparent;
 }
-.message-codechip .ui-codechip-source { padding: 1px 6px; font-size: 0.6875rem; line-height: 1.4; }
 
 /* Detail drawer: meta block, then code / body sections, then raw JSON. */
 .message-detail-inner { display: grid; gap: var(--space-4); }
@@ -417,7 +422,7 @@
     gap: var(--space-2);
   }
   .filters .filter-field { min-width: 0; }
-  .filter-search { grid-column: 1 / -1; min-width: 0; }
+  .filterbar > .filter-search { flex: 1 1 auto; min-width: 0; }
   .filter-clear { grid-column: 1 / -1; justify-self: start; }
   .filter-summary { margin-top: var(--space-1); }
   .ui-drawer--filters {

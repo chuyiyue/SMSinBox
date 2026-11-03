@@ -76,4 +76,9 @@
     <path d="M7 15h6"/>
     <path d="M7 7h8"/>
   </symbol>
+  <symbol id="icon-filter" viewBox="0 0 24 24">
+    <path d="M2 5h20"/>
+    <path d="M6 12h12"/>
+    <path d="M9 19h6"/>
+  </symbol>
 </svg>
