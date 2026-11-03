@@ -2,7 +2,24 @@
    The content area stays white / near-white in light mode and neutral dark in
    dark mode. The sidebar follows the theme: a light gray rail in light mode
    and a dark gray rail in dark mode. Buttons use neutral ink instead of the
-   retired terracotta accent; only semantic colors carry hue. */
+   retired terracotta accent; only semantic colors carry hue.
+
+   ==========================================================================
+   响应式断点统一口径表 (Responsive Breakpoints Specification)
+   --------------------------------------------------------------------------
+   统一 3 档响应式口径（CSS 变量无法直接在 @media 查询中使用，以此表为唯一权威值）：
+     1. 移动抽屉断点 (Mobile drawer, --bp-sm): 640px
+        - CSS: @media (max-width: 639px)
+        - JS:  window.matchMedia("(max-width: 639px)")
+        - 行为: 主内容占满屏，顶部汉堡按钮唤起左侧抽屉式侧栏，遮罩轻量覆盖
+     2. 平板断点 (Tablet, --bp-md): 768px
+        - 侧栏图标模式段: @media (min-width: 640px) and (max-width: 1023px)
+        - 平板内容折叠: @media (max-width: 767px)
+        - 行为: 侧栏收拢为 64px 紧凑图标轨，悬停显示文字 Tooltip；内容区弹性双列
+     3. 桌面断点 (Desktop, --bp-lg): 1024px
+        - CSS: @media (min-width: 1024px)
+        - 行为: 248px 完整固定侧栏，支持手动收起/展开；内容区居中最大 1080px
+   ========================================================================== */
 :root {
   color-scheme: light;
 
@@ -111,7 +128,10 @@
   --dur-base: 180ms;
   --dur-slow: 260ms;
 
-  /* Layout */
+  /* Layout & Breakpoints */
+  --bp-sm: 640px;
+  --bp-md: 768px;
+  --bp-lg: 1024px;
   --sidebar-width: 248px;
   --sidebar-width-collapsed: 64px;
   --topbar-height: 64px;

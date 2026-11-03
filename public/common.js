@@ -399,6 +399,9 @@ function paintLabel(button, name) {
   let title = button.querySelector(".device-name");
   if (!title) {
     button.replaceChildren();
+    const dot = document.createElement("span");
+    dot.className = "ui-status-dot";
+    dot.setAttribute("aria-hidden", "true");
     const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     icon.setAttribute("class", "icon");
     icon.setAttribute("viewBox", "0 0 24 24");
@@ -409,23 +412,31 @@ function paintLabel(button, name) {
     rect.setAttribute("width", "10");
     rect.setAttribute("height", "20");
     rect.setAttribute("rx", "2");
-    const dot = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    dot.setAttribute("d", "M11 18h2");
-    icon.append(rect, dot);
+    const dotPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    dotPath.setAttribute("d", "M11 18h2");
+    icon.append(rect, dotPath);
     title = document.createElement("span");
     title.className = "device-name";
     const state = document.createElement("span");
     state.className = "device-state";
-    button.append(icon, title, state);
+    button.append(dot, icon, title, state);
   }
   if (title.textContent !== name) title.textContent = name;
 }
 
 function paintState(button, device) {
   const state = deviceStateOf(device);
+  const dotStatus = state.key === "recent" ? "ok" : "idle";
+  const dotLabel = state.key === "recent" ? "在线" : (state.key === "stale" ? "离线" : "未上报");
+  const dot = button.querySelector(".ui-status-dot");
+  if (dot && dot.getAttribute("data-status") !== dotStatus) {
+    dot.setAttribute("data-status", dotStatus);
+  }
   const node = button.querySelector(".device-state");
   if (node && node.textContent !== state.text) node.textContent = state.text;
   if (button.getAttribute("data-state") !== state.key) button.setAttribute("data-state", state.key);
+  const name = button.querySelector(".device-name")?.textContent || "";
+  button.title = name ? `${name} (${dotLabel} · ${state.text})` : state.text;
 }
 
 function pad(value) {

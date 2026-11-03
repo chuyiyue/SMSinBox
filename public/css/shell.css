@@ -133,6 +133,42 @@
   margin: 0 4px 6px 8px;
 }
 
+.sidebar-section-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  text-align: left;
+}
+
+.sidebar-section-toggle:hover {
+  color: var(--sidebar-text-strong);
+  background: var(--sidebar-bg-hover);
+}
+
+.sidebar-section-toggle .chevron {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.sidebar-devices.is-collapsed .sidebar-section-toggle .chevron {
+  transform: rotate(-90deg);
+}
+
+.sidebar-devices.is-collapsed .device-list {
+  display: none;
+}
+
 .sidebar-label {
   margin: 0;
   color: var(--text-3);
@@ -157,10 +193,10 @@
 
 .sidebar .device-link {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
+  grid-template-columns: 8px 18px minmax(0, 1fr);
   grid-template-areas:
-    "icon name"
-    "icon state";
+    "dot icon name"
+    "dot icon state";
   gap: 0 8px;
   align-items: center;
   width: 100%;
@@ -172,6 +208,16 @@
   background: transparent;
   color: var(--text-2);
   text-align: left;
+}
+
+.sidebar .device-link[data-key="all"] {
+  display: flex;
+  align-items: center;
+}
+
+.sidebar .device-link .ui-status-dot {
+  grid-area: dot;
+  margin: auto;
 }
 
 .sidebar .device-link .icon { grid-area: icon; color: var(--text-3); }
@@ -192,9 +238,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.sidebar .device-link[data-state="stale"] .device-state { color: var(--warning-text); }
-.sidebar .device-link[data-state="stale"] .icon { color: var(--warning); }
 
 .sidebar .device-link:hover { background: var(--surface-hover); }
 .sidebar .device-link.is-active {
@@ -531,7 +574,7 @@
     clip: auto;
   }
   :root[data-sidebar="collapsed"] .sidebar-nav a { justify-content: flex-start; padding-left: 12px; padding-right: 12px; }
-  :root[data-sidebar="collapsed"] .sidebar-devices { display: flex; }
+  :root[data-sidebar="collapsed"] .sidebar-devices { display: flex; flex-direction: column; }
   :root[data-sidebar="collapsed"] .account-btn { justify-content: flex-start; padding-left: 10px; padding-right: 10px; }
 }
 
