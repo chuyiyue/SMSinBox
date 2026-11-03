@@ -184,6 +184,12 @@ describe("site consistency", () => {
     }
     expect(registryHrefs(registry)).toEqual(["/", "/devices.html", "/notify.html", "/api-mcp.html", "/users.html"]);
 
+    // All five modules stay registered for routing, but system management is
+    // the one module kept out of the nav: it is entered via the account
+    // button in the sidebar footer instead.
+    expect(registry).toMatch(/key: "users"[^}]*nav: false/);
+    expect(registry.match(/, nav: false \}/g)).toHaveLength(1);
+
     // The boot renders the nav from the registry instead of its own list.
     const boot = readFileSync("public/sidebar-boot.js", "utf8");
     expect(boot).toContain("window.SMSINBOX_MODULES");
@@ -191,12 +197,23 @@ describe("site consistency", () => {
     expect(boot).not.toContain('key: "inbox"');
     expect(boot).toContain("window.SMSINBOX_NAV");
     expect(boot).toContain("renderNav");
+    // The nav (and SMSINBOX_NAV) only takes modules shown in the nav.
+    expect(boot).toContain("item.nav !== false");
+
+    // The account button carries the current-page state on /users.html,
+    // marked at boot and re-marked by the shell on in-app navigation.
+    expect(boot).toContain("markAccountEntry");
+    const shellCss = readFileSync("public/css/shell.css", "utf8");
+    expect(shellCss).toContain(".account-btn.active");
 
     // The shell generates its route map from the registry, not a literal map.
     const shell = readFileSync("public/shell.js", "utf8");
     expect(shell).toContain("SMSINBOX_MODULES");
     expect(shell).not.toContain('"/devices.html": "/devices.js"');
     expect(shell).not.toContain('"/users.html": "/users.js"');
+    // ...and re-marks the account button as the current entry on /users.html.
+    expect(shell).toContain('document.querySelector(".account-btn")');
+    expect(shell).toContain('path === "/users.html"');
 
     // No page hardcodes nav links or a noscript fallback any more.
     for (const file of pages) {

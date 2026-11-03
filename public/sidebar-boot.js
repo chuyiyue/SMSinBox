@@ -13,7 +13,12 @@
   var SIDEBAR_DEVICES_KEY = "smsinbox-sidebar-devices";
   var STALE_MS = 7 * 24 * 60 * 60 * 1000;
 
-  var NAV_ITEMS = window.SMSINBOX_MODULES || [];
+  // Only modules marked for the nav render here; a module with nav: false
+  // (users / 系统管理) stays routable but is entered through the sidebar
+  // account button, so SMSINBOX_NAV mirrors exactly what is rendered.
+  var NAV_ITEMS = (window.SMSINBOX_MODULES || []).filter(function (item) {
+    return item.nav !== false;
+  });
   window.SMSINBOX_NAV = NAV_ITEMS;
 
   initSidebarChrome();
@@ -21,6 +26,7 @@
 
   function initSidebarChrome() {
     renderNav();
+    markAccountEntry();
     var collapsed = readCollapsed();
     injectCollapseButton();
     applySidebarState(collapsed, false);
@@ -49,6 +55,21 @@
         item.title +
         "</span>";
       nav.append(link);
+    }
+  }
+
+  // The account button is the system-management entry now that the module
+  // no longer renders in the nav; give it the same current-page marking the
+  // nav links get. shell.js re-marks it on in-app navigation.
+  function markAccountEntry() {
+    var button = document.querySelector(".account-btn");
+    if (!button) return;
+    var on = canonicalPath(location.pathname) === "/users.html";
+    button.classList.toggle("active", on);
+    if (on) {
+      button.setAttribute("aria-current", "page");
+    } else {
+      button.removeAttribute("aria-current");
     }
   }
 
