@@ -80,7 +80,6 @@
 }
 
 .filter-search .q-count { right: 10px; }
-.filter-clear { flex: none; }
 .filter-search-field .filter-label { font-variant-numeric: tabular-nums; }
 
 /* Mid widths: stack the bar in full rows — search, then the fields, the
@@ -258,9 +257,11 @@
 
 .message-detail-actions { padding-top: var(--space-1); }
 
-.message-raw { background: var(--bg-sunken); }
+/* min-width: 0 lets the grid item shrink to the drawer instead of sizing
+   to the pre's longest line, so the code block scrolls inside its own box. */
+.message-raw { background: var(--bg-sunken); min-width: 0; }
 .message-raw summary { color: var(--text-2); font-size: var(--fs-sm); }
-.message-raw .code-block { max-height: 280px; margin-top: var(--space-2); overflow: auto; }
+.message-raw .code-block { max-height: 280px; max-width: 100%; margin-top: var(--space-2); overflow: auto; }
 
 .end-note, .sentinel { text-align: center; color: var(--text-3); font-size: var(--fs-sm); padding: 16px; }
 .chips:empty { display: none; }
@@ -459,7 +460,6 @@
   }
   .filters .filter-field { min-width: 0; }
   .filterbar > .filter-search-field { flex: 1 1 auto; min-width: 0; }
-  .filter-clear { grid-column: 1 / -1; justify-self: start; }
   .ui-drawer--filters {
     align-items: flex-end;
     justify-content: center;
