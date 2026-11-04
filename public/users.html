@@ -64,6 +64,20 @@
                   </div>
                 </form>
 
+                <div class="stack" id="avatar-block">
+                  <h3>头像</h3>
+                  <div class="avatar-row">
+                    <span id="avatar-preview" class="avatar-preview" aria-hidden="true"></span>
+                    <div class="actions">
+                      <label class="button secondary" for="avatar-file">上传头像</label>
+                      <input id="avatar-file" type="file" accept="image/*" hidden />
+                      <button id="avatar-remove" class="ghost" type="button" hidden>移除自定义头像</button>
+                    </div>
+                  </div>
+                  <p class="subtle">上传的图片会裁剪为正方形并缩小到 128×128。自定义头像优先于 GitHub 头像与按名生成的头像显示。</p>
+                  <p id="avatar-error" class="field-error" hidden></p>
+                </div>
+
                 <form id="password-form" class="stack" novalidate>
                   <h3>改密码</h3>
                   <label>当前密码
@@ -100,6 +114,24 @@
                 <p id="totp-error" class="callout danger" hidden></p>
                 <p id="totp-ok" class="callout ok" hidden></p>
                 <div id="totp-actions" class="actions"></div>
+              </section>
+
+              <section id="github-panel" class="settings-section panel stack" aria-labelledby="github-title" hidden>
+                <h2 id="github-title">GitHub 登录</h2>
+                <p id="github-error" class="callout danger" hidden></p>
+                <p id="github-status" class="callout ok" hidden></p>
+                <div id="github-bound" class="github-bound" hidden>
+                  <img id="github-avatar" class="github-avatar" width="40" height="40" alt="" />
+                  <div>
+                    <strong id="github-login-name"></strong>
+                    <p class="subtle">已绑定这个 GitHub 账号，可用它直接登录，登录时跳过两步验证。</p>
+                  </div>
+                </div>
+                <p id="github-unbound-note" class="subtle" hidden>尚未绑定。绑定后可用 GitHub 账号登录本系统，登录时跳过两步验证；侧边栏会显示该账号的用户名与头像（用户名仍可自行修改）。</p>
+                <div class="actions">
+                  <a id="github-bind" class="button secondary" href="/api/v1/auth/github/start?intent=bind" hidden>绑定 GitHub</a>
+                  <button id="github-unbind" class="secondary" type="button" hidden>解绑</button>
+                </div>
               </section>
 
               <section id="system-panel" class="settings-section panel stack" aria-labelledby="system-title">

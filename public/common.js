@@ -322,7 +322,7 @@ export function paintSidebarProfile(user) {
   const avatar = footer.querySelector(".account-avatar");
   const label = footer.querySelector(".account-name");
   const accountBtn = footer.querySelector(".account-btn");
-  if (avatar) paintSidebarAvatar(avatar, name, profileUsername);
+  if (avatar) paintSidebarAvatar(avatar, name, profileUsername, user);
   if (label) label.textContent = name;
   const title = `${name} · 系统管理`;
   if (accountBtn) {
@@ -331,20 +331,31 @@ export function paintSidebarProfile(user) {
   }
 }
 
-function paintSidebarAvatar(avatar, name, profileUsername) {
+export function paintSidebarAvatar(avatar, name, profileUsername, user = null) {
   const initial = initialOf(name);
-  if (!profileUsername) {
+  // Priority: the uploaded custom avatar, then the bound GitHub account's
+  // avatar, then the name-based chain below. Any source that fails to load
+  // steps down to the next one.
+  const sources = [];
+  const custom = user && typeof user.avatar_data === "string" ? user.avatar_data : "";
+  if (custom) sources.push(custom);
+  const githubAvatar =
+    user && user.github && typeof user.github.avatar_url === "string" ? user.github.avatar_url : "";
+  if (githubAvatar) sources.push(githubAvatar);
+  if (profileUsername) {
+    // Layered by design — no single URL is trusted to resolve for every
+    // name: a GitHub photo when the name is a real GitHub handle, then a
+    // DiceBear initials avatar generated from the name (any string works,
+    // same name always renders the same image), then the local initial.
+    sources.push(
+      `https://github.com/${encodeURIComponent(profileUsername)}.png?s=96`,
+      `https://api.dicebear.com/10.x/initials/svg?seed=${encodeURIComponent(profileUsername)}`,
+    );
+  }
+  if (!sources.length) {
     avatar.textContent = initial;
     return;
   }
-  // Layered by design — no single URL is trusted to resolve for every
-  // name: a GitHub photo when the name is a real GitHub handle, then a
-  // DiceBear initials avatar generated from the name (any string works,
-  // same name always renders the same image), then the local initial.
-  const sources = [
-    `https://github.com/${encodeURIComponent(profileUsername)}.png?s=96`,
-    `https://api.dicebear.com/10.x/initials/svg?seed=${encodeURIComponent(profileUsername)}`,
-  ];
   const img = document.createElement("img");
   img.alt = "";
   let step = 0;

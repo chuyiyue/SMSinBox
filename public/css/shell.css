@@ -519,6 +519,22 @@
 .auth-error { margin: 16px 0 0; }
 .auth-step-title { margin: 0; font-size: var(--fs-lg); }
 .auth-alternatives:empty { display: none; }
+.auth-alternatives { margin-top: 20px; }
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.auth-divider::before, .auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.auth-card .auth-github { width: 100%; }
 
 /* Password-manager proxy: no pixels, no tab stop, no screen-reader text. */
 .auth-username-proxy {
