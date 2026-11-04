@@ -63,7 +63,6 @@ let searchNote;
 let endNote;
 let sentinel;
 let announcer;
-let clearButton;
 let filterToggle;
 let chips;
 let observer = null;
@@ -94,7 +93,6 @@ function startView() {
   endNote = document.querySelector("#list-end");
   sentinel = document.querySelector("#list-sentinel");
   announcer = document.querySelector("#live-announcer");
-  clearButton = document.querySelector("#clear-filters");
   filterToggle = document.querySelector("#open-filters");
   chips = document.querySelector("#filter-chips");
   rangeButtons = document.querySelectorAll("[data-range]");
@@ -126,16 +124,6 @@ function startView() {
   media = window.matchMedia("(max-width: 639px)");
   media.addEventListener("change", onMedia);
   banner.addEventListener("click", flushPending);
-  clearButton.addEventListener("click", () => {
-    deviceSelect.value = "";
-    setActiveId("");
-    filters.elements.from.value = "";
-    qInput.value = "";
-    state.range = "all";
-    paintRangeButtons();
-    state.page = 1;
-    loadMessages().catch(showError);
-  });
   filterToggle.addEventListener("click", openFilterSheet);
   document.querySelector("#search-note-close")?.addEventListener("click", () => {
     state.dismissedQuery = qInput.value.trim();
@@ -601,14 +589,9 @@ function openFilterSheet() {
 function inboxEmptyState() {
   const filtered = Boolean(deviceSelect.value || filters.elements.from.value.trim() || qInput.value.trim() || state.range !== "all");
   if (filtered) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = "清除筛选";
-    button.addEventListener("click", () => clearButton.click());
     return emptyState({
       title: "没有符合条件的短信",
-      text: "换一个设备、号码，或缩短搜索词。",
-      actions: [button],
+      text: "换一个设备、号码，或缩短搜索词；也可以点筛选标签上的 × 清除条件。",
     });
   }
   if (state.devices.length === 0) {
@@ -756,7 +739,6 @@ function paintChips() {
       loadMessages().catch(showError);
     }));
   }
-  clearButton.hidden = chips.childElementCount === 0;
 }
 
 function rangeLabel(range) {
