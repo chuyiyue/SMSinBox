@@ -146,7 +146,22 @@ function chooseKind(kind) {
 
 function openView(channel) {
   const meta = KINDS.find((item) => item.kind === channel.kind);
-  viewFields.replaceChildren(...viewFieldsFor(channel));
+  const blocks = viewFieldsFor(channel);
+  // The config itself stays read-only here; the remark is editable.
+  const noteLabel = document.createElement("label");
+  noteLabel.append("备注");
+  const noteInput = document.createElement("input");
+  noteInput.value = channel.note || "";
+  noteInput.maxLength = 80;
+  noteInput.placeholder = "给这个渠道起个备注名";
+  noteLabel.append(noteInput);
+  const saveNote = document.createElement("button");
+  saveNote.type = "button";
+  saveNote.className = "secondary";
+  saveNote.textContent = "保存备注";
+  saveNote.addEventListener("click", () => saveChannelNote(channel, noteInput, saveNote));
+  blocks.push(noteLabel, saveNote);
+  viewFields.replaceChildren(...blocks);
   kindStep.hidden = true;
   form.hidden = true;
   view.hidden = false;
@@ -155,8 +170,35 @@ function openView(channel) {
   document.body.classList.add("modal-open");
 }
 
+async function saveChannelNote(channel, input, button) {
+  const note = input.value.trim();
+  button.disabled = true;
+  try {
+    const result = await api(`/api/v1/notifications/${channel.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ note }),
+    });
+    if (!result.response.ok) {
+      toast(result.data?.error || "保存备注失败", { tone: "danger" });
+      return;
+    }
+    channel.note = note;
+    toast("备注已保存");
+    await loadChannels();
+  } catch (error) {
+    if (isUnauthorized(error)) return;
+    toast("保存备注失败", { tone: "danger" });
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function renderFields() {
   fields.replaceChildren();
+  // Every kind takes an optional remark, shown on the channel card.
+  const noteField = field("备注（可选）", "note", "给这个渠道起个备注名", "off");
+  noteField.querySelector("input").maxLength = 80;
+  fields.append(noteField);
   if (selectedKind === "telegram") {
     fields.append(
       field("Bot token", "bot_token", "123456:AA...", "off"),
@@ -392,17 +434,10 @@ function renderChannel(channel) {
   test.className = "channel-test";
   test.append(testStatus(channel));
 
+  // One 2x2 grid, one button family (Roye): edit/test first, then the
+  // enable/disable fill toggle and delete.
   const actions = document.createElement("div");
-  actions.className = "channel-actions";
-  const toggle = document.createElement("button");
-  toggle.type = "button";
-  toggle.className = "switch";
-  toggle.setAttribute("role", "switch");
-  toggle.setAttribute("aria-checked", channel.enabled ? "true" : "false");
-  toggle.setAttribute("aria-label", channel.enabled ? `停用${name}` : `启用${name}`);
-  toggle.addEventListener("click", () => setEnabled(channel, toggle));
-  const buttons = document.createElement("div");
-  buttons.className = "actions";
+  actions.className = "channel-actions-grid";
   const edit = document.createElement("button");
   edit.type = "button";
   edit.className = "secondary";
@@ -411,17 +446,29 @@ function renderChannel(channel) {
   const testButton = document.createElement("button");
   testButton.type = "button";
   testButton.className = "secondary";
-  testButton.textContent = "发送测试";
+  testButton.textContent = "测试";
   testButton.addEventListener("click", () => sendTest(channel, testButton));
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = channel.enabled ? "btn-disable" : "btn-enable";
+  toggle.textContent = channel.enabled ? "禁用" : "启用";
+  toggle.setAttribute("aria-label", channel.enabled ? `禁用${name}` : `启用${name}`);
+  toggle.addEventListener("click", () => setEnabled(channel, toggle));
   const remove = document.createElement("button");
   remove.type = "button";
-  remove.className = "ghost";
+  remove.className = "danger";
   remove.textContent = "删除";
   remove.addEventListener("click", () => removeChannel(channel));
-  buttons.append(edit, testButton, remove);
-  actions.append(toggle, buttons);
+  actions.append(edit, testButton, toggle, remove);
 
-  row.append(head, masked, test, actions);
+  if (channel.note) {
+    const note = document.createElement("p");
+    note.className = "channel-note";
+    note.textContent = channel.note;
+    row.append(head, masked, note, test, actions);
+  } else {
+    row.append(head, masked, test, actions);
+  }
   return row;
 }
 
@@ -480,7 +527,6 @@ async function sendTest(channel, button) {
 
 async function setEnabled(channel, toggle) {
   const next = !channel.enabled;
-  toggle.setAttribute("aria-checked", next ? "true" : "false");
   toggle.disabled = true;
   try {
     const updated = await api(`/api/v1/notifications/${channel.id}`, {
@@ -488,7 +534,6 @@ async function setEnabled(channel, toggle) {
       body: JSON.stringify({ enabled: next }),
     });
     if (!updated.response.ok) {
-      toggle.setAttribute("aria-checked", channel.enabled ? "true" : "false");
       const message = updated.data.error || "更新失败";
       setError(message);
       toast(message, { tone: "danger" });
@@ -498,7 +543,6 @@ async function setEnabled(channel, toggle) {
     await loadChannels();
   } catch (error) {
     if (isUnauthorized(error)) return;
-    toggle.setAttribute("aria-checked", channel.enabled ? "true" : "false");
     setError("更新失败");
     toast("更新失败", { tone: "danger" });
   } finally {

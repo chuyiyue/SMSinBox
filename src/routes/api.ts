@@ -37,6 +37,7 @@ import {
   insertDevice,
   insertMessage,
   insertNotifyChannel,
+  updateNotifyChannelNote,
   insertUser,
   isUniqueViolation,
   countPinnedDevices,
@@ -242,7 +243,8 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
   if (notifyItem?.[1]) {
     if (method === "DELETE") return removeNotification(request, env, notifyItem[1]);
     if (method === "POST") return setNotificationEnabled(request, env, notifyItem[1]);
-    return methodNotAllowed("POST, DELETE");
+    if (method === "PATCH") return updateNotificationNote(request, env, notifyItem[1]);
+    return methodNotAllowed("POST, PATCH, DELETE");
   }
   if (path === "/api/v1/ios/shortcut") {
     if (method !== "GET") return methodNotAllowed("GET");
@@ -860,6 +862,8 @@ async function createNotification(request: Request, env: Env): Promise<Response>
   if ((await countNotifyChannels(env.DB, user.id)) >= MAX_NOTIFY_CHANNELS) {
     return json({ ok: false, error: "推送渠道已达上限" }, 400);
   }
+  const note = readChannelNote((body.value as Record<string, unknown>).note);
+  if (note === null) return json({ ok: false, error: "备注需要 80 个字符以内" }, 400);
   const id = crypto.randomUUID();
   const createdAt = Date.now();
   await insertNotifyChannel(env.DB, {
@@ -869,6 +873,7 @@ async function createNotification(request: Request, env: Env): Promise<Response>
     config: JSON.stringify(parsed.config),
     enabled: 1,
     createdAt,
+    note,
   });
   logInfo({ message: "notify_channel_created", channel_id: id, user_id: user.id, kind: parsed.kind });
   return json({
@@ -879,8 +884,37 @@ async function createNotification(request: Request, env: Env): Promise<Response>
       config: parsed.config,
       enabled: true,
       createdAt,
+      note,
     }),
   });
+}
+
+// A channel remark is free text the owner writes for themselves: trimmed,
+// capped, no control characters. Missing means empty.
+function readChannelNote(value: unknown): string | null {
+  if (value === undefined || value === null) return "";
+  if (typeof value !== "string") return null;
+  const note = value.trim();
+  if (note.length > 80 || /[\u0000-\u001f\u007f]/.test(note)) return null;
+  return note;
+}
+
+async function updateNotificationNote(request: Request, env: Env, rawId: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const id = decodePart(rawId);
+  if (!id || !UUID_RE.test(id)) return json({ ok: false, error: "渠道不存在" }, 404);
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  if (!body.value || typeof body.value !== "object" || Array.isArray(body.value)) {
+    return json({ ok: false, error: "请求体无效" }, 400);
+  }
+  const note = readChannelNote((body.value as Record<string, unknown>).note);
+  if (note === null) return json({ ok: false, error: "备注需要 80 个字符以内" }, 400);
+  const updated = await updateNotifyChannelNote(env.DB, user.id, id, note);
+  if (!updated) return json({ ok: false, error: "渠道不存在" }, 404);
+  logInfo({ message: "notify_channel_note_set", channel_id: id, user_id: user.id });
+  return json({ ok: true, id, note });
 }
 
 async function removeNotification(request: Request, env: Env, rawId: string): Promise<Response> {
@@ -934,12 +968,14 @@ function presentChannel(channel: {
   config: Parameters<typeof redactConfig>[1];
   enabled: boolean;
   createdAt: number;
+  note: string;
 }) {
   return {
     id: channel.id,
     kind: channel.kind,
     enabled: channel.enabled,
     created_at: channel.createdAt,
+    note: channel.note,
     config: redactConfig(channel.kind, channel.config),
   };
 }

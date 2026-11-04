@@ -1025,7 +1025,7 @@ export async function countNotifyChannels(db: D1Database, userId: string): Promi
 export async function listNotifyChannels(db: D1Database, userId: string): Promise<NotifyChannelRow[]> {
   const result = await db
     .prepare(
-      `SELECT id, user_id, kind, config, enabled, created_at
+      `SELECT id, user_id, kind, config, enabled, created_at, note
        FROM notify_channels
        WHERE user_id = ?
        ORDER BY created_at DESC`,
@@ -1042,7 +1042,7 @@ export async function findNotifyChannel(
 ): Promise<NotifyChannelRow | null> {
   return db
     .prepare(
-      `SELECT id, user_id, kind, config, enabled, created_at
+      `SELECT id, user_id, kind, config, enabled, created_at, note
        FROM notify_channels WHERE id = ? AND user_id = ?`,
     )
     .bind(channelId, userId)
@@ -1051,15 +1051,28 @@ export async function findNotifyChannel(
 
 export async function insertNotifyChannel(
   db: D1Database,
-  channel: { id: string; userId: string; kind: string; config: string; enabled: number; createdAt: number },
+  channel: { id: string; userId: string; kind: string; config: string; enabled: number; createdAt: number; note: string },
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO notify_channels (id, user_id, kind, config, enabled, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO notify_channels (id, user_id, kind, config, enabled, created_at, note)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(channel.id, channel.userId, channel.kind, channel.config, channel.enabled, channel.createdAt)
+    .bind(channel.id, channel.userId, channel.kind, channel.config, channel.enabled, channel.createdAt, channel.note)
     .run();
+}
+
+export async function updateNotifyChannelNote(
+  db: D1Database,
+  userId: string,
+  channelId: string,
+  note: string,
+): Promise<boolean> {
+  const result = await db
+    .prepare("UPDATE notify_channels SET note = ? WHERE id = ? AND user_id = ?")
+    .bind(note, channelId, userId)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
 }
 
 export async function deleteNotifyChannel(db: D1Database, userId: string, channelId: string): Promise<boolean> {

@@ -56,6 +56,7 @@ export interface StoredChannel {
   config: ChannelConfig;
   enabled: boolean;
   createdAt: number;
+  note: string;
 }
 
 export interface NotifyText {
@@ -130,6 +131,7 @@ export function channelFromRow(row: NotifyChannelRow): StoredChannel | null {
     config: checked.config,
     enabled: row.enabled !== 0,
     createdAt: row.created_at,
+    note: row.note ?? "",
   };
 }
 
