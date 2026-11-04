@@ -718,15 +718,34 @@ async function removeChannel(channel) {
   }
 }
 
+// Card summaries are uniformly abbreviated on every kind (Roye): identity
+// fields (chat id, email addresses) stay readable, but URLs shrink to
+// their host and keys to a masked tail — full values live in the editor.
+function hostOf(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    return new URL(raw).host || raw;
+  } catch {
+    return raw.replace(/^[a-z]+:\/\//i, "").split("/")[0] || raw;
+  }
+}
+
+function maskTail(value) {
+  const raw = String(value || "");
+  if (!raw || raw.includes("*") || raw.length <= 4) return raw;
+  return `****${raw.slice(-4)}`;
+}
+
 function describe(channel) {
   const config = channel.config || {};
   if (channel.kind === "telegram") return `chat ${config.chat_id || ""} · token ${config.bot_token || ""}`;
-  if (channel.kind === "wecom") return config.webhook_url || "";
-  if (channel.kind === "bark") return `${config.server || ""} · ${config.device_key || ""}`;
+  if (channel.kind === "wecom") return `Webhook · ${hostOf(config.webhook_url)}`;
+  if (channel.kind === "bark") return `${hostOf(config.server)} · ${maskTail(config.device_key)}`;
   if (channel.kind === "feishu" || channel.kind === "dingtalk") {
-    return config.secret ? `${config.webhook_url || ""} · 已签名` : config.webhook_url || "";
+    return config.secret ? `Webhook · ${hostOf(config.webhook_url)} · 已签名` : `Webhook · ${hostOf(config.webhook_url)}`;
   }
-  if (config.webhook_url) return `${config.from || ""} → ${config.to || ""} · Webhook ${config.webhook_url}`;
+  if (config.webhook_url) return `${config.from || ""} → ${config.to || ""} · Webhook ${hostOf(config.webhook_url)}`;
   return `${config.from || ""} → ${config.to || ""} · ${config.smtp_host || "SMTP"}`;
 }
 

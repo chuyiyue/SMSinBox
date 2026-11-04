@@ -449,22 +449,24 @@
   display: grid;
   grid-template-columns: 1fr;
   gap: var(--space-3);
-  align-items: start;
 }
 
 /* The empty state centers on the page, not inside one grid column. */
 .channel-grid .empty-state { grid-column: 1 / -1; }
 
 .channel-card {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: var(--space-3);
-  align-content: start;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-1);
   padding: var(--space-5);
 }
+
+/* Actions pin to the card bottom so equal-height rows line up. */
+.channel-actions-grid { margin-top: auto; }
 
 .channel-card-head {
   display: flex;
@@ -505,7 +507,10 @@
   color: var(--text-2);
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
-  overflow-wrap: anywhere;
+  /* One summary line on every card; longer values ellipsize. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .channel-test {
