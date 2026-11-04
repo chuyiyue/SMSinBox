@@ -21,7 +21,6 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       GH_CLIENT_ID_SECRET: ${{ secrets.GH_OAUTH_CLIENT_ID }}
       GH_CLIENT_SECRET_SECRET: ${{ secrets.GH_OAUTH_CLIENT_SECRET }}
-      ADMIN_GH_USERNAME_SECRET: ${{ secrets.ADMIN_GH_USERNAME }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,9 +45,6 @@ jobs:
           fi
           if [[ -n "$GH_CLIENT_SECRET_SECRET" ]]; then
             printf '%s' "$GH_CLIENT_SECRET_SECRET" | npx wrangler secret put GH_CLIENT_SECRET
-          fi
-          if [[ -n "$ADMIN_GH_USERNAME_SECRET" ]]; then
-            printf '%s' "$ADMIN_GH_USERNAME_SECRET" | npx wrangler secret put ADMIN_GH_USERNAME
           fi
 
       - name: Apply remote D1 migrations
