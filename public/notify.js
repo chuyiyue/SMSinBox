@@ -50,7 +50,6 @@ let list;
 let dialog;
 let kindStep;
 let addButton;
-let count;
 let view;
 let viewFields;
 let selectedKind = "telegram";
@@ -74,7 +73,6 @@ function startView() {
   view = document.querySelector("#notify-view");
   viewFields = document.querySelector("#notify-view-fields");
   addButton = document.querySelector("#add-channel");
-  count = document.querySelector("#channel-count");
   lastTest.clear();
   renderKindGrid();
   initShell({
@@ -358,7 +356,6 @@ async function loadChannels() {
 }
 
 function paintCount(total) {
-  count.textContent = `${total} / ${MAX_CHANNELS}`;
   const full = total >= MAX_CHANNELS;
   addButton.disabled = full;
   addButton.title = full ? "最多 10 个推送渠道" : "";
