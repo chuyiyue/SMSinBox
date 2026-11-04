@@ -7,6 +7,7 @@ import {
   loadNav,
   logout,
   openModal,
+  paintSidebarAvatar,
   paintSidebarProfile,
   passwordScore,
   showNotice,
@@ -20,6 +21,7 @@ import { rememberFlash } from "./ui.js";
 let viewToken = 0;
 let me = null;
 let sessions = [];
+let systemInfo = null;
 
 let accountError;
 let accountStatus;
@@ -27,6 +29,19 @@ let profileForm;
 let profileUsername;
 let profileError;
 let profileSubmit;
+let avatarPreview;
+let avatarFile;
+let avatarRemove;
+let avatarError;
+let githubPanel;
+let githubError;
+let githubStatus;
+let githubBound;
+let githubAvatar;
+let githubLoginName;
+let githubUnboundNote;
+let githubBind;
+let githubUnbind;
 let passwordForm;
 let passwordCurrent;
 let passwordInput;
@@ -49,6 +64,7 @@ function startView() {
   const token = viewToken;
   me = null;
   sessions = [];
+  systemInfo = null;
 
   accountError = document.querySelector("#account-error");
   accountStatus = document.querySelector("#account-status");
@@ -56,6 +72,19 @@ function startView() {
   profileUsername = document.querySelector("#profile-username");
   profileError = document.querySelector("#profile-error");
   profileSubmit = document.querySelector("#profile-submit");
+  avatarPreview = document.querySelector("#avatar-preview");
+  avatarFile = document.querySelector("#avatar-file");
+  avatarRemove = document.querySelector("#avatar-remove");
+  avatarError = document.querySelector("#avatar-error");
+  githubPanel = document.querySelector("#github-panel");
+  githubError = document.querySelector("#github-error");
+  githubStatus = document.querySelector("#github-status");
+  githubBound = document.querySelector("#github-bound");
+  githubAvatar = document.querySelector("#github-avatar");
+  githubLoginName = document.querySelector("#github-login-name");
+  githubUnboundNote = document.querySelector("#github-unbound-note");
+  githubBind = document.querySelector("#github-bind");
+  githubUnbind = document.querySelector("#github-unbind");
   passwordForm = document.querySelector("#password-form");
   passwordCurrent = document.querySelector("#password-current");
   passwordInput = document.querySelector("#password");
@@ -102,6 +131,18 @@ function startView() {
       showRetry("加载系统管理信息失败");
     });
   });
+  avatarFile.addEventListener("change", () => {
+    const file = avatarFile.files?.[0];
+    avatarFile.value = "";
+    if (file) void uploadAvatar(file);
+  });
+  avatarRemove.addEventListener("click", () => {
+    void removeAvatar();
+  });
+  githubUnbind.addEventListener("click", () => {
+    void unbindGithub();
+  });
+  reportGithubReturn();
 
   boot(token).catch((error) => {
     if (token !== viewToken || isUnauthorized(error)) return;
@@ -154,6 +195,7 @@ function paintAccount() {
   // The profile username is a display nickname (and GitHub handle), never a
   // login credential; the login username itself is shown nowhere.
   profileUsername.value = typeof me.profile_username === "string" ? me.profile_username : "";
+  paintAvatarPreview();
 }
 
 async function loadDeviceCount() {
@@ -190,13 +232,17 @@ async function loadSystemInfo() {
     const result = await api("/api/v1/system/info");
     if (!result.response.ok) {
       factVersion.textContent = "读取失败";
+      paintGithub();
       return;
     }
+    systemInfo = result.data;
     const version = typeof result.data.version === "string" ? result.data.version.trim() : "";
     factVersion.textContent = version || "未知";
+    paintGithub();
   } catch (error) {
     if (isUnauthorized(error)) return;
     factVersion.textContent = "读取失败";
+    paintGithub();
   }
 }
 
@@ -233,6 +279,7 @@ async function submitProfile(event) {
     me = { ...(me || { role: "admin" }), profile_username: saved };
     noteMe({ profile_username: saved });
     paintSidebarProfile(getMe());
+    paintAvatarPreview();
     const message = saved ? "用户名已保存" : "用户名已清除";
     setAccountStatus(message);
     toast(message);
@@ -248,6 +295,194 @@ async function submitProfile(event) {
 function setProfileError(message) {
   profileError.hidden = !message;
   profileError.textContent = message;
+}
+
+// ─── Custom avatar ───────────────────────────────────────────────────────────
+
+function paintAvatarPreview() {
+  if (!avatarPreview) return;
+  const profileUsername =
+    me && typeof me.profile_username === "string" ? me.profile_username.trim() : "";
+  const name = profileUsername || (me && (me.username || me.name)) || "管理员";
+  paintSidebarAvatar(avatarPreview, name, profileUsername, me);
+  if (avatarRemove) {
+    avatarRemove.hidden = !(me && typeof me.avatar_data === "string" && me.avatar_data);
+  }
+}
+
+function setAvatarError(message) {
+  avatarError.hidden = !message;
+  avatarError.textContent = message;
+}
+
+const AVATAR_DATA_LIMIT = 400 * 1024;
+
+// Center-crop to a square and shrink to at most 128×128; if the exported
+// data URL is still too large, step down in size and quality until it fits.
+async function fileToAvatarDataUrl(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("图片读取失败，请换一张试试"));
+      image.src = url;
+    });
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    if (!side) throw new Error("图片读取失败，请换一张试试");
+    const sx = (img.naturalWidth - side) / 2;
+    const sy = (img.naturalHeight - side) / 2;
+    for (const size of [128, 96, 64]) {
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, size, size);
+      ctx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
+      for (const quality of [0.85, 0.7, 0.55]) {
+        const dataUrl = canvas.toDataURL("image/jpeg", quality);
+        if (dataUrl.length <= AVATAR_DATA_LIMIT) return dataUrl;
+      }
+    }
+    throw new Error("图片压缩后仍过大，请换一张更小的图片");
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function uploadAvatar(file) {
+  setAvatarError("");
+  if (!file.type.startsWith("image/")) {
+    setAvatarError("请选择图片文件");
+    return;
+  }
+  avatarFile.disabled = true;
+  try {
+    const dataUrl = await fileToAvatarDataUrl(file);
+    const result = await api("/api/v1/auth/avatar", {
+      method: "POST",
+      body: JSON.stringify({ image: dataUrl }),
+    });
+    if (!result.response.ok) {
+      setAvatarError(result.data.error || "头像上传失败");
+      return;
+    }
+    const saved = typeof result.data.avatar_data === "string" ? result.data.avatar_data : dataUrl;
+    me = { ...(me || { role: "admin" }), avatar_data: saved };
+    noteMe({ avatar_data: saved });
+    paintAvatarPreview();
+    paintSidebarProfile(getMe());
+    setAccountStatus("头像已更新");
+    toast("头像已更新");
+  } catch (error) {
+    if (isUnauthorized(error)) return;
+    setAvatarError(error instanceof Error && error.message ? error.message : "头像上传失败，请重试");
+  } finally {
+    avatarFile.disabled = false;
+  }
+}
+
+async function removeAvatar() {
+  setAvatarError("");
+  avatarRemove.disabled = true;
+  try {
+    const result = await api("/api/v1/auth/avatar", { method: "DELETE" });
+    if (!result.response.ok) {
+      setAvatarError(result.data.error || "移除头像失败");
+      return;
+    }
+    me = { ...(me || { role: "admin" }), avatar_data: null };
+    noteMe({ avatar_data: null });
+    paintAvatarPreview();
+    paintSidebarProfile(getMe());
+    toast("已移除自定义头像");
+  } catch (error) {
+    if (isUnauthorized(error)) return;
+    setAvatarError("移除头像失败，请重试");
+  } finally {
+    avatarRemove.disabled = false;
+  }
+}
+
+// ─── GitHub login binding ────────────────────────────────────────────────────
+
+// The OAuth callback returns to /users?github=bound|error: toast once and
+// scrub the parameter so a refresh does not repeat it.
+function reportGithubReturn() {
+  const query = new URLSearchParams(location.search);
+  const state = query.get("github");
+  if (state !== "bound" && state !== "error") return;
+  if (state === "bound") toast("GitHub 已绑定");
+  else toast("GitHub 绑定失败，请重试", { tone: "danger" });
+  query.delete("github");
+  const rest = query.toString();
+  history.replaceState(null, "", `${location.pathname}${rest ? `?${rest}` : ""}${location.hash}`);
+}
+
+function paintGithub() {
+  if (!githubPanel) return;
+  // The whole section exists only when the server has GitHub OAuth
+  // configured; older workers simply omit github_enabled.
+  const enabled = Boolean(systemInfo && systemInfo.github_enabled);
+  githubPanel.hidden = !enabled;
+  if (!enabled) return;
+  const github = me && me.github && typeof me.github === "object" ? me.github : null;
+  const login = github && typeof github.login === "string" ? github.login : "";
+  githubBound.hidden = !login;
+  githubUnboundNote.hidden = Boolean(login);
+  githubBind.hidden = Boolean(login);
+  githubUnbind.hidden = !login;
+  if (login) {
+    githubLoginName.textContent = login;
+    const avatarUrl = typeof github.avatar_url === "string" ? github.avatar_url : "";
+    githubAvatar.hidden = !avatarUrl;
+    if (avatarUrl) githubAvatar.src = avatarUrl;
+  }
+}
+
+async function unbindGithub() {
+  const login =
+    me && me.github && typeof me.github.login === "string" ? me.github.login : "GitHub";
+  const confirmed = await openModal({
+    title: "解绑 GitHub？",
+    text: `解绑后将不能再用 GitHub 账号（${login}）登录本系统，密码登录不受影响。`,
+    confirmLabel: "解绑",
+    danger: true,
+  });
+  if (!confirmed) return;
+  setGithubError("");
+  setGithubStatus("");
+  githubUnbind.disabled = true;
+  try {
+    const result = await api("/api/v1/auth/github/unbind", { method: "POST", body: "{}" });
+    if (!result.response.ok) {
+      const message = result.data.error || "解绑失败";
+      setGithubError(message);
+      toast(message, { tone: "danger" });
+      return;
+    }
+    me = { ...(me || { role: "admin" }), github: null };
+    noteMe({ github: null });
+    paintGithub();
+    paintAvatarPreview();
+    paintSidebarProfile(getMe());
+    setGithubStatus("已解绑 GitHub");
+    toast("已解绑 GitHub");
+  } catch (error) {
+    if (isUnauthorized(error)) return;
+    setGithubError("解绑失败，请重试");
+  } finally {
+    githubUnbind.disabled = false;
+  }
+}
+
+function setGithubError(message) {
+  showNotice(githubError, message);
+}
+
+function setGithubStatus(message) {
+  showNotice(githubStatus, message);
 }
 
 async function submitPassword(event) {
