@@ -687,7 +687,6 @@ function rangeSince() {
   if (state.range === "all") return null;
   if (state.range === "today") return new Date().setHours(0, 0, 0, 0);
   if (state.range === "7d") return Date.now() - 7 * 864e5;
-  if (state.range === "30d") return Date.now() - 30 * 864e5;
   return null;
 }
 
@@ -763,7 +762,6 @@ function paintChips() {
 function rangeLabel(range) {
   if (range === "today") return "今天";
   if (range === "7d") return "近 7 天";
-  if (range === "30d") return "近 30 天";
   return "全部";
 }
 

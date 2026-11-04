@@ -41,6 +41,13 @@
     <path d="m21 21-4.34-4.34"/>
     <circle cx="11" cy="11" r="8"/>
   </symbol>
+  <symbol id="icon-moon" viewBox="0 0 24 24">
+    <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+  </symbol>
+  <symbol id="icon-contrast" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="10"/>
+    <path d="M12 18a6 6 0 0 0 0-12v12z"/>
+  </symbol>
   <symbol id="icon-sun" viewBox="0 0 24 24">
     <circle cx="12" cy="12" r="4"/>
     <path d="M12 2v2"/>

@@ -353,7 +353,7 @@ describe("site consistency", () => {
     const sprite = readFileSync("public/icons.svg", "utf8");
     const defined = new Set([...sprite.matchAll(/<symbol id="(icon-[a-z-]+)"/g)].map((m) => m[1]));
     const referenced = new Set();
-    const sources = [...pages, "public/login.html", "public/registry.js", "public/sidebar-boot.js", "public/common.js", "public/inbox.js", "public/devices.js", "public/notify.js"];
+    const sources = [...pages, "public/login.html", "public/registry.js", "public/sidebar-boot.js", "public/common.js", "public/ui.js", "public/inbox.js", "public/devices.js", "public/device-detail.js", "public/notify.js"];
     for (const file of sources) {
       const text = readFileSync(file, "utf8");
       for (const m of text.matchAll(/icons\.svg#(icon-[a-z-]+)/g)) referenced.add(m[1]);
