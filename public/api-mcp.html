@@ -94,7 +94,7 @@
 
             <details class="fold">
               <summary data-i18n="api.mcpHowConnect">如何连接 MCP 客户端</summary>
-              <p><span data-i18n="api.mcpHowBefore">在 Claude Desktop 的 </span><code>claude_desktop_config.json</code><span data-i18n="api.mcpHowMid"> 或 Cursor 的 MCP 设置中添加上述通用 JSON 配置即可。MCP 采用 Streamable HTTP 传输协议，直接向 </span><code>/mcp</code><span data-i18n="api.mcpHowAfter"> 端点发起带 Bearer Token 的 POST 请求。</span></p>
+              <p><span data-i18n="api.mcpHowBefore">在 Claude Desktop 的 </span><code>claude_desktop_config.json</code><span data-i18n="api.mcpHowMid"> 或 Cursor 的 MCP 设置中添加上述通用 JSON 配置即可。MCP 采用 Streamable HTTP 传输协议，直接向 </span><code>/mcp</code><span data-i18n="api.mcpHowAfter"> 端点发起带 Bearer Token 的 POST 请求</span></p>
             </details>
           </section>
 
@@ -127,47 +127,47 @@
 
             <div class="endpoints">
               <h3 data-i18n="api.endpointsTitle">接口端点</h3>
-              <p class="subtle"><span data-i18n="api.endpointsBefore">以下端点均基于上方 API Base URL，全部使用 GET 方法并携带 </span><code>Authorization: Bearer &lt;Token&gt;</code><span data-i18n="api.endpointsAfter">。</span></p>
+              <p class="subtle"><span data-i18n="api.endpointsBefore">以下端点均基于上方 API Base URL，全部使用 GET 方法并携带 </span><code>Authorization: Bearer &lt;Token&gt;</code><span data-i18n="api.endpointsAfter"></span></p>
               <div class="endpoint-list" role="list">
                 <div class="endpoint-row" role="listitem">
                   <span class="method">GET</span>
                   <code class="endpoint-path">/health</code>
-                  <span class="endpoint-desc" data-i18n="api.docHealth">连通性检查，验证 API 与 Token 有效。</span>
+                  <span class="endpoint-desc" data-i18n="api.docHealth">连通性检查，验证 API 与 Token 有效</span>
                 </div>
                 <div class="endpoint-row" role="listitem">
                   <span class="method">GET</span>
                   <code class="endpoint-path">/me</code>
-                  <span class="endpoint-desc" data-i18n="api.docMe">当前 Token 详情（权限、设备范围、有效期）。</span>
+                  <span class="endpoint-desc" data-i18n="api.docMe">当前 Token 详情（权限、设备范围、有效期）</span>
                 </div>
                 <div class="endpoint-row" role="listitem">
                   <span class="method">GET</span>
                   <code class="endpoint-path">/messages</code>
-                  <span class="endpoint-desc" data-i18n="api.docMessages">短信列表，支持分页与 device_id / from / since / until / q 过滤。</span>
+                  <span class="endpoint-desc" data-i18n="api.docMessages">短信列表，支持分页与 device_id / from / since / until / q 过滤</span>
                 </div>
                 <div class="endpoint-row" role="listitem">
                   <span class="method">GET</span>
                   <code class="endpoint-path">/messages/{id}</code>
-                  <span class="endpoint-desc" data-i18n="api.docMessage">单条短信详情。</span>
+                  <span class="endpoint-desc" data-i18n="api.docMessage">单条短信详情</span>
                 </div>
                 <div class="endpoint-row" role="listitem">
                   <span class="method">GET</span>
                   <code class="endpoint-path">/otp/latest</code>
-                  <span class="endpoint-desc" data-i18n="api.docOtpLatest">最新验证码，可用 device_id / from / since 过滤。</span>
+                  <span class="endpoint-desc" data-i18n="api.docOtpLatest">最新验证码，可用 device_id / from / since 过滤</span>
                 </div>
                 <div class="endpoint-row" role="listitem">
                   <span class="method">GET</span>
                   <code class="endpoint-path">/otp/search</code>
-                  <span class="endpoint-desc" data-i18n="api.docOtpSearch">验证码检索，支持分页与过滤。</span>
+                  <span class="endpoint-desc" data-i18n="api.docOtpSearch">验证码检索，支持分页与过滤</span>
                 </div>
                 <div class="endpoint-row" role="listitem">
                   <span class="method">GET</span>
                   <code class="endpoint-path">/devices</code>
-                  <span class="endpoint-desc" data-i18n="api.docDevices">授权设备列表及在线状态。</span>
+                  <span class="endpoint-desc" data-i18n="api.docDevices">授权设备列表及在线状态</span>
                 </div>
                 <div class="endpoint-row" role="listitem">
                   <span class="method">GET</span>
                   <code class="endpoint-path">/devices/{id}/status</code>
-                  <span class="endpoint-desc" data-i18n="api.docDeviceStatus">单台设备在线状态与最后消息时间。</span>
+                  <span class="endpoint-desc" data-i18n="api.docDeviceStatus">单台设备在线状态与最后消息时间</span>
                 </div>
               </div>
             </div>
@@ -185,7 +185,7 @@
 
             <details class="fold">
               <summary data-i18n="api.testConn">如何测试连接</summary>
-              <p><span data-i18n="api.testBefore">可以向 </span><code>/api/ext/v1/health</code><span data-i18n="api.testMid"> 发送 GET 请求，或向 </span><code>/mcp</code><span data-i18n="api.testSend"> 发送 </span><code>ping</code><span data-i18n="api.testEnd"> JSON-RPC 请求检验凭证有效性。</span></p>
+              <p><span data-i18n="api.testBefore">可以向 </span><code>/api/ext/v1/health</code><span data-i18n="api.testMid"> 发送 GET 请求，或向 </span><code>/mcp</code><span data-i18n="api.testSend"> 发送 </span><code>ping</code><span data-i18n="api.testEnd"> JSON-RPC 请求检验凭证有效性</span></p>
             </details>
           </section>
         </div>

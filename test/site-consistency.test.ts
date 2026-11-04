@@ -122,7 +122,7 @@ describe("site consistency", () => {
     expect(apimcp).toContain("if (!result.response.ok)");
     expect(devices).toContain("flashLabel");
     expect(readFileSync("public/inbox.js", "utf8")).toContain("flashLabel");
-    expectCopy(readFileSync("public/common.js", "utf8"), "devices.sidebarEmpty", "还没有设备。");
+    expectCopy(readFileSync("public/common.js", "utf8"), "devices.sidebarEmpty", "还没有设备");
     const shell = readFileSync("public/shell.js", "utf8");
     const store = readFileSync("public/device-store.js", "utf8");
     const common = readFileSync("public/common.js", "utf8");
@@ -196,7 +196,7 @@ describe("site consistency", () => {
     const shellCss = readFileSync("public/css/shell.css", "utf8");
     expect(common).toContain('`/devices.html#dev-${encodeURIComponent(id)}`');
     expect(common).toContain('"/devices.html"');
-    expectCopy(common, "devices.sidebarEmpty", "还没有设备。");
+    expectCopy(common, "devices.sidebarEmpty", "还没有设备");
     expect(common).not.toContain("sidebar-empty-add");
     expect(common).not.toContain('key: "all"');
     expect(shellCss).not.toContain(".sidebar-add-row");
@@ -312,7 +312,7 @@ describe("site consistency", () => {
     expect(js).toContain('querySelector("#npanel-history")');
     expect(js).toContain("addButton.hidden = name !== \"system\"");
     expect(js).toContain("/api/v1/notify/history?limit=50&offset=");
-    expectCopy(js, "notify.historyEmpty", "还没有推送记录。短信推送到渠道后会记在这里。");
+    expectCopy(js, "notify.historyEmpty", "还没有推送记录。短信推送到渠道后会记在这里");
     expect(css).toMatch(/\.notify-toolbar \{[^}]*display: flex;[^}]*flex-wrap: wrap;/);
     expect(css).toContain(".notify-actions { display: flex; gap: 8px; margin-left: auto; }");
   });
@@ -540,7 +540,7 @@ describe("site consistency", () => {
     expect(html).not.toContain('id="username-form"');
     expect(html).toContain('id="profile-form"');
     expect(html).toContain('id="profile-username"');
-    expect(html).toContain("仅用于显示与头像：与 GitHub 账号同名时显示其头像，其它名字按名生成头像。不用于登录。");
+    expect(html).toContain("仅用于显示与头像：与 GitHub 账号同名时显示其头像，其它名字按名生成头像。不用于登录");
     expect(html).toContain('id="password-form"');
     expect(html).toContain('name="current_password"');
     expect(html).toContain('id="session-list"');
@@ -688,8 +688,8 @@ describe("site consistency", () => {
     expect(users).toContain('id="features-panel"');
     expect(users).toContain("功能设置");
     expect(users).toContain("短信翻译");
-    expect(usersJs).toContain("已开启，新收到的非简体中文短信会自动翻译成简体中文");
-    expect(usersJs).toContain("开启后，新收到的非简体中文短信会自动翻译成简体中文");
+    expect(MESSAGES["zh-CN"]["users.translateOnDetail"]).toBe("已开启，新收到的非简体中文短信会自动翻译成简体中文");
+    expect(MESSAGES["zh-CN"]["users.translateOffDetail"]).toBe("开启后，新收到的非简体中文短信会自动翻译成简体中文");
     expect(users).toContain('id="translate-toggle"');
     expect(usersJs).toContain("/api/v1/me/preferences");
     expect(usersJs).toContain('method: "PATCH"');

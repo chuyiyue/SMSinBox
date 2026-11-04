@@ -21,7 +21,20 @@ describe("locale dictionary", () => {
     const en = Object.keys(MESSAGES.en).sort();
     expect(zh.length).toBeGreaterThan(40);
     expect(en).toEqual(zh);
+    // Sentence-tail fragments (the *After / guide tail keys) hold only the
+    // closing punctuation of a composed sentence; the copy rule — no period
+    // at the end of a text — empties those on purpose.
+    const TAIL_FRAGMENTS = new Set([
+      "api.endpointsAfter",
+      "guide.api.method2HeadAfter",
+      "guide.api.method2Step1After",
+      "guide.ios.autoFilterAfter",
+      "guide.ios.legacy1After",
+      "guide.ios.legacy2d",
+      "guide.ios.manual5f",
+    ]);
     for (const key of zh) {
+      if (TAIL_FRAGMENTS.has(key)) continue;
       expect(MESSAGES["zh-CN"][key].length, key).toBeGreaterThan(0);
       expect(MESSAGES.en[key].length, key).toBeGreaterThan(0);
     }
