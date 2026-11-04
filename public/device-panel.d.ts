@@ -10,11 +10,13 @@ export function pushActions(push: string | null | undefined): PushAction[];
 export function pushConfirm(action: string, name?: string | null): string | null;
 
 export interface PlatformView {
-  key: "unknown" | "ios" | "android" | "reported";
+  key: "unknown" | "ios" | "android" | "reported" | "preset";
   label: string;
 }
 
 export function platformFromReport(value: unknown): PlatformView;
+
+export function platformFromPreselect(value: unknown): PlatformView | null;
 
 export function platformBadge(platform: PlatformView | null | undefined): string;
 
@@ -62,6 +64,7 @@ export function describeDevice(
     | {
         id?: string | null;
         name?: string | null;
+        platform?: string | null;
         push?: string | null;
         push_url?: string | null;
         last_seen_at?: number | null;

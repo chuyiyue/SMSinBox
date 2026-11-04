@@ -11,6 +11,7 @@ import {
   loadNav,
   loadingState,
   logout,
+  mountSelect,
   openDrawer,
   openMenu,
   openModal,
@@ -25,6 +26,7 @@ import { closeDeviceDetail, openDeviceDetail, removeDevice, runPush } from "./de
 
 const TEMPLATE = '{"from":"{{FROM}}","content":"{{SMS}}","timestamp":"{{RECEIVE_TIME}}","device":"{{DEVICE_NAME}}","sim":"{{CARD_SLOT}}"}';
 let form;
+let platformField;
 let errorBox;
 let statusBox;
 let tokenBox;
@@ -136,8 +138,23 @@ function buildAddBody() {
     clearSecrets();
   });
   form.addEventListener("submit", submitDevice);
-
-  section.append(buildSetupFold());
+  // The drawer is only for naming the device and preselecting its type;
+  // the setup guide lives in the devices page's guide tab, not here (it
+  // made this drawer overflow the screen).
+  platformField = mountSelect({
+    name: "platform",
+    value: "other",
+    ariaLabel: "设备类型",
+    options: [
+      { value: "other", label: "设备类型：其他" },
+      { value: "phone", label: "手机" },
+      { value: "computer", label: "电脑" },
+      { value: "ios", label: "iOS" },
+      { value: "android", label: "安卓" },
+      { value: "router", label: "路由器" },
+    ],
+  });
+  section.querySelector("#device-platform-mount").replaceWith(platformField.root);
   return section;
 }
 
@@ -224,7 +241,7 @@ async function submitDevice(event) {
     showFormError("设备名称需要 1 到 64 个字符");
     return;
   }
-  const body = { name };
+  const body = { name, platform: String(payload.get("platform") || "other") };
   const button = form.querySelector("button[type=submit]");
   button.disabled = true;
   const previous = button.textContent;
@@ -244,6 +261,9 @@ async function submitDevice(event) {
       pushUrl: result.data.push_url || "",
     });
     form.reset();
+    // form.reset() cannot reset the custom picker (its value lives in a
+    // hidden input), so return it to the default explicitly.
+    if (platformField) platformField.value = "other";
     await loadDevices({ refresh: true });
   } catch (error) {
     if (token !== viewToken || isUnauthorized(error)) return;

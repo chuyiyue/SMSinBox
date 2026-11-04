@@ -45,8 +45,10 @@
               <form id="device-form" class="add-device-form">
                 <label class="sr-only" for="device-name">设备名称</label>
                 <input id="device-name" name="name" required maxlength="64" placeholder="设备名称，例如：我的 Pixel" autocomplete="off" />
+                <div id="device-platform-mount"></div>
                 <button type="submit">添加设备</button>
               </form>
+              <p class="subtle">设备类型只是预选：短信上报的类型与它不一致时，会按上报的类型显示。</p>
               <div id="token-box" class="token-box stack" hidden role="status">
                 <p class="callout warn">Bearer token 只显示这一次，关闭后无法再次查看。</p>
                 <div id="bearer-wrap" class="stack" hidden>
@@ -185,7 +187,7 @@
                   <ol>
                     <li>已经装好的旧快捷指令不用改，继续 POST 到 <code>/api/v1/sms</code>。</li>
                     <li>请求头使用 <code>Authorization: Bearer &lt;设备 token&gt;</code> 和 <code>Content-Type: application/json</code>。</li>
-                    <li>请求体字段不变：<code>from</code>、<code>content</code>、<code>timestamp</code>、<code>device</code>。设备 token 丢失后需删除设备并重建。</li>
+                    <li>请求体字段：<code>from</code>、<code>content</code>、<code>timestamp</code>、<code>device</code>，其中 <code>device</code>（设备类型）为选填——不填时按创建设备时预选的类型显示，填了且与预选不一致时按上报的显示。设备 token 丢失后需删除设备并重建。</li>
                   </ol>
                 </details>
               </div>
