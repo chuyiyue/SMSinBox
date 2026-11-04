@@ -103,12 +103,92 @@ describe("notification text and config", () => {
       code: "654321",
       deviceName: "pixel",
       receivedAt: Date.UTC(2026, 0, 2, 3, 4, 5),
+      translatedContent: null,
+      sourceLang: null,
     });
     expect(note.title).toBe("验证码 654321");
     expect(note.text).toContain("pixel · 10086");
     expect(note.text).toContain("2026-01-02T03:04:05.000Z");
     expect([...note.text].length).toBe(501);
     expect(note.text.endsWith("…")).toBe(true);
+  });
+
+  it("keeps the current body when there is no translation", () => {
+    const receivedAt = Date.UTC(2026, 0, 2, 3, 4, 5);
+    const note = renderNotification({
+      from: "10086",
+      content: "您的验证码是 123456",
+      code: "123456",
+      deviceName: "pixel",
+      receivedAt,
+      translatedContent: null,
+      sourceLang: null,
+    });
+    expect(note).toEqual({
+      title: "验证码 123456",
+      text: "pixel · 10086\n2026-01-02T03:04:05.000Z\n您的验证码是 123456",
+    });
+    const blank = renderNotification({
+      from: "10086",
+      content: "您的验证码是 123456",
+      code: "123456",
+      deviceName: "pixel",
+      receivedAt,
+      translatedContent: "   ",
+      sourceLang: "en",
+    });
+    expect(blank).toEqual(note);
+  });
+
+  it("puts the translation above the original and names the source language", () => {
+    const note = renderNotification({
+      from: "10086",
+      content: "Your verification code is 482913. Do not share it.",
+      code: "482913",
+      deviceName: "pixel",
+      receivedAt: Date.UTC(2026, 0, 2, 3, 4, 5),
+      translatedContent: "您的验证码是 482913，请勿泄露。",
+      sourceLang: "en",
+    });
+    expect(note.title).toBe("验证码 482913");
+    expect(note.text).toBe(
+      [
+        "pixel · 10086",
+        "2026-01-02T03:04:05.000Z",
+        "（原文为英语）",
+        "您的验证码是 482913，请勿泄露。",
+        "",
+        "（原文）",
+        "Your verification code is 482913. Do not share it.",
+      ].join("\n"),
+    );
+    const translatedAt = note.text.indexOf("您的验证码是 482913，请勿泄露。");
+    const originalAt = note.text.indexOf("Your verification code is 482913. Do not share it.");
+    expect(translatedAt).toBeGreaterThanOrEqual(0);
+    expect(originalAt).toBeGreaterThan(translatedAt);
+
+    const traditional = renderNotification({
+      from: "  ",
+      content: "您的驗證碼是 482913",
+      code: null,
+      deviceName: "",
+      receivedAt: Date.UTC(2026, 0, 2, 3, 4, 5),
+      translatedContent: "您的验证码是 482913",
+      sourceLang: "zh-Hant",
+    });
+    expect(traditional.title).toBe("新短信 未知号码");
+    expect(traditional.text).toContain("（原文为繁体中文）\n您的验证码是 482913\n\n（原文）\n您的驗證碼是 482913");
+
+    const unknown = renderNotification({
+      from: "10086",
+      content: "original",
+      code: null,
+      deviceName: "pixel",
+      receivedAt: Date.UTC(2026, 0, 2, 3, 4, 5),
+      translatedContent: "译文",
+      sourceLang: "pt-BR",
+    });
+    expect(unknown.text).toContain("（原文为pt-BR）\n译文\n\n（原文）\noriginal");
   });
 
   it("accepts the supported channels and rejects unsafe endpoints", () => {
@@ -479,6 +559,8 @@ describe("delivery", () => {
       code: "123456",
       deviceName: "pixel",
       receivedAt: 1_700_000_000_000,
+      translatedContent: null,
+      sourceLang: null,
     }, {
       fetch: async () => {
         fetches += 1;
@@ -823,6 +905,8 @@ describe("push history recording", () => {
       code: "123456",
       deviceName: "pixel",
       receivedAt: 1_700_000_000_000,
+      translatedContent: null,
+      sourceLang: null,
     }, {
       fetch: async () => {
         attempts += 1;
@@ -886,6 +970,8 @@ describe("push history recording", () => {
         code: null,
         deviceName: "pixel",
         receivedAt: 1_700_000_000_000,
+        translatedContent: null,
+        sourceLang: null,
       }, {
         fetch: async () => Response.json({ code: 200 }),
         openSmtp: async () => {

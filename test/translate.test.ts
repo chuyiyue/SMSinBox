@@ -4,8 +4,10 @@ import {
   M2M_LANG_NAME,
   M2M_MODEL,
   M2M_TARGET_LANG,
+  SOURCE_LANG_LABEL,
   TRANSLATE_TIMEOUT_MS,
   detectSourceLang,
+  sourceLangLabel,
   translateSmsContent,
 } from "../src/translate";
 
@@ -84,6 +86,37 @@ describe("M2M_LANG_NAME", () => {
     expect(M2M_TARGET_LANG).toBe("chinese");
     expect(M2M_MODEL).toBe("@cf/meta/m2m100-1.2b");
     expect(TRANSLATE_TIMEOUT_MS).toBe(6_000);
+  });
+});
+
+describe("SOURCE_LANG_LABEL", () => {
+  it("names every detector code in Chinese and falls back to an unknown code", () => {
+    expect(SOURCE_LANG_LABEL).toEqual({
+      en: "英语",
+      ja: "日语",
+      ko: "韩语",
+      ru: "俄语",
+      uk: "乌克兰语",
+      th: "泰语",
+      ar: "阿拉伯语",
+      hi: "印地语",
+      el: "希腊语",
+      he: "希伯来语",
+      fr: "法语",
+      de: "德语",
+      es: "西班牙语",
+      it: "意大利语",
+      pt: "葡萄牙语",
+      nl: "荷兰语",
+      vi: "越南语",
+      id: "印尼语",
+      "zh-Hant": "繁体中文",
+    });
+    expect(Object.keys(SOURCE_LANG_LABEL).sort()).toEqual(Object.keys(M2M_LANG_NAME).sort());
+    expect(sourceLangLabel("ja")).toBe("日语");
+    expect(sourceLangLabel("pt-BR")).toBe("pt-BR");
+    expect(sourceLangLabel(null)).toBe("未知");
+    expect(sourceLangLabel("")).toBe("未知");
   });
 });
 

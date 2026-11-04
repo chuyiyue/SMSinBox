@@ -206,6 +206,8 @@ async function storeSms(
       code,
       deviceName: device.name,
       receivedAt: parsed.sms.receivedAt,
+      translatedContent: translation?.translated ?? null,
+      sourceLang: translation?.sourceLang ?? null,
     }),
   );
   return json({ ok: true, id, code });
