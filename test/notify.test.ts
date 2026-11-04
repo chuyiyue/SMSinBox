@@ -5,6 +5,7 @@ import {
   defaultDeps,
   deliverChannels,
   parseChannelInput,
+  recordPushResults,
   redactConfig,
   renderNotification,
   scheduleNotify,
@@ -103,12 +104,92 @@ describe("notification text and config", () => {
       code: "654321",
       deviceName: "pixel",
       receivedAt: Date.UTC(2026, 0, 2, 3, 4, 5),
+      translatedContent: null,
+      sourceLang: null,
     });
     expect(note.title).toBe("验证码 654321");
     expect(note.text).toContain("pixel · 10086");
     expect(note.text).toContain("2026-01-02T03:04:05.000Z");
     expect([...note.text].length).toBe(501);
     expect(note.text.endsWith("…")).toBe(true);
+  });
+
+  it("keeps the current body when there is no translation", () => {
+    const receivedAt = Date.UTC(2026, 0, 2, 3, 4, 5);
+    const note = renderNotification({
+      from: "10086",
+      content: "您的验证码是 123456",
+      code: "123456",
+      deviceName: "pixel",
+      receivedAt,
+      translatedContent: null,
+      sourceLang: null,
+    });
+    expect(note).toEqual({
+      title: "验证码 123456",
+      text: "pixel · 10086\n2026-01-02T03:04:05.000Z\n您的验证码是 123456",
+    });
+    const blank = renderNotification({
+      from: "10086",
+      content: "您的验证码是 123456",
+      code: "123456",
+      deviceName: "pixel",
+      receivedAt,
+      translatedContent: "   ",
+      sourceLang: "en",
+    });
+    expect(blank).toEqual(note);
+  });
+
+  it("puts the translation above the original and names the source language", () => {
+    const note = renderNotification({
+      from: "10086",
+      content: "Your verification code is 482913. Do not share it.",
+      code: "482913",
+      deviceName: "pixel",
+      receivedAt: Date.UTC(2026, 0, 2, 3, 4, 5),
+      translatedContent: "您的验证码是 482913，请勿泄露。",
+      sourceLang: "en",
+    });
+    expect(note.title).toBe("验证码 482913");
+    expect(note.text).toBe(
+      [
+        "pixel · 10086",
+        "2026-01-02T03:04:05.000Z",
+        "（原文为英语）",
+        "您的验证码是 482913，请勿泄露。",
+        "",
+        "（原文）",
+        "Your verification code is 482913. Do not share it.",
+      ].join("\n"),
+    );
+    const translatedAt = note.text.indexOf("您的验证码是 482913，请勿泄露。");
+    const originalAt = note.text.indexOf("Your verification code is 482913. Do not share it.");
+    expect(translatedAt).toBeGreaterThanOrEqual(0);
+    expect(originalAt).toBeGreaterThan(translatedAt);
+
+    const traditional = renderNotification({
+      from: "  ",
+      content: "您的驗證碼是 482913",
+      code: null,
+      deviceName: "",
+      receivedAt: Date.UTC(2026, 0, 2, 3, 4, 5),
+      translatedContent: "您的验证码是 482913",
+      sourceLang: "zh-Hant",
+    });
+    expect(traditional.title).toBe("新短信 未知号码");
+    expect(traditional.text).toContain("（原文为繁体中文）\n您的验证码是 482913\n\n（原文）\n您的驗證碼是 482913");
+
+    const unknown = renderNotification({
+      from: "10086",
+      content: "original",
+      code: null,
+      deviceName: "pixel",
+      receivedAt: Date.UTC(2026, 0, 2, 3, 4, 5),
+      translatedContent: "译文",
+      sourceLang: "pt-BR",
+    });
+    expect(unknown.text).toContain("（原文为pt-BR）\n译文\n\n（原文）\noriginal");
   });
 
   it("accepts the supported channels and rejects unsafe endpoints", () => {
@@ -155,6 +236,24 @@ describe("notification text and config", () => {
       from: "sms@example.com",
       webhook_url: "https://169.254.169.254/mail",
     }).ok).toBe(false);
+    const resend = parseChannelInput({
+      kind: "email",
+      to: "you@example.com",
+      from: "sms@resend.dev",
+      resend_api_key: "re_1234567890",
+    });
+    expect(resend.ok).toBe(true);
+    if (resend.ok) expect(resend.config).toMatchObject({ resend_api_key: "re_1234567890" });
+    expect(parseChannelInput({
+      kind: "email",
+      to: "you@example.com",
+      from: "sms@resend.dev",
+      resend_api_key: "",
+    }).ok).toBe(false);
+    const webhook = parseChannelInput({ kind: "webhook", url: "https://example.com/hook?token=abc123" });
+    expect(webhook.ok).toBe(true);
+    if (webhook.ok) expect(webhook.config).toEqual({ url: "https://example.com/hook?token=abc123" });
+    expect(parseChannelInput({ kind: "webhook", url: "ftp://example.com/hook" }).ok).toBe(false);
   });
 
   it("masks secrets but keeps the address that the user needs to recognize", () => {
@@ -169,10 +268,87 @@ describe("notification text and config", () => {
     expect(wecom.ok).toBe(true);
     if (!wecom.ok) return;
     expect(JSON.stringify(redactConfig(wecom.kind, wecom.config))).not.toContain("abcDEF123456");
+    const webhook = parseChannelInput({ kind: "webhook", url: "https://example.com/hook?token=abc123" });
+    expect(webhook.ok).toBe(true);
+    if (webhook.ok) expect(JSON.stringify(redactConfig(webhook.kind, webhook.config))).not.toContain("abc123");
     expect(scrub(`failed bot${TOKEN} key=abcDEF123456`)).toBe("failed bot*** key=***");
     expect(scrub(`failed bot${TOKEN} key=abcDEF123456`)).not.toContain("AAHabc");
     expect(scrub(`failed https://oapi.dingtalk.com/robot/send?access_token=abcDEF&timestamp=1&sign=xyz`))
       .toBe("failed https://oapi.dingtalk.com/robot/send?access_token=***&timestamp=1&sign=***");
+  });
+
+  it("sends Resend email requests and scrubs invalid API key errors", async () => {
+    const calls: Array<{ url: string; headers: Record<string, string>; body: string }> = [];
+    const results = await deliverChannels(
+      [channel({ kind: "email", config: { to: "you@example.com", from: "sms@resend.dev", resend_api_key: "re_1234567890" } })],
+      { title: "验证码 123456", text: "pixel · 10086\n2026-01-02T03:04:05.000Z\n您的验证码是 123456" },
+      {
+        fetch: async (input, init) => {
+          const headers = Object.fromEntries(new Headers(init?.headers ?? {}).entries());
+          calls.push({ url: String(input), headers, body: String(init?.body ?? "") });
+          return Response.json({ id: "mail_123" }, { status: 200 });
+        },
+        openSmtp: async () => {
+          throw new Error("unused");
+        },
+      },
+    );
+    expect(results[0]?.ok).toBe(true);
+    expect(calls[0]?.url).toBe("https://api.resend.com/emails");
+    expect(calls[0]?.headers.authorization).toBe("Bearer re_1234567890");
+    expect(JSON.parse(calls[0]?.body ?? "{}")).toMatchObject({
+      from: "sms@resend.dev",
+      to: "you@example.com",
+      subject: "验证码 123456",
+      text: "pixel · 10086\n2026-01-02T03:04:05.000Z\n您的验证码是 123456",
+    });
+
+    const failed = await deliverChannels(
+      [channel({ kind: "email", config: { to: "you@example.com", from: "sms@resend.dev", resend_api_key: "re_bad" } })],
+      { title: "验证码 123456", text: "正文" },
+      {
+        fetch: async () => Response.json({ message: "invalid API key" }, { status: 401 }),
+        openSmtp: async () => {
+          throw new Error("unused");
+        },
+      },
+    );
+    expect(failed[0]?.ok).toBe(false);
+    expect(failed[0]?.error).toBe("invalid API key");
+    expect(JSON.stringify(failed)).not.toContain("re_bad");
+  });
+
+  it("records webhook delivery results in push logs using the webhook kind", async () => {
+    const calls: unknown[][] = [];
+    const db = {
+      prepare(_sql: string) {
+        let args: unknown[] = [];
+        const statement = {
+          bind(...values: unknown[]) {
+            args = values;
+            return statement;
+          },
+          async run() {
+            calls.push(args);
+            return { meta: { changes: 1 } };
+          },
+        };
+        return statement;
+      },
+    } as unknown as D1Database;
+    await recordPushResults(
+      authedEnv(db),
+      "user-1",
+      "sms",
+      { title: "Webhook 测试", text: "正文" },
+      [channel({ id: "webhook-result", kind: "webhook", config: { url: "https://example.com/hook?token=abc123" } })],
+      [{ id: "webhook-result", kind: "webhook", ok: true }],
+      "sms-1",
+      "10086",
+    );
+    expect(calls[0]?.[4]).toBe("webhook");
+    expect(String(calls[0]?.[8])).toContain("正文");
+    expect(JSON.stringify(calls[0])).not.toContain("abc123");
   });
 });
 
@@ -473,11 +649,14 @@ describe("delivery", () => {
       ],
     }));
     const results = await notifyStoredSms(env, "user-1", {
+      messageId: "sms-123",
       from: "10086",
       content: "验证码 123456",
       code: "123456",
       deviceName: "pixel",
       receivedAt: 1_700_000_000_000,
+      translatedContent: null,
+      sourceLang: null,
     }, {
       fetch: async () => {
         fetches += 1;
@@ -663,6 +842,244 @@ describe("notification API", () => {
     const body = await response.json() as { channels: Array<{ config: { bot_token: string } }> };
     expect(body.channels[0]?.config.bot_token).toBe("****6789");
     expect(JSON.stringify(body)).not.toContain(TOKEN);
+  });
+
+  it("lists push history newest first with pagination and boolean outcomes", async () => {
+    const calls: Array<{ sql: string; args: unknown[] }> = [];
+    const entries = [
+      { id: "new", created_at: 20, channel_name: "主力", channel_kind: "bark", source: "sms", message_id: "sms-2", sender: "10086", preview: "new", ok: 1, error: null },
+      { id: "old", created_at: 10, channel_name: "备用", channel_kind: "email", source: "test", message_id: null, sender: null, preview: "old", ok: 0, error: "failed" },
+    ];
+    const db = {
+      prepare(sql: string) {
+        let args: unknown[] = [];
+        const statement = {
+          bind(...values: unknown[]) {
+            args = values;
+            return statement;
+          },
+          async first() {
+            if (sql.includes("FROM sessions s")) return sessionUser();
+            if (sql.includes("COUNT(*) AS total FROM push_logs")) return { total: 7 };
+            return null;
+          },
+          async all() {
+            calls.push({ sql, args });
+            return { results: entries };
+          },
+          async run() {
+            return { meta: { changes: 1 } };
+          },
+        };
+        return statement;
+      },
+    } as unknown as D1Database;
+    const response = await handleApi(
+      new Request("https://sms.example/api/v1/notify/history?limit=2&offset=1", {
+        headers: { cookie: "smsinbox_session=sms_session_token_value" },
+      }),
+      authedEnv(db),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json() as { ok: boolean; total: number; items: Array<{ id: string; ok: boolean }> };
+    expect(body).toMatchObject({
+      ok: true,
+      total: 7,
+      items: [{ id: "new", ok: true }, { id: "old", ok: false }],
+    });
+    expect(calls[0]?.sql).toContain("ORDER BY created_at DESC");
+    expect(calls[0]?.args).toEqual(["user-1", 2, 1]);
+  });
+
+  it("records test-send outcomes with channel snapshots", async () => {
+    const stored: unknown[][] = [];
+    const bark = row({
+      kind: "bark",
+      note: "备用 Bark",
+      config: JSON.stringify({ device_key: "abcd1234", server: "https://api.day.app" }),
+    });
+    const db = {
+      prepare(sql: string) {
+        let args: unknown[] = [];
+        const statement = {
+          bind(...values: unknown[]) {
+            args = values;
+            return statement;
+          },
+          async first() {
+            if (sql.includes("FROM sessions s")) return sessionUser();
+            if (sql.includes("FROM notify_channels")) return bark;
+            return null;
+          },
+          async all() {
+            return { results: [] };
+          },
+          async run() {
+            stored.push(args);
+            return { meta: { changes: 1 } };
+          },
+        };
+        return statement;
+      },
+    } as unknown as D1Database;
+    vi.stubGlobal("fetch", async () => Response.json({ code: 200 }));
+    try {
+      const response = await handleApi(
+        new Request("https://sms.example/api/v1/notifications/11111111-1111-4111-8111-111111111111/test", {
+          method: "POST",
+          headers: {
+            cookie: "smsinbox_session=sms_session_token_value",
+            "content-type": "application/json",
+          },
+          body: "{}",
+        }),
+        authedEnv(db),
+      );
+      expect(response.status).toBe(200);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(stored).toHaveLength(1);
+    expect(stored[0]?.slice(1, 8)).toEqual([
+      "user-1",
+      bark.id,
+      "备用 Bark",
+      "bark",
+      "test",
+      null,
+      null,
+    ]);
+    expect(stored[0]?.[8]).toBe("这是一条测试通知，不包含短信内容。");
+    expect(stored[0]?.[9]).toBe(1);
+    expect(stored[0]?.[10]).toBeNull();
+  });
+});
+
+describe("push history recording", () => {
+  it("stores successful and failed SMS results with safe snapshot fields", async () => {
+    const stored: unknown[][] = [];
+    const rows = [
+      row({
+        kind: "bark",
+        note: "主要渠道",
+        config: JSON.stringify({ device_key: "abcd1234", server: "https://api.day.app" }),
+      }),
+      row({
+        id: "22222222-2222-4222-8222-222222222222",
+        kind: "bark",
+        note: "备用渠道",
+        config: JSON.stringify({ device_key: "efgh5678", server: "https://api.day.app" }),
+      }),
+    ];
+    const db = {
+      prepare() {
+        let args: unknown[] = [];
+        const statement = {
+          bind(...values: unknown[]) {
+            args = values;
+            return statement;
+          },
+          async first() {
+            return null;
+          },
+          async all() {
+            return { results: rows };
+          },
+          async run() {
+            stored.push(args);
+            return { meta: { changes: 1 } };
+          },
+        };
+        return statement;
+      },
+    } as unknown as D1Database;
+    let attempts = 0;
+    const results = await notifyStoredSms(authedEnv(db), "user-1", {
+      messageId: "sms-123",
+      from: "10086",
+      content: "验证码 123456",
+      code: "123456",
+      deviceName: "pixel",
+      receivedAt: 1_700_000_000_000,
+      translatedContent: null,
+      sourceLang: null,
+    }, {
+      fetch: async () => {
+        attempts += 1;
+        if (attempts === 1) return Response.json({ code: 200 });
+        throw new Error("provider key=private");
+      },
+      openSmtp: async () => {
+        throw new Error("unused");
+      },
+    });
+    expect(results.map((result) => result.ok)).toEqual([true, false]);
+    expect(stored).toHaveLength(2);
+    expect(stored[0]?.slice(1, 8)).toEqual([
+      "user-1",
+      rows[0]?.id,
+      "主要渠道",
+      "bark",
+      "sms",
+      "sms-123",
+      "10086",
+    ]);
+    expect(stored[0]?.[8]).toContain("验证码 123456");
+    expect(stored[0]?.[9]).toBe(1);
+    expect(stored[0]?.[10]).toBeNull();
+    expect(stored[1]?.[3]).toBe("备用渠道");
+    expect(stored[1]?.[9]).toBe(0);
+    expect(stored[1]?.[10]).toBe("provider key=***");
+  });
+
+  it("logs history-write failures without changing delivery results", async () => {
+    const channelRow = row({
+      kind: "bark",
+      config: JSON.stringify({ device_key: "abcd1234", server: "https://api.day.app" }),
+    });
+    const db = {
+      prepare() {
+        const statement = {
+          bind() {
+            return statement;
+          },
+          async first() {
+            return null;
+          },
+          async all() {
+            return { results: [channelRow] };
+          },
+          async run() {
+            throw new Error("database unavailable");
+          },
+        };
+        return statement;
+      },
+    } as unknown as D1Database;
+    const errors: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((line) => errors.push(String(line)));
+    try {
+      const results = await notifyStoredSms(authedEnv(db), "user-1", {
+        messageId: "sms-123",
+        from: "10086",
+        content: "短信正文",
+        code: null,
+        deviceName: "pixel",
+        receivedAt: 1_700_000_000_000,
+        translatedContent: null,
+        sourceLang: null,
+      }, {
+        fetch: async () => Response.json({ code: 200 }),
+        openSmtp: async () => {
+          throw new Error("unused");
+        },
+      });
+      expect(results).toEqual([{ id: channelRow.id, kind: "bark", ok: true }]);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(errors.join("")).toContain("push_log_insert_failed");
+    expect(errors.join("")).toContain("database unavailable");
   });
 });
 

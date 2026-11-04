@@ -32,9 +32,12 @@ const EXPECTED_MIGRATIONS = [
   "0014_device_pins_groups.sql",
   "0015_device_group_order.sql",
   "0016_notify_channel_note.sql",
+  "0017_message_translation.sql",
+  "0018_push_logs.sql",
 ];
 const TABLES = [
   "api_tokens",
+  "push_logs",
   "schema_meta",
   "totp_tickets",
   "totp_recovery_codes",
@@ -284,7 +287,7 @@ describe("release migrations", () => {
 
     // The worker under test reads the later additive columns, so finish the
     // schema before exercising login on the legacy rows.
-    await applyFiles(["0006_single_user.sql", "0007_totp.sql", "0008_device_identity.sql", "0009_api_tokens.sql", "0010_message_code_source.sql", "0011_session_client_info.sql", "0012_device_push_secret.sql", "0013_api_token_secret.sql", "0014_device_pins_groups.sql", "0015_device_group_order.sql", "0016_notify_channel_note.sql"]);
+    await applyFiles(["0006_single_user.sql", "0007_totp.sql", "0008_device_identity.sql", "0009_api_tokens.sql", "0010_message_code_source.sql", "0011_session_client_info.sql", "0012_device_push_secret.sql", "0013_api_token_secret.sql", "0014_device_pins_groups.sql", "0015_device_group_order.sql", "0016_notify_channel_note.sql", "0017_message_translation.sql", "0018_push_logs.sql"]);
     const migrated = await env.DB.prepare("PRAGMA table_info(devices)").all<{ name: string; dflt_value: unknown }>();
     expect(migrated.results.map((column) => column.name)).toEqual([
       "id",
@@ -1013,7 +1016,9 @@ describe("single user convergence", () => {
     expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(2);
 
     const elderLogin = await call("/api/v1/auth/login", jsonInit({ username: "elder", password: "elder-pass-1" }));
-    expect((await expectStatus(elderLogin, 401)).error).toBe("仅管理员可以登录");
+    // The username is checked against the administrator row, so a member's
+    // own credentials fail with the plain credential error.
+    expect((await expectStatus(elderLogin, 401)).error).toBe("密码错误");
     expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(2);
     expect(await countOf("SELECT COUNT(*) AS total FROM devices WHERE user_id = ?", [elderId])).toBe(1);
 
@@ -1058,12 +1063,19 @@ describe("single user convergence", () => {
     const previous = env.ADMIN_USERNAME;
     try {
       env.ADMIN_USERNAME = "second-admin";
-      const recovered = await call(
+      // ADMIN_USERNAME only selects the row; the login name is checked
+      // against the row itself. The renamed hint no longer logs anyone in,
+      // while the row's own name plus ADMIN_PASSWORD still recovers it —
+      // and neither attempt spawns a second row.
+      const mismatched = await call(
         "/api/v1/auth/login",
         jsonInit({ username: "second-admin", password: ADMIN_PASSWORD }),
       );
-      // The username is ignored; the single existing row is still the admin,
-      // so changing ADMIN_USERNAME cannot lock the owner out or spawn a row.
+      expect(mismatched.status).toBe(401);
+      const recovered = await call(
+        "/api/v1/auth/login",
+        jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
+      );
       expect((await expectStatus(recovered, 200)).user).toMatchObject({ username: ADMIN_USERNAME, role: "admin" });
       expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
     } finally {
@@ -1166,7 +1178,7 @@ describe("admin account", () => {
 
     const fresh = await call(
       "/api/v1/auth/login",
-      jsonInit({ username: "anything-from-an-old-form", password: "replacement-pass-1" }),
+      jsonInit({ username: ADMIN_USERNAME, password: "replacement-pass-1" }),
     );
     expect((await expectStatus(fresh, 200)).user).toMatchObject({ username: ADMIN_USERNAME, role: "admin" });
     expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
@@ -1685,7 +1697,28 @@ describe("release storage edges", () => {
     env.CONTENT_KEY = "";
   }, 20_000);
 
-  it("purges expired messages, sessions, and rate rows without removing the device", async () => {
+  it("lists authenticated push history newest first with pagination and a total", async () => {
+    await resetSchema();
+    const login = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
+    const cookie = sessionCookie(login);
+    const session = await expectStatus(login, 200);
+    const userId = String((session.user as { id: string }).id);
+    for (const [id, createdAt] of [["history-old", 100], ["history-new", 300], ["history-middle", 200]]) {
+      await runSql(
+        env.DB,
+        "INSERT INTO push_logs (id, user_id, channel_name, channel_kind, source, preview, ok, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [id, userId, "Bark", "bark", "sms", id, 1, createdAt],
+      );
+    }
+
+    const page = await expectStatus(await call("/api/v1/notify/history?limit=2&offset=1", {}, cookie), 200);
+    expect(page.total).toBe(3);
+    expect((page.items as Array<{ id: string; ok: boolean }>).map((item) => item.id))
+      .toEqual(["history-middle", "history-old"]);
+    expect((page.items as Array<{ ok: boolean }>).every((item) => item.ok)).toBe(true);
+  }, 20_000);
+
+  it("purges expired messages and push logs, sessions, and rate rows without removing the device", async () => {
     env.CONTENT_KEY = "";
     const login = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
     const cookie = sessionCookie(login);
@@ -1712,6 +1745,14 @@ describe("release storage edges", () => {
     );
     const now = Date.now();
     await runSql(env.DB, "UPDATE messages SET created_at = ? WHERE id = ?", [now - 100 * 24 * 60 * 60 * 1000, String(old.id)]);
+    await runSql(env.DB,
+      "INSERT INTO push_logs (id, user_id, channel_name, channel_kind, source, preview, ok, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      ["expired-push-log", userId, "Bark", "bark", "sms", "old", 1, now - 100 * 24 * 60 * 60 * 1000],
+    );
+    await runSql(env.DB,
+      "INSERT INTO push_logs (id, user_id, channel_name, channel_kind, source, preview, ok, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      ["fresh-push-log", userId, "Bark", "bark", "sms", "fresh", 1, now],
+    );
     await runSql(env.DB, "INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)", [
       "expired-session-hash",
       userId,
@@ -1729,10 +1770,79 @@ describe("release storage edges", () => {
 
     expect(await countOf("SELECT COUNT(*) AS total FROM messages WHERE id = ?", [String(old.id)])).toBe(0);
     expect(await countOf("SELECT COUNT(*) AS total FROM messages WHERE id = ?", [String(fresh.id)])).toBe(1);
+    expect(await countOf("SELECT COUNT(*) AS total FROM push_logs WHERE id = ?", ["expired-push-log"])).toBe(0);
+    expect(await countOf("SELECT COUNT(*) AS total FROM push_logs WHERE id = ?", ["fresh-push-log"])).toBe(1);
     expect(await countOf("SELECT COUNT(*) AS total FROM sessions WHERE id = ?", ["expired-session-hash"])).toBe(0);
     expect(await countOf("SELECT COUNT(*) AS total FROM rate_limits WHERE token_hash = ?", ["old-rate-hash"])).toBe(0);
     expect(await countOf("SELECT COUNT(*) AS total FROM devices WHERE id = ?", [deviceId])).toBe(1);
     expect((await call("/api/v1/auth/me", {}, cookie)).status).toBe(200);
+  }, 20_000);
+
+  it("stores translation columns and toggles the preference without an AI binding", async () => {
+    await resetSchema();
+    const sql = readFileSync("migrations/0017_message_translation.sql", "utf8");
+    expect(sql).toMatch(/ADD COLUMN translated_content TEXT/);
+    expect(sql).toMatch(/ADD COLUMN source_lang TEXT/);
+    expect(sql).toMatch(/ADD COLUMN translate_enabled INTEGER NOT NULL DEFAULT 0/);
+
+    const messages = await env.DB.prepare("PRAGMA table_info(messages)").all<{ name: string }>();
+    expect(messages.results.map((column) => column.name)).toEqual(
+      expect.arrayContaining(["translated_content", "source_lang"]),
+    );
+    const users = await env.DB.prepare("PRAGMA table_info(users)").all<{ name: string; dflt_value: string | null }>();
+    const flag = users.results.find((column) => column.name === "translate_enabled");
+    expect(flag?.dflt_value).toBe("0");
+
+    const login = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
+    const cookie = sessionCookie(login);
+    const me = await expectStatus(await call("/api/v1/me", {}, cookie), 200);
+    expect(me.user).toMatchObject({ username: ADMIN_USERNAME, translate_enabled: false });
+    const authMe = await expectStatus(await call("/api/v1/auth/me", {}, cookie), 200);
+    expect(authMe.user).toMatchObject({ translate_enabled: false });
+
+    const preference = (body: unknown) =>
+      call(
+        "/api/v1/me/preferences",
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        cookie,
+      );
+    expect((await call("/api/v1/me/preferences", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ translate_enabled: true }) })).status).toBe(401);
+    expect((await preference({ translate_enabled: "true" })).status).toBe(400);
+    expect((await preference({ translate_enabled: 1 })).status).toBe(400);
+
+    const enabled = await expectStatus(await preference({ translate_enabled: true }), 200);
+    expect(enabled).toEqual({ ok: true, translate_enabled: true });
+    const after = await expectStatus(await call("/api/v1/me", {}, cookie), 200);
+    expect(after.user).toMatchObject({ translate_enabled: true });
+
+    const created = await expectStatus(await call("/api/v1/devices", jsonInit({ name: "翻译测试" }), cookie), 200);
+    const token = String(created.token);
+    const stored = await expectStatus(
+      await call("/api/v1/sms", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          from: "10010",
+          content: "Your package arrived at the lobby this morning.",
+          device: "Android",
+        }),
+      }),
+      200,
+    );
+    expect(stored.ok).toBe(true);
+    const row = await env.DB.prepare(
+      "SELECT translated_content, source_lang FROM messages WHERE id = ?",
+    )
+      .bind(String(stored.id))
+      .first<{ translated_content: string | null; source_lang: string | null }>();
+    expect(row).toEqual({ translated_content: null, source_lang: null });
+    const inbox = await expectStatus(await call("/api/v1/messages", {}, cookie), 200);
+    const listed = (inbox.messages as Array<Record<string, unknown>>).find((message) => message.id === stored.id);
+    expect(listed).toMatchObject({ translated_content: null, source_lang: null });
   }, 20_000);
 });
 

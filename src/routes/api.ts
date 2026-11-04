@@ -18,6 +18,7 @@ import {
   countNotifyChannels,
   deleteApiToken,
   deleteDevice,
+  deleteMessages,
   deleteNotifyChannel,
   deleteOtherUserSessions,
   deleteSession,
@@ -37,6 +38,7 @@ import {
   insertDevice,
   insertMessage,
   insertNotifyChannel,
+  listPushLogs,
   updateNotifyChannelNote,
   insertUser,
   isUniqueViolation,
@@ -73,6 +75,7 @@ import {
   rotateApiToken,
   setNotifyChannelEnabled,
   setProfileUsername,
+  setUserTranslateEnabled,
   touchDevice,
   updateDeviceName,
   updateDevicePlatform,
@@ -112,6 +115,7 @@ import {
   MAX_NOTIFY_CHANNELS,
   notifyStoredSms,
   parseChannelInput,
+  recordPushResults,
   redactConfig,
   scheduleNotify,
 } from "../notify";
@@ -146,9 +150,13 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
     if (method !== "POST") return methodNotAllowed("POST");
     return logout(request, env);
   }
-  if (path === "/api/v1/auth/me") {
+  if (path === "/api/v1/auth/me" || path === "/api/v1/me") {
     if (method !== "GET") return methodNotAllowed("GET");
     return me(request, env);
+  }
+  if (path === "/api/v1/me/preferences") {
+    if (method !== "PATCH") return methodNotAllowed("PATCH");
+    return updatePreferences(request, env);
   }
   if (path === "/api/v1/auth/profile") {
     if (method !== "POST") return methodNotAllowed("POST");
@@ -223,6 +231,14 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
   if (path === "/api/v1/messages") {
     if (method !== "GET") return methodNotAllowed("GET");
     return list(request, env, url);
+  }
+  if (path === "/api/v1/notify/history") {
+    if (method !== "GET") return methodNotAllowed("GET");
+    return notifyHistory(request, env, url);
+  }
+  if (path === "/api/v1/messages/delete") {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return deleteMessagesHandler(request, env);
   }
   const messageMatch = /^\/api\/v1\/messages\/([^/]+)$/.exec(path);
   if (messageMatch?.[1]) {
@@ -337,8 +353,12 @@ async function login(request: Request, env: Env): Promise<Response> {
   if (isCrossSite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const body = await readJson(request);
   if (!body.ok) return body.response;
-  // Username fields from older clients are intentionally ignored; there is
-  // exactly one administrator and only the password decides the login.
+  // Login takes a username and a password. The username must match the
+  // single administrator row (case-insensitively); a mismatch is refused
+  // with the same wording as a wrong password so the response never says
+  // which field failed.
+  const username = readLoginUsername(body.value);
+  if (username === null) return json({ ok: false, error: "请填写用户名" }, 400);
   const password = readLoginPassword(body.value);
   if (password === null) return json({ ok: false, error: "请填写密码" }, 400);
 
@@ -357,8 +377,13 @@ async function login(request: Request, env: Env): Promise<Response> {
     if (!hasEnvPassword) {
       return json({ ok: false, error: "尚未配置管理员密码。请设置 ADMIN_PASSWORD。" }, 503);
     }
+    // First deploy: the configured variables are the credentials. The new
+    // administrator row takes ADMIN_USERNAME (or the "admin" fallback), so
+    // the submitted username has to match that name before the env password
+    // is even compared.
+    const bootstrapName = env.ADMIN_USERNAME?.trim() || "admin";
     const envPasswordOk = await secretsEqual(password, adminPassword);
-    if (!envPasswordOk) {
+    if (username.toLowerCase() !== bootstrapName.toLowerCase() || !envPasswordOk) {
       await recordLoginFailure(env.DB, userKey, now);
       if (ipKey) await recordLoginFailure(env.DB, ipKey, now);
       return json({ ok: false, error: "密码错误" }, 401);
@@ -369,9 +394,10 @@ async function login(request: Request, env: Env): Promise<Response> {
     return issueSessionFor(request, env, created);
   }
 
-  // Only one row is the administrator. ADMIN_USERNAME is no longer a login
-  // field; it survives as a read-only hint for selecting that row while
-  // production databases still contain pre-merge rows.
+  // Only one row is the administrator. ADMIN_USERNAME stays a read-only
+  // hint for selecting that row while production databases still contain
+  // pre-merge rows; the login username is then checked against the row
+  // itself, never against the hint.
   const designated = pickDesignatedUser(users, env.ADMIN_USERNAME?.trim() ?? "");
   if (!designated) {
     return json(
@@ -381,6 +407,11 @@ async function login(request: Request, env: Env): Promise<Response> {
       },
       409,
     );
+  }
+  if (username.toLowerCase() !== designated.username.toLowerCase()) {
+    await recordLoginFailure(env.DB, userKey, now);
+    if (ipKey) await recordLoginFailure(env.DB, ipKey, now);
+    return json({ ok: false, error: "密码错误" }, 401);
   }
 
   const rowPasswordOk = await verifyPassword(password, designated.password_hash);
@@ -501,7 +532,34 @@ async function me(request: Request, env: Env): Promise<Response> {
   if (user instanceof Response) return user;
   const profileUsername = await getProfileUsername(env.DB);
   const extras = await authMeExtras(env.DB);
-  return json({ ok: true, user: { ...publicUser(user), profile_username: profileUsername, ...extras } });
+  return json({
+    ok: true,
+    user: {
+      ...publicUser(user),
+      profile_username: profileUsername,
+      ...extras,
+      translate_enabled: user.translate_enabled === 1,
+    },
+  });
+}
+
+async function updatePreferences(request: Request, env: Env): Promise<Response> {
+  const user = await requireSensitiveUser(request, env);
+  if (user instanceof Response) return user;
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const parsed = readTranslatePreference(body.value);
+  if ("error" in parsed) return json({ ok: false, error: parsed.error }, 400);
+  await setUserTranslateEnabled(env.DB, user.id, parsed.translateEnabled);
+  logInfo({ message: "translate_pref_updated", user_id: user.id, translate_enabled: parsed.translateEnabled });
+  return json({ ok: true, translate_enabled: parsed.translateEnabled });
+}
+
+function readTranslatePreference(value: unknown): { translateEnabled: boolean } | { error: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { error: "参数无效" };
+  const flag = (value as Record<string, unknown>).translate_enabled;
+  if (typeof flag !== "boolean") return { error: "参数无效" };
+  return { translateEnabled: flag };
 }
 
 async function updateProfile(request: Request, env: Env): Promise<Response> {
@@ -674,6 +732,30 @@ async function detail(request: Request, env: Env, rawId: string): Promise<Respon
   const message = await getMessage(env.DB, user.id, id, resolveContentKey(env.CONTENT_KEY));
   if (!message) return json({ ok: false, error: "短信不存在" }, 404);
   return json({ ok: true, message });
+}
+
+async function deleteMessagesHandler(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  if (!body.value || typeof body.value !== "object" || Array.isArray(body.value)) {
+    return json({ ok: false, error: "请求体无效" }, 400);
+  }
+  const rawIds = (body.value as Record<string, unknown>).ids;
+  if (!Array.isArray(rawIds) || rawIds.length === 0 || rawIds.length > 100) {
+    return json({ ok: false, error: "请选择要删除的短信（一次 1 到 100 条）" }, 400);
+  }
+  const ids: string[] = [];
+  for (const raw of rawIds) {
+    if (typeof raw !== "string" || !raw.trim()) {
+      return json({ ok: false, error: "短信编号无效" }, 400);
+    }
+    ids.push(raw.trim());
+  }
+  const deleted = await deleteMessages(env.DB, user.id, ids);
+  logInfo({ message: "messages_deleted", user_id: user.id, requested: ids.length, deleted });
+  return json({ ok: true, deleted });
 }
 
 // Stored secrets (device push tokens, API tokens) are kept so the owner
@@ -852,6 +934,21 @@ async function listNotifications(request: Request, env: Env): Promise<Response> 
   return json({ ok: true, channels });
 }
 
+async function notifyHistory(request: Request, env: Env, url: URL): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const limit = boundedInt(url.searchParams.get("limit"), 50, 100);
+  const offsetRaw = url.searchParams.get("offset");
+  const offsetValue = offsetRaw === null || offsetRaw.trim() === "" ? 0 : Number(offsetRaw);
+  const offset = Number.isSafeInteger(offsetValue) && offsetValue >= 0 ? offsetValue : 0;
+  const result = await listPushLogs(env.DB, user.id, limit, offset);
+  return json({
+    ok: true,
+    items: result.items.map((item) => ({ ...item, ok: item.ok === 1 })),
+    total: result.total,
+  });
+}
+
 async function createNotification(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
@@ -953,11 +1050,11 @@ async function testNotification(request: Request, env: Env, rawId: string): Prom
   const row = await findNotifyChannel(env.DB, user.id, id);
   const channel = row ? channelFromRow(row) : null;
   if (!channel) return json({ ok: false, error: "渠道不存在" }, 404);
-  const [result] = await deliverChannels(
-    [channel],
-    { title: "SMSinBox 测试", text: "这是一条测试通知，不包含短信内容。" },
-    defaultDeps(),
-  );
+  const payload = { title: "SMSinBox 测试", text: "这是一条测试通知，不包含短信内容。" };
+  const channels = [channel];
+  const results = await deliverChannels(channels, payload, defaultDeps());
+  await recordPushResults(env, user.id, "test", payload, channels, results, null, null);
+  const [result] = results;
   if (!result?.ok) {
     // Delivery errors can carry raw runtime text; the owner only needs
     // the outcome here — the detail is already logged by deliverChannels.
@@ -1053,6 +1150,8 @@ async function testDevice(request: Request, env: Env, ctx: WaitCtx, rawId: strin
       receivedAt: now,
       createdAt: now,
       encrypted: sealed.encrypted,
+      translatedContent: sealed.translatedContent,
+      sourceLang: null,
     });
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
@@ -1073,11 +1172,14 @@ async function testDevice(request: Request, env: Env, ctx: WaitCtx, rawId: strin
   });
   scheduleNotify(ctx, () =>
     notifyStoredSms(env, user.id, {
+      messageId,
       from,
       content,
       code,
       deviceName: device.name,
       receivedAt: now,
+      translatedContent: null,
+      sourceLang: null,
     }),
   );
   return json({ ok: true, id: messageId, code });
@@ -1309,6 +1411,15 @@ function readLoginPassword(value: unknown): string | null {
   if (typeof password !== "string") return null;
   if (password.length === 0 || password.length > 256) return null;
   return password;
+}
+
+function readLoginUsername(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const username = (value as Record<string, unknown>).username;
+  if (typeof username !== "string") return null;
+  const trimmed = username.trim();
+  if (trimmed.length === 0 || trimmed.length > 128) return null;
+  return trimmed;
 }
 
 function readCurrentPassword(record: Record<string, unknown>): string | { error: string } {
@@ -1600,4 +1711,3 @@ async function renameApiTokenEndpoint(request: Request, env: Env, rawId: string)
   logInfo({ message: "api_token_renamed", token_id: id, user_id: auth.id });
   return json({ ok: true, id, name });
 }
-

@@ -31,7 +31,7 @@
    `wrangler.jsonc` 里的 `database_id` 可以留空，Wrangler 按数据库名绑定；部署时若提示找不到数据库，再把创建输出的 UUID 填回 `d1_databases`。
 3. 想好下面变量表里必填项的值（随机密钥可用 `openssl rand -base64 32` 生成）。
 
-数据库迁移按文件名顺序执行（`0001_init.sql` 到 `0016_notify_channel_note.sql`，其中 `0005_device_push.sql` 起设备改用专属推送链接）。三种方案都是先迁移、再部署 Worker，顺序反了新代码会读不到新列。
+数据库迁移按文件名顺序执行（`0001_init.sql` 到 `0018_push_logs.sql`，其中 `0005_device_push.sql` 起设备改用专属推送链接，`0018_push_logs.sql` 开始记录推送历史）。三种方案都是先迁移、再部署 Worker，顺序反了新代码会读不到新列。
 
 ### 变量总表
 
@@ -41,7 +41,7 @@
 | `ADMIN_PASSWORD` | Worker 机密 | 是 | 无 | 管理员密码，建议足够长且随机。 |
 | `DEVICE_JWT_SECRET` | Worker 机密 | 建议 | 无 | 设备 JWT 的签名密钥，32 字节 base64。不设时从 `CONTENT_KEY`、再从 `ADMIN_PASSWORD` 派生；更换它会让已签发的设备 JWT 立即失效（旧设备仍可用随机 Bearer 上报）。 |
 | `CONTENT_KEY` | Worker 机密 | 否 | 空（不加密） | 32 字节 base64 的 AES-GCM 密钥。设置后短信正文、验证码、原始请求体、推送与 Token 密钥、TOTP 密钥都加密存储。**更换或清空后，之前加密的内容无法解密**，请先备份再改。 |
-| `RETENTION_DAYS` | 普通变量（`wrangler.jsonc` 的 `vars`） | 否 | `90` | 短信保留天数，每天 00:00 UTC 的定时任务删除更早的短信（按写入时间）。 |
+| `RETENTION_DAYS` | 普通变量（`wrangler.jsonc` 的 `vars`） | 否 | `90` | 短信和推送历史保留天数，每天 00:00 UTC 的定时任务删除更早的记录（按写入时间）。 |
 | `GH_CLIENT_ID` | Worker 机密 | 否 | 无 | GitHub OAuth App 的 Client ID。与下一项同时设置才启用 GitHub 登录。 |
 | `GH_CLIENT_SECRET` | Worker 机密 | 否 | 无 | GitHub OAuth App 的 Client Secret。 |
 

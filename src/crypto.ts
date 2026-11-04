@@ -14,12 +14,26 @@ export function resolveContentKey(value: string | undefined): ContentKey {
 
 export async function sealMessage(
   key: ContentKey,
-  message: { content: string; code: string | null; rawPayload: string },
+  message: { content: string; code: string | null; rawPayload: string; translatedContent?: string | null },
 ): Promise<
-  { content: string; code: string | null; rawPayload: string; encrypted: number } | { error: "invalid_key" }
+  | {
+      content: string;
+      code: string | null;
+      rawPayload: string;
+      translatedContent: string | null;
+      encrypted: number;
+    }
+  | { error: "invalid_key" }
 > {
+  const translatedContent = message.translatedContent ?? null;
   if (key.state === "off") {
-    return { content: message.content, code: message.code, rawPayload: message.rawPayload, encrypted: 0 };
+    return {
+      content: message.content,
+      code: message.code,
+      rawPayload: message.rawPayload,
+      translatedContent,
+      encrypted: 0,
+    };
   }
   if (key.state === "invalid") return { error: "invalid_key" };
   const aes = await importKey(key.raw);
@@ -27,6 +41,7 @@ export async function sealMessage(
     content: await encryptString(aes, message.content),
     code: message.code === null ? null : await encryptString(aes, message.code),
     rawPayload: await encryptString(aes, message.rawPayload),
+    translatedContent: translatedContent === null ? null : await encryptString(aes, translatedContent),
     encrypted: 1,
   };
 }

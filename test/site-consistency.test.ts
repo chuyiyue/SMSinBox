@@ -279,6 +279,8 @@ describe("site consistency", () => {
     expect(toolbar).toContain("系统推送");
     expect(toolbar).toContain('id="ntab-external"');
     expect(toolbar).toContain("外部推送");
+    expect(toolbar).toContain('id="ntab-history"');
+    expect(toolbar).toContain("推送历史");
     expect(toolbar).toContain('id="add-channel"');
     expect(toolbar).toContain('class="primary"');
     expect(html).toContain('id="notify-list"');
@@ -289,9 +291,18 @@ describe("site consistency", () => {
     expect(external).toContain("<h2>外部推送</h2>");
     expect(external).not.toContain("<button");
     expect(external).not.toContain("<form");
+    const history = html.slice(html.indexOf('id="npanel-history"'), html.indexOf("</section>", html.indexOf('id="npanel-history"')));
+    expect(history).toContain('id="notify-history-list"');
+    expect(history).toContain('id="notify-history-error"');
+    expect(history).toContain('id="notify-history-more"');
+    expect(history).toContain('id="notify-history-end"');
     expect(js).toContain('querySelector("#ntab-system")');
     expect(js).toContain('querySelector("#ntab-external")');
-    expect(js).toContain("addButton.hidden = external");
+    expect(js).toContain('querySelector("#ntab-history")');
+    expect(js).toContain('querySelector("#npanel-history")');
+    expect(js).toContain("addButton.hidden = name !== \"system\"");
+    expect(js).toContain("/api/v1/notify/history?limit=50&offset=");
+    expect(js).toContain("还没有推送记录。短信推送到渠道后会记在这里。");
     expect(css).toMatch(/\.notify-toolbar \{[^}]*display: flex;[^}]*flex-wrap: wrap;/);
     expect(css).toContain(".notify-actions { display: flex; gap: 8px; margin-left: auto; }");
   });
@@ -575,6 +586,13 @@ describe("site consistency", () => {
     expect(login).toContain('autocomplete="one-time-code"');
     expect(loginJs).toContain("/api/v1/auth/totp/verify");
     expect(loginJs).toContain("totp_required");
+    // Password login is username + password again: a visible username
+    // field above the password, submitted with the login request.
+    expect(login).toContain('id="username"');
+    expect(login).toContain('autocomplete="username"');
+    expect(login).not.toContain("auth-username-proxy");
+    expect(loginJs).toContain('querySelector("#username")');
+    expect(loginJs).toContain("username: usernameValue");
 
     const users = readFileSync("public/users.html", "utf8");
     expect(users).toContain('id="totp-panel"');
@@ -704,6 +722,84 @@ describe("site consistency", () => {
     const css = readFileSync("public/css/pages.css", "utf8");
     expect(css).toContain(".avatar .avatar-flag");
     expect(css).toContain(".avatar .avatar-type-icon");
+  });
+
+  it("prefers brand logos, then the system logo, as inbox row avatars", () => {
+    const inbox = readFileSync("public/inbox.js", "utf8");
+    expect(inbox).toContain("senderLogoSlug");
+    expect(inbox).toContain("/logos/");
+    expect(inbox).toContain('"/logo.png"');
+
+    // Every brand the sender table can produce ships its logo file.
+    const tableStart = inbox.indexOf("SENDER_LOGOS");
+    const table = inbox.slice(tableStart, inbox.indexOf("];", tableStart));
+    const slugs = [...table.matchAll(/\["([a-z0-9]+)", \[/g)].map((match) => match[1]);
+    expect(slugs.length).toBe(34);
+    for (const slug of slugs) {
+      expect(existsSync(`public/logos/${slug}.svg`), `public/logos/${slug}.svg`).toBe(true);
+    }
+    // Alias coverage anchors: old names and regional senders fold in.
+    expect(table).toContain('"twitter"');
+    expect(table).toContain('"meta"');
+    expect(table).toContain('"hsbcuk"');
+    expect(table).toContain('"vodafoneuk"');
+
+    // Priority inside the row renderer: brand logo first, the SMSinBox
+    // system logo second, the country flag only after both.
+    const avatarStart = inbox.indexOf("function avatarNode");
+    const avatar = inbox.slice(avatarStart, inbox.indexOf("\n}", avatarStart));
+    const brandAt = avatar.indexOf("senderLogoSlug");
+    const systemAt = avatar.indexOf('"/logo.png"');
+    const flagAt = avatar.indexOf("flagCountryForNumber");
+    expect(brandAt).toBeGreaterThan(-1);
+    expect(systemAt).toBeGreaterThan(brandAt);
+    expect(flagAt).toBeGreaterThan(systemAt);
+    expect(avatar).toContain('"smsinbox"');
+
+    const css = readFileSync("public/css/pages.css", "utf8");
+    expect(css).toContain(".avatar.has-logo");
+    expect(css).toContain(".avatar .avatar-logo");
+  });
+
+  it("wires manual message deletion into the inbox manage mode and detail drawer", () => {
+    const html = readFileSync("public/index.html", "utf8");
+    const inbox = readFileSync("public/inbox.js", "utf8");
+    const css = readFileSync("public/css/pages.css", "utf8");
+
+    // The manage toggle sits in the range group, right outside the
+    // 全部 / 今天 / 近 7 天 segments.
+    expect(html).toMatch(/data-range="7d"[\s\S]*?<\/div>\s*<button id="manage-toggle" class="manage-toggle" type="button" aria-pressed="false">管理<\/button>/);
+    expect(css).toContain(".manage-toggle");
+
+    // Manage mode: rows swap the avatar slot for a checkbox and row
+    // clicks toggle instead of opening the drawer; the toggle button
+    // turns into the red delete once anything is checked.
+    expect(inbox).toContain("rowSelectNode(message)");
+    expect(inbox).toContain('input.className = "message-check"');
+    expect(inbox).toContain("toggleRowSelection(article, message)");
+    expect(inbox).toContain("state.manageMode ? rowSelectNode(message) : avatarNode(message)");
+    expect(inbox).toContain("paintManageButton()");
+    expect(inbox).toContain('manageButton.classList.toggle("danger", deleting)');
+    expect(inbox).toContain("删除（${count}）");
+    expect(css).toContain(".avatar .message-check");
+
+    // Both delete flows share the confirm dialog and the delete endpoint.
+    expect(inbox).toContain('"/api/v1/messages/delete"');
+    expect(inbox).toContain("requestDeleteMessages(ids)");
+    expect(inbox).toContain("requestDeleteMessages([message.id])");
+    expect(inbox).toContain("删除后不可恢复");
+
+    // Detail cards carry their own copy buttons; the old standalone
+    // copy-full action is gone and a full-width danger delete sits in
+    // its place.
+    expect(inbox).toContain('cardCopyButton("复制验证码"');
+    expect(inbox).toContain('cardCopyButton("复制译文"');
+    expect(inbox).toContain('cardCopyButton("复制原文"');
+    expect(inbox).not.toContain("复制全文");
+    expect(inbox).toContain('"danger message-detail-delete"');
+    expect(inbox).toContain("删除这条短信");
+    expect(css).toContain(".message-card-head");
+    expect(css).toContain(".message-detail-delete");
   });
 
   it("shortens log errors the same way everywhere", () => {

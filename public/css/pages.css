@@ -32,6 +32,19 @@
 .filters .filter-range {
   flex: 0 0 auto;
   min-width: min-content;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* The manage/delete toggle sits right outside the range segments at the
+   bar's shared control height. Bare button = black; .danger (added once
+   a selection exists) turns it into the red delete action. */
+.manage-toggle {
+  flex: none;
+  height: 40px;
+  min-height: 40px;
+  white-space: nowrap;
 }
 
 /* One control height across the whole bar — search box included — so
@@ -95,6 +108,7 @@
   flex: none;
   width: 38px;
   min-width: 38px;
+  height: 40px;
   padding: 0;
 }
 
@@ -155,6 +169,14 @@
 }
 
 .avatar { grid-area: avatar; align-self: start; margin-top: 1px; }
+/* Manage mode: the avatar slot holds the row checkbox, centered in the
+   same 36px circle footprint. */
+.avatar .message-check {
+  width: 20px;
+  min-height: 20px;
+  margin: 0;
+  cursor: pointer;
+}
 /* Row avatar content: a flag fills the circle; the platform fallback
    icon sits centered at about 60% with the shared type-icon stroke. */
 .avatar .avatar-flag {
@@ -163,6 +185,18 @@
   height: 100%;
   border-radius: 50%;
   object-fit: cover;
+}
+/* Brand and system logos sit as a glyph on a plain white disc instead of
+   filling the circle like a flag. */
+.avatar.has-logo {
+  background: #fff;
+  border: 1px solid var(--border);
+}
+.avatar .avatar-logo {
+  display: block;
+  width: 62%;
+  height: 62%;
+  object-fit: contain;
 }
 .avatar .avatar-type-icon {
   width: 60%;
@@ -311,6 +345,23 @@
   color: var(--text-3);
   font-size: var(--fs-xs);
 }
+/* Card header row: the small title on the left, the card's own ghost
+   copy button on the right. */
+.message-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.message-card-copy {
+  flex: none;
+  min-height: 28px;
+  padding: 2px 8px;
+  font-size: var(--fs-xs);
+}
+/* Full-width red delete at the foot of the detail drawer, as wide as
+   the body card above it. */
+.message-detail-delete { width: 100%; }
 
 /* Feature settings: one block per feature inside the section; later
    features divide from the previous one instead of crowding it. */
@@ -319,8 +370,6 @@
   border-top: 1px solid var(--border);
   padding-top: var(--space-4);
 }
-
-.message-detail-actions { padding-top: var(--space-1); }
 
 /* min-width: 0 lets the grid item shrink to the drawer instead of sizing
    to the pre's longest line, so the code block scrolls inside its own box. */
@@ -400,22 +449,24 @@
   display: grid;
   grid-template-columns: 1fr;
   gap: var(--space-3);
-  align-items: start;
 }
 
 /* The empty state centers on the page, not inside one grid column. */
 .channel-grid .empty-state { grid-column: 1 / -1; }
 
 .channel-card {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: var(--space-3);
-  align-content: start;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-1);
   padding: var(--space-5);
 }
+
+/* Actions pin to the card bottom so equal-height rows line up. */
+.channel-actions-grid { margin-top: auto; }
 
 .channel-card-head {
   display: flex;
@@ -456,7 +507,10 @@
   color: var(--text-2);
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
-  overflow-wrap: anywhere;
+  /* One summary line on every card; longer values ellipsize. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .channel-test {
@@ -468,6 +522,57 @@
 }
 
 .channel-test-empty { color: var(--text-3); }
+
+.push-history-list { display: grid; gap: 10px; }
+.push-history-item {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.push-history-heading,
+.push-history-channel,
+.push-history-badges { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.push-history-heading { justify-content: space-between; flex-wrap: wrap; }
+.push-history-channel { flex-wrap: wrap; }
+.push-history-name { overflow-wrap: anywhere; }
+.push-history-kind,
+.push-history-source,
+.push-history-status {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+}
+.push-history-kind,
+.push-history-source { background: var(--bg-sunken); color: var(--text-2); }
+.push-history-time { color: var(--text-3); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.push-history-status.is-ok { background: var(--success-soft); color: var(--success-text); }
+.push-history-status.is-failed { background: var(--danger-soft); color: var(--danger-text); }
+.push-history-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.push-history-error-text {
+  overflow: hidden;
+  margin: 0;
+  color: var(--danger-text);
+  font-size: var(--fs-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.push-history-end { margin: 16px 0; color: var(--text-3); font-size: var(--fs-sm); text-align: center; }
+#notify-history-more { display: block; margin: 16px auto; }
+#notify-history-more[hidden] { display: none; }
 
 /* Channel card actions: one 2x2 grid, one button family — edit/test on
    the first row, the enable/disable state toggle and delete below. */
@@ -517,7 +622,9 @@
 }
 
 @media (max-width: 639px) {
-  .filterbar { gap: var(--space-2); }
+  /* Bottom-align the row so the filter toggle lines up with the search
+     input itself (40px), not with the label stacked above it. */
+  .filterbar { gap: var(--space-2); align-items: flex-end; }
   .filterbar > .filters { display: none; }
   .mobile-filter-toggle { display: inline-flex; }
   .filters {
@@ -848,9 +955,7 @@
   flex-wrap: wrap;
   gap: 8px;
 }
-.device-detail-tabs {
-  margin: 0;
-}
+
 .device-message-list {
   display: grid;
   gap: 10px;
@@ -881,6 +986,7 @@
 }
 .device-detail-back {
   flex: none;
+  margin-left: auto;
 }
 
 .api-config { margin-top: 0; }
@@ -939,36 +1045,57 @@
   .add-device-form button { width: 100%; }
   .api-facts { grid-template-columns: 1fr; }
   .device-head { align-items: flex-start; }
+  /* Token card head: title row on top, actions on their own row at
+     natural size instead of squeezing into the title's flex line. */
+  .record-head { flex-direction: column; align-items: stretch; }
+  .record-head .actions { justify-content: flex-start; }
+  .record-head .actions button { flex: none; }
 }
 
 /* API & MCP page: top tabs, endpoint list, token dialog scopes. */
 .tab-panel[hidden] { display: none; }
 
-.api-tabs {
+/* One segmented tab strip everywhere: page tops and the device detail
+   tabs share this exact shape. */
+.api-tabs, .device-detail-tabs {
   display: inline-flex;
+  flex-wrap: nowrap;
   gap: 4px;
   padding: 4px;
   margin: 0 0 16px;
   background: var(--bg-sunken);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
+  /* Narrow screens: labels stay on one horizontal line and the strip
+     scrolls sideways instead of squeezing tabs into vertical text. */
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.api-tabs::-webkit-scrollbar, .device-detail-tabs::-webkit-scrollbar { display: none; }
 
-.api-tabs .tab {
+.api-tabs .tab, .device-detail-tabs .tab {
+  flex: none;
+  white-space: nowrap;
   min-height: 36px;
   padding: 0 16px;
   border-radius: var(--r-sm);
   font-weight: 600;
 }
 
-.api-tabs .tab:hover { color: var(--text); }
+.api-tabs .tab:hover, .device-detail-tabs .tab:hover { color: var(--text); }
 
 .api-tabs .tab.is-active,
-.api-tabs .tab[aria-selected="true"] {
+.api-tabs .tab[aria-selected="true"],
+.device-detail-tabs .tab.is-active,
+.device-detail-tabs .tab[aria-selected="true"] {
   background: var(--surface);
   color: var(--text);
   box-shadow: var(--shadow-1);
 }
+
+/* The detail drawer lays out its own spacing; the strip adds none. */
+.device-detail-tabs { margin: 0; }
 
 .config-sample { display: grid; gap: 12px; }
 .config-sample .subtle { margin: 0; }

@@ -36,6 +36,7 @@
             <div class="tabs api-tabs notify-page-tabs" role="tablist" aria-label="推送页面视图">
               <button class="tab is-active" id="ntab-system" type="button" role="tab" aria-selected="true" aria-controls="npanel-system">系统推送</button>
               <button class="tab" id="ntab-external" type="button" role="tab" aria-selected="false" aria-controls="npanel-external">外部推送</button>
+              <button class="tab" id="ntab-history" type="button" role="tab" aria-selected="false" aria-controls="npanel-history">推送历史</button>
             </div>
             <div class="notify-actions">
               <button id="add-channel" class="primary" type="button">添加渠道</button>
@@ -50,6 +51,12 @@
           <section id="npanel-external" role="tabpanel" aria-labelledby="ntab-external" hidden>
             <h2>外部推送</h2>
             <p class="subtle">开发中。之后会与其他项目打通，把消息推送到外部系统。</p>
+          </section>
+          <section id="npanel-history" role="tabpanel" aria-labelledby="ntab-history" hidden>
+            <div id="notify-history-list" class="push-history-list"></div>
+            <div id="notify-history-error" hidden></div>
+            <button id="notify-history-more" class="secondary" type="button" hidden>加载更多</button>
+            <p id="notify-history-end" class="push-history-end" hidden>已到底</p>
           </section>
         </div>
       </div>

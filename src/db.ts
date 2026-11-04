@@ -26,7 +26,8 @@ export const MAX_DEVICES = 50;
 export const ENCRYPTED_SEARCH_LIMIT = 500;
 
 const MESSAGE_COLUMNS = `m.id, m.device_id, d.name AS device_name, m.from_number, m.to_number,
-              m.content, m.code, m.code_source, m.raw_payload, m.received_at, m.created_at, m.encrypted`;
+              m.content, m.code, m.code_source, m.raw_payload, m.received_at, m.created_at, m.encrypted,
+              m.translated_content, m.source_lang`;
 
 export function retentionDays(value: string | undefined): number {
   const parsed = Number(value);
@@ -271,7 +272,8 @@ export async function findSessionUser(db: D1Database, sessionHash: string): Prom
   return db
     .prepare(
       `SELECT u.id AS id, u.username AS username, u.role AS role, u.disabled_at AS disabled_at,
-              u.totp_enabled_at AS totp_enabled_at, s.expires_at AS expires_at
+              u.totp_enabled_at AS totp_enabled_at, u.translate_enabled AS translate_enabled,
+              s.expires_at AS expires_at
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.id = ?`,
@@ -1096,6 +1098,102 @@ export async function setNotifyChannelEnabled(
   return (result.meta.changes ?? 0) > 0;
 }
 
+// The single administrator's preference. Callers treat a throw (missing
+// column, D1 error) as off so ingest still stores the SMS.
+export async function readAdminTranslateEnabled(db: D1Database): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT translate_enabled FROM users
+       WHERE role = 'admin' AND disabled_at IS NULL
+       ORDER BY created_at ASC
+       LIMIT 1`,
+    )
+    .first<{ translate_enabled: number | null }>();
+  return row?.translate_enabled === 1;
+}
+
+export async function setUserTranslateEnabled(db: D1Database, userId: string, enabled: boolean): Promise<void> {
+  await db.prepare("UPDATE users SET translate_enabled = ? WHERE id = ?").bind(enabled ? 1 : 0, userId).run();
+}
+
+export interface PushLogInput {
+  id: string;
+  userId: string;
+  channelId: string;
+  channelName: string;
+  channelKind: string;
+  source: "sms" | "test";
+  messageId: string | null;
+  sender: string | null;
+  preview: string;
+  ok: boolean;
+  error: string | null;
+  createdAt: number;
+}
+
+export interface PushLogRow {
+  id: string;
+  created_at: number;
+  channel_name: string;
+  channel_kind: string;
+  source: "sms" | "test";
+  message_id: string | null;
+  sender: string | null;
+  preview: string;
+  ok: number;
+  error: string | null;
+}
+
+export async function insertPushLogs(db: D1Database, logs: PushLogInput[]): Promise<void> {
+  for (const log of logs) {
+    await db
+      .prepare(
+        `INSERT INTO push_logs (
+           id, user_id, channel_id, channel_name, channel_kind, source, message_id, sender,
+           preview, ok, error, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        log.id,
+        log.userId,
+        log.channelId,
+        log.channelName,
+        log.channelKind,
+        log.source,
+        log.messageId,
+        log.sender,
+        log.preview,
+        log.ok ? 1 : 0,
+        log.error,
+        log.createdAt,
+      )
+      .run();
+  }
+}
+
+export async function listPushLogs(
+  db: D1Database,
+  userId: string,
+  limit: number,
+  offset: number,
+): Promise<{ items: PushLogRow[]; total: number }> {
+  const count = await db
+    .prepare("SELECT COUNT(*) AS total FROM push_logs WHERE user_id = ?")
+    .bind(userId)
+    .first<{ total: number }>();
+  const result = await db
+    .prepare(
+      `SELECT id, created_at, channel_name, channel_kind, source, message_id, sender, preview, ok, error
+       FROM push_logs
+       WHERE user_id = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT ? OFFSET ?`,
+    )
+    .bind(userId, limit, offset)
+    .all<PushLogRow>();
+  return { items: result.results, total: count?.total ?? 0 };
+}
+
 export async function findMessageByHash(
   db: D1Database,
   contentHash: string,
@@ -1121,14 +1219,16 @@ export async function insertMessage(
     receivedAt: number;
     createdAt: number;
     encrypted: number;
+    translatedContent: string | null;
+    sourceLang: string | null;
   },
 ): Promise<void> {
   await db
     .prepare(
       `INSERT INTO messages (
          id, device_id, from_number, to_number, content, content_hash, code, code_source, raw_payload,
-         received_at, created_at, encrypted
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         received_at, created_at, encrypted, translated_content, source_lang
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       message.id,
@@ -1143,6 +1243,8 @@ export async function insertMessage(
       message.receivedAt,
       message.createdAt,
       message.encrypted,
+      message.translatedContent,
+      message.sourceLang,
     )
     .run();
 }
@@ -1268,11 +1370,32 @@ export async function getMessage(
   return row ? revealMessage(row, contentKey) : null;
 }
 
+export async function deleteMessages(db: D1Database, userId: string, ids: string[]): Promise<number> {
+  let deleted = 0;
+  // Chunked so a maximal request stays well under D1's bound-parameter
+  // limit per statement.
+  for (let start = 0; start < ids.length; start += 50) {
+    const chunk = ids.slice(start, start + 50);
+    const placeholders = chunk.map(() => "?").join(", ");
+    const result = await db
+      .prepare(
+        `DELETE FROM messages
+         WHERE id IN (${placeholders})
+           AND device_id IN (SELECT id FROM devices WHERE user_id = ?)`,
+      )
+      .bind(...chunk, userId)
+      .run();
+    deleted += result.meta.changes ?? 0;
+  }
+  return deleted;
+}
+
 export async function purgeExpired(db: D1Database, now: number, retention: string): Promise<void> {
   const days = retentionDays(retention);
   const messageCutoff = now - days * 24 * 60 * 60 * 1000;
   const rateCutoff = now - 2 * 24 * 60 * 60 * 1000;
   const messages = await db.prepare("DELETE FROM messages WHERE created_at < ?").bind(messageCutoff).run();
+  const pushLogs = await db.prepare("DELETE FROM push_logs WHERE created_at < ?").bind(messageCutoff).run();
   const sessions = await db.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(now).run();
   const rates = await db.prepare("DELETE FROM rate_limits WHERE window_start < ?").bind(rateCutoff).run();
   const tickets = await db.prepare("DELETE FROM totp_tickets WHERE expires_at < ?").bind(now).run();
@@ -1280,6 +1403,7 @@ export async function purgeExpired(db: D1Database, now: number, retention: strin
     message: "retention_complete",
     retention_days: days,
     messages: messages.meta.changes,
+    push_logs: pushLogs.meta.changes,
     sessions: sessions.meta.changes,
     rate_limits: rates.meta.changes,
     totp_tickets: tickets.meta.changes,
@@ -1310,6 +1434,9 @@ async function revealMessage(row: MessageRecord, key: ContentKey): Promise<Messa
     received_at: row.received_at,
     received_at_source: meta.receivedAtSource,
     created_at: row.created_at,
+    translated_content:
+      row.translated_content == null ? null : await revealText(key, row.translated_content, encrypted),
+    source_lang: row.source_lang || null,
   };
 }
 
@@ -1427,8 +1554,7 @@ export async function touchApiTokenLastUsed(db: D1Database, tokenId: string, las
 // device_scope: empty array = all devices allowed; non-empty = only those IDs.
 // When scopeDeviceIds is non-empty, SQL IN clause is built dynamically (D1 doesn't support array bindings).
 
-const EXT_MESSAGE_COLUMNS = `m.id, m.device_id, d.name AS device_name, m.from_number, m.to_number,
-              m.content, m.code, m.code_source, m.raw_payload, m.received_at, m.created_at, m.encrypted`;
+const EXT_MESSAGE_COLUMNS = MESSAGE_COLUMNS;
 
 export async function listExtMessages(
   db: D1Database,

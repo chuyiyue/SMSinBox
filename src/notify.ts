@@ -1,10 +1,11 @@
-import { listNotifyChannels } from "./db";
+import { insertPushLogs, listNotifyChannels, type PushLogInput } from "./db";
 import { logError, logInfo } from "./log";
 import { openSmtpSocket, sendSmtp, type LineSocket } from "./smtp";
+import { sourceLangLabel } from "./translate";
 import type { NotifyChannelRow } from "./types";
 
 export const MAX_NOTIFY_CHANNELS = 10;
-export const NOTIFY_KINDS = ["telegram", "wecom", "bark", "email", "feishu", "dingtalk"] as const;
+export const NOTIFY_KINDS = ["telegram", "wecom", "bark", "email", "feishu", "dingtalk", "webhook"] as const;
 export type NotifyKind = (typeof NOTIFY_KINDS)[number];
 
 export interface TelegramConfig {
@@ -25,10 +26,15 @@ export interface EmailConfig {
   to: string;
   from: string;
   webhook_url?: string;
+  resend_api_key?: string;
   smtp_host?: string;
   smtp_port?: number;
   smtp_username?: string;
   smtp_password?: string;
+}
+
+export interface WebhookConfig {
+  url: string;
 }
 
 export interface FeishuConfig {
@@ -46,6 +52,7 @@ export type ChannelConfig =
   | WecomConfig
   | BarkConfig
   | EmailConfig
+  | WebhookConfig
   | FeishuConfig
   | DingtalkConfig;
 
@@ -93,11 +100,29 @@ export function renderNotification(input: {
   code: string | null;
   deviceName: string;
   receivedAt: number;
+  translatedContent: string | null;
+  sourceLang: string | null;
 }): NotifyText {
   const who = input.from.trim() || "未知号码";
   const title = truncate(input.code ? `验证码 ${input.code}` : `新短信 ${who}`, 80);
-  const text = truncate(`${input.deviceName || "设备"} · ${who}\n${new Date(input.receivedAt).toISOString()}\n${input.content}`, 500);
+  const text = truncate(
+    `${input.deviceName || "设备"} · ${who}\n${new Date(input.receivedAt).toISOString()}\n${notificationBody(input)}`,
+    500,
+  );
   return { title, text };
+}
+
+// Translation on top, original underneath, one blank line between them.
+// No translation keeps the body as the original content alone.
+function notificationBody(input: {
+  content: string;
+  translatedContent: string | null;
+  sourceLang: string | null;
+}): string {
+  const translated = input.translatedContent;
+  if (translated == null || translated.trim() === "") return input.content;
+  const label = `（原文为${sourceLangLabel(input.sourceLang)}）`;
+  return `${label}\n${translated}\n\n（原文）\n${input.content}`;
 }
 
 export function parseChannelInput(
@@ -109,6 +134,7 @@ export function parseChannelInput(
   if (record.kind === "wecom") return parseWecom(record);
   if (record.kind === "bark") return parseBark(record);
   if (record.kind === "email") return parseEmail(record);
+  if (record.kind === "webhook") return parseWebhook(record);
   if (record.kind === "feishu") return parseFeishu(record);
   if (record.kind === "dingtalk") return parseDingtalk(record);
   return { ok: false, error: "不支持的推送渠道" };
@@ -154,9 +180,14 @@ export function redactConfig(kind: NotifyKind, config: ChannelConfig): Record<st
     if (hook.secret) redacted.secret = mask(hook.secret);
     return redacted;
   }
+  if (kind === "webhook") {
+    const hook = config as WebhookConfig;
+    return { url: redactHookUrl(kind, hook.url) };
+  }
   const email = config as EmailConfig;
   const redacted: Record<string, string | number> = { to: email.to, from: email.from };
   if (email.webhook_url) redacted.webhook_url = redactUrl(email.webhook_url);
+  if (email.resend_api_key) redacted.resend_api_key = mask(email.resend_api_key);
   if (email.smtp_host) redacted.smtp_host = email.smtp_host;
   if (email.smtp_port) redacted.smtp_port = email.smtp_port;
   if (email.smtp_username) redacted.smtp_username = email.smtp_username;
@@ -195,11 +226,14 @@ export async function notifyStoredSms(
   env: Env,
   userId: string,
   input: {
+    messageId: string;
     from: string;
     content: string;
     code: string | null;
     deviceName: string;
     receivedAt: number;
+    translatedContent: string | null;
+    sourceLang: string | null;
   },
   deps: NotifyDeps = defaultDeps(),
 ): Promise<NotifyResult[]> {
@@ -209,7 +243,53 @@ export async function notifyStoredSms(
     const channel = channelFromRow(row);
     if (channel) channels.push(channel);
   }
-  return deliverChannels(channels, renderNotification(input), deps);
+  const payload = renderNotification(input);
+  const results = await deliverChannels(channels, payload, deps);
+  await recordPushResults(env, userId, "sms", payload, channels, results, input.messageId, input.from);
+  return results;
+}
+
+export async function recordPushResults(
+  env: Env,
+  userId: string,
+  source: "sms" | "test",
+  payload: NotifyText,
+  channels: StoredChannel[],
+  results: NotifyResult[],
+  messageId: string | null,
+  sender: string | null,
+): Promise<void> {
+  try {
+    const channelsById = new Map(channels.map((channel) => [channel.id, channel]));
+    const now = Date.now();
+    const logs: PushLogInput[] = [];
+    for (const result of results) {
+      const channel = channelsById.get(result.id);
+      if (!channel) continue;
+      logs.push({
+        id: crypto.randomUUID(),
+        userId,
+        channelId: channel.id,
+        channelName: channel.note || channel.kind,
+        channelKind: result.kind,
+        source,
+        messageId,
+        sender,
+        preview: boundedText(payload.text, 500),
+        ok: result.ok,
+        error: result.ok ? null : boundedText(scrub(result.error || "发送失败"), 300),
+        createdAt: now,
+      });
+    }
+    if (logs.length === 0) return;
+    await insertPushLogs(env.DB, logs);
+  } catch (error) {
+    logError({
+      message: "push_log_insert_failed",
+      user_id: userId,
+      error: scrub(error instanceof Error ? error.message : "unknown"),
+    });
+  }
 }
 
 export function scheduleNotify(
@@ -346,6 +426,14 @@ async function deliverOne(channel: StoredChannel, payload: NotifyText, deps: Not
     });
     return;
   }
+  if (channel.kind === "webhook") {
+    const config = channel.config as WebhookConfig;
+    await postJson(deps, config.url, "Webhook", {
+      title: payload.title,
+      text: payload.text,
+    });
+    return;
+  }
   const email = channel.config as EmailConfig;
   if (email.webhook_url) {
     await postJson(deps, email.webhook_url, "邮件", {
@@ -354,6 +442,30 @@ async function deliverOne(channel: StoredChannel, payload: NotifyText, deps: Not
       subject: payload.title,
       text: payload.text,
     });
+    return;
+  }
+  if (email.resend_api_key) {
+    const response = await deps.fetch("https://api.resend.com/emails", {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        Authorization: `Bearer ${email.resend_api_key}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        from: email.from,
+        to: email.to,
+        subject: payload.title,
+        text: payload.text,
+      }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!response.ok) {
+      const parsed = await readJsonLimited(response);
+      const record = asRecord(parsed);
+      const message = typeof record?.message === "string" ? record.message : "Resend 返回 " + response.status;
+      throw new Error(scrub(message));
+    }
     return;
   }
   const socket = await deps.openSmtp(email.smtp_host ?? "", email.smtp_port ?? 465);
@@ -445,11 +557,17 @@ function parseEmail(record: Record<string, unknown>): { ok: true; kind: "email";
   if (!from || !EMAIL.test(from)) return { ok: false, error: "发件邮箱无效" };
   const webhookRaw = stringField(record, "webhook_url");
   const smtpHost = stringField(record, "smtp_host");
-  if (webhookRaw && smtpHost) return { ok: false, error: "邮件请只选择 Webhook 或 SMTP 一种" };
+  const resendKey = stringField(record, "resend_api_key");
+  const selected = [Boolean(webhookRaw), Boolean(smtpHost), Boolean(resendKey)].filter(Boolean).length;
+  if (selected > 1) return { ok: false, error: "邮件请只选择 Webhook / SMTP / Resend 一种" };
   if (webhookRaw) {
     const webhook = publicHttpsUrl(webhookRaw);
     if (!webhook) return { ok: false, error: "邮件 Webhook 必须是公网 https 地址" };
     return { ok: true, kind: "email", config: { to, from, webhook_url: webhook.toString() } };
+  }
+  if (resendKey) {
+    if (!resendKey || resendKey.length < 8) return { ok: false, error: "Resend API Key 无效" };
+    return { ok: true, kind: "email", config: { to, from, resend_api_key: resendKey } };
   }
   if (!smtpHost || !HOSTNAME.test(smtpHost) || isBlockedHost(smtpHost)) {
     return { ok: false, error: "SMTP 主机无效" };
@@ -465,6 +583,22 @@ function parseEmail(record: Record<string, unknown>): { ok: true; kind: "email";
     kind: "email",
     config: { to, from, smtp_host: smtpHost, smtp_port: 465, smtp_username: username, smtp_password: password },
   };
+}
+
+function parseWebhook(record: Record<string, unknown>): { ok: true; kind: "webhook"; config: WebhookConfig } | { ok: false; error: string } {
+  const raw = stringField(record, "url");
+  if (!raw) return { ok: false, error: "Webhook URL 不能为空" };
+  try {
+    const url = new URL(raw);
+    if (!(["http:", "https:"] as const).includes(url.protocol as "http:" | "https:")) {
+      return { ok: false, error: "Webhook URL 必须是 http/https 地址" };
+    }
+    if (url.username || url.password) return { ok: false, error: "Webhook URL 必须是 http/https 地址" };
+    if (isBlockedHost(url.hostname)) return { ok: false, error: "Webhook URL 必须是 http/https 地址" };
+    return { ok: true, kind: "webhook", config: { url: url.toString() } };
+  } catch {
+    return { ok: false, error: "Webhook URL 必须是 http/https 地址" };
+  }
 }
 
 function parseFeishu(record: Record<string, unknown>): { ok: true; kind: "feishu"; config: FeishuConfig } | { ok: false; error: string } {
@@ -604,6 +738,9 @@ function redactHookUrl(kind: NotifyKind, value: string): string {
     } else if (url.pathname.startsWith(FEISHU_HOOK_PATH)) {
       url.pathname = `${FEISHU_HOOK_PATH}${mask(url.pathname.slice(FEISHU_HOOK_PATH.length))}`;
     }
+    for (const key of ["key", "token", "access_token", "api_key", "secret", "sign"]) {
+      if (url.searchParams.has(key)) url.searchParams.set(key, "****");
+    }
     if (url.username || url.password) {
       url.username = "";
       url.password = "";
@@ -645,4 +782,10 @@ function truncate(value: string, maxChars: number): string {
   const chars = [...value];
   if (chars.length <= maxChars) return value;
   return `${chars.slice(0, maxChars).join("")}…`;
+}
+
+function boundedText(value: string, maxChars: number): string {
+  const chars = [...value];
+  if (chars.length <= maxChars) return value;
+  return `${chars.slice(0, maxChars - 1).join("")}…`;
 }

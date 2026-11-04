@@ -445,6 +445,18 @@ describe("github oauth and avatar http", () => {
     });
   });
 
+  it("does not seed the profile username when an existing admin signs in with GitHub", async () => {
+    installGithub({ id: 42, login: "OctoCat", avatar_url: "https://avatars.githubusercontent.com/u/42" });
+    const script = makeDb();
+    const response = await callback(script, "login", "state-token");
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/");
+    expect(script.meta.get("github_id")).toBe("42");
+    // Only an account created by GitHub sign-up gets the login as its
+    // initial display name; an existing account keeps its own (empty) one.
+    expect(script.meta.has("profile_username")).toBe(false);
+  });
+
   it("matches the shared ADMIN_USERNAME case-insensitively and names the row after it", async () => {
     installGithub({ id: 42, login: "OctoCat", avatar_url: "https://avatars.githubusercontent.com/u/42" });
     const script = makeDb({ users: [], sessions: [] });
@@ -521,7 +533,8 @@ describe("github oauth and avatar http", () => {
     expect(script.sessions).toHaveLength(1);
     expect(script.meta.get("github_id")).toBe("7");
     expect(script.meta.get("github_login")).toBe("other-dev");
-    expect(script.meta.get("profile_username")).toBe("other-dev");
+    // Binding never touches the profile username: unset stays unset.
+    expect(script.meta.has("profile_username")).toBe(false);
 
     installGithub({ id: 7, login: "renamed-dev", avatar_url: "https://avatars.githubusercontent.com/u/7?v=2" });
     const byId = await callback(script, "login", "next-state");
@@ -529,7 +542,7 @@ describe("github oauth and avatar http", () => {
     expect(sessionCookie(byId)).toBeTruthy();
     expect(script.meta.get("github_login")).toBe("renamed-dev");
     expect(script.meta.get("github_avatar_url")).toBe("https://avatars.githubusercontent.com/u/7?v=2");
-    expect(script.meta.get("profile_username")).toBe("other-dev");
+    expect(script.meta.has("profile_username")).toBe(false);
 
     const unbind = await handleApi(
       new Request(`${ORIGIN}/api/v1/auth/github/unbind`, { method: "POST", headers: { cookie: SESSION_COOKIE } }),
@@ -540,7 +553,7 @@ describe("github oauth and avatar http", () => {
     expect(script.meta.has("github_id")).toBe(false);
     expect(script.meta.has("github_login")).toBe(false);
     expect(script.meta.has("github_avatar_url")).toBe(false);
-    expect(script.meta.get("profile_username")).toBe("other-dev");
+    expect(script.meta.has("profile_username")).toBe(false);
 
     installGithub({ id: 7, login: "renamed-dev", avatar_url: "https://avatars.githubusercontent.com/u/7?v=2" });
     const denied = await callback(script, "login", "after-unbind");

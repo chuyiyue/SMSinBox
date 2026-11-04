@@ -93,12 +93,19 @@ describe("device panel status", () => {
     expect(preset.platformBadge).toBe("macOS");
     expect(preset.platformDetail).toBe("macOS");
 
-    // A report wins over the preselection; an empty report keeps it.
+    // A report fills in when the choice is not specific (phone → Other);
+    // a specific choice wins over a conflicting report (Roye).
     const reported = describeDevice(
       { ...DEVICE, platform: "phone" },
       { device_id: DEVICE.id, reported_device: "iOS", received_at: 20 },
     );
     expect(reported.platform.key).toBe("ios");
+    const chosen = describeDevice(
+      { ...DEVICE, platform: "android" },
+      { device_id: DEVICE.id, reported_device: "iOS", received_at: 20 },
+    );
+    expect(chosen.platform.key).toBe("android");
+    expect(chosen.platformBadge).toBe("Android");
     const silent = describeDevice(
       { ...DEVICE, platform: "router" },
       { device_id: DEVICE.id, reported_device: "", received_at: 20 },
@@ -116,18 +123,15 @@ describe("device panel status", () => {
     const seven = ["a", "b", "c", "d", "e", "f", "g"].map((id) => mk(id));
     const plain = selectSidebarDevices(seven);
     expect(plain.shown.map((d) => d.id)).toEqual(["a", "b", "c", "d", "e"]);
-    expect(plain.hasMore).toBe(true);
 
     const five = selectSidebarDevices(seven.slice(0, 5));
     expect(five.shown).toHaveLength(5);
-    expect(five.hasMore).toBe(false);
 
     const pinned = selectSidebarDevices([mk("a"), mk("b", 3), mk("c"), mk("d", 1), mk("e"), mk("f"), mk("g")]);
     expect(pinned.shown.map((d) => d.id)).toEqual(["b", "d"]);
-    expect(pinned.hasMore).toBe(true);
 
-    expect(selectSidebarDevices([])).toEqual({ shown: [], hasMore: false });
-    expect(selectSidebarDevices(null)).toEqual({ shown: [], hasMore: false });
+    expect(selectSidebarDevices([])).toEqual({ shown: [] });
+    expect(selectSidebarDevices(null)).toEqual({ shown: [] });
   });
 
   it("shows concise device status values", () => {

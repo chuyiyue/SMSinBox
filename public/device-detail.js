@@ -46,7 +46,7 @@ export function openDeviceDetail(device, entry = null) {
   const back = document.createElement("button");
   back.type = "button";
   back.className = "secondary device-detail-back";
-  back.textContent = "返回列表";
+  back.textContent = "返回";
   back.addEventListener("click", closeDeviceDetail);
   const text = document.createElement("div");
   text.className = "device-detail-heading";
@@ -65,7 +65,7 @@ export function openDeviceDetail(device, entry = null) {
   const presence = deviceStateOf(device);
   meta.textContent = `${presenceLabel(presence)} · ${view.platformBadge}`;
   text.append(titleRow, meta);
-  head.append(back, text);
+  head.append(text, back);
 
   const body = document.createElement("div");
   body.className = "ui-drawer-body device-detail-body";
