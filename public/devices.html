@@ -210,7 +210,7 @@
                 <ol>
                   <li>向上方完整地址发送 <code>POST</code> 请求，JSON 请求体至少包含正文内容。</li>
                   <li>认证使用 <code>Authorization: Bearer &lt;设备 token&gt;</code>，并设置 <code>Content-Type: application/json</code>。</li>
-                  <li>推送链接 <code>/api/v1/ingest/psh_...</code> 不需要 Authorization，适合快捷指令。</li>
+                  <li>推送链接 <code>/api/v1/ingest/（32 位十六进制密钥）</code> 不需要 Authorization，适合快捷指令。</li>
                 </ol>
                 <table class="user-table">
                   <thead><tr><th>字段</th><th>别名</th></tr></thead>

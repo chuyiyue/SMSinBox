@@ -418,3 +418,15 @@ export function generatePassword() {
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("");
 }
+
+// Select a node's contents (used by the credential code blocks so a click
+// readies the value for copying). Moved here from devices.js so the shared
+// device detail drawer can use it on any page.
+export function selectContents(node) {
+  const selection = window.getSelection();
+  if (!selection) return;
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}

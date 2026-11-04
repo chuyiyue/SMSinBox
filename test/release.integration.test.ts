@@ -155,7 +155,8 @@ function headersOf(extra?: HeadersInit): Record<string, string> {
 
 function pushSecret(url: string): string {
   const secret = url.split("/api/v1/ingest/")[1] ?? "";
-  expect(secret.startsWith("psh_")).toBe(true);
+  // Current push secrets are 32 lowercase hex characters (symbol-free).
+  expect(secret).toMatch(/^[0-9a-f]{32}$/);
   expect(secret.includes("?")).toBe(false);
   return secret;
 }
@@ -328,7 +329,7 @@ describe("release migrations", () => {
       200,
     );
     const issuedUrl = String(issued.push_url);
-    expect(pushSecret(issuedUrl).startsWith("psh_")).toBe(true);
+    expect(pushSecret(issuedUrl)).toHaveLength(32);
     const still = await env.DB.prepare("SELECT token_hash FROM devices WHERE id = ?").bind(LEGACY_DEVICE).first<{
       token_hash: string;
     }>();

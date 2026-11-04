@@ -11,7 +11,7 @@ export function pushActions(push) {
   if (push === "active") {
     return [
       { action: "rotate", label: "轮换接口" },
-      { action: "revoke", label: "撤销" },
+      { action: "revoke", label: "撤销接口" },
     ];
   }
   if (push === "revoked") {
@@ -112,4 +112,37 @@ export function shortcutStatusLines() {
     "iCloud：https://www.icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494 。不要使用来路不明的其它分享链接。",
     "配置状态：本页看不到手机上的自动化开关。自动化里 content 必须用「信息 › 内容」，不要用「快捷指令输入」。收到 device 为 iOS 的短信后，设备卡片会写成「已收到 iOS 短信」。发送测试消息不会写成 iOS。",
   ];
+}
+
+export function presenceDot(presence) {
+  const status = presence.key === "recent" ? "ok" : presence.key === "stale" ? "warn" : "idle";
+  const dot = document.createElement("span");
+  dot.className = "ui-status";
+  const point = document.createElement("span");
+  point.className = "ui-status-dot";
+  point.dataset.status = status;
+  const label = document.createElement("span");
+  label.textContent = presenceLabel(presence);
+  dot.append(point, label);
+  dot.title = presence.text;
+  return dot;
+}
+
+export function presenceLabel(presence) {
+  if (presence.key === "recent") return "在线";
+  if (presence.key === "stale") return "离线";
+  return "尚未上报";
+}
+
+export function addFact(list, label, value, options = {}) {
+  const wrap = document.createElement("div");
+  if (options.wide) wrap.className = "span-2";
+  const term = document.createElement("dt");
+  term.textContent = label;
+  const detail = document.createElement("dd");
+  if (options.node) detail.append(options.node);
+  else detail.textContent = value || "";
+  if (options.title) detail.title = options.title;
+  wrap.append(term, detail);
+  list.append(wrap);
 }

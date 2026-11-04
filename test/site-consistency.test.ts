@@ -235,7 +235,9 @@ describe("site consistency", () => {
 
   it("gives the devices page a guide tab and keeps the guide out of device cards", () => {
     const html = readFileSync("public/devices.html", "utf8");
-    const js = readFileSync("public/devices.js", "utf8");
+    // The detail drawer moved to the shared device-detail.js module.
+    const js =
+      readFileSync("public/devices.js", "utf8") + "\n" + readFileSync("public/device-detail.js", "utf8");
     expect(html).toContain('id="dtab-guide"');
     expect(html).toContain("接入指引");
     expect(html).toContain('id="dpanel-guide"');

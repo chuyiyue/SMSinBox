@@ -751,9 +751,13 @@ async function updateDevicePush(request: Request, env: Env, rawId: string): Prom
 }
 
 function newPushToken(): string {
-  const bytes = new Uint8Array(32);
+  // 32 lowercase hex characters (a hyphenless UUID, 128 bits of entropy):
+  // no prefix and no base64url symbols — some devices/apps reject "_"/"-"
+  // in the ingest URL (Roye, 2026-11-04). Legacy psh_ tokens keep working
+  // until rotated; see PUSH_TOKEN_PATTERN in routes/sms.ts.
+  const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
-  return `psh_${bytesToBase64Url(bytes)}`;
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function ingestUrl(request: Request, pushToken: string): string {

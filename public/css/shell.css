@@ -45,14 +45,22 @@
 
 .brand-name { font-size: var(--fs-lg); }
 
+/* The logo artwork is a full-bleed app icon: it fills its container
+   edge-to-edge (no frame, no padding, no background showing around it). */
 .mark {
   width: 28px;
   height: 28px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--r-sm);
-  background: var(--sidebar-mark-bg);
-  border: 1px solid var(--sidebar-mark-border);
+  flex: none;
+  display: block;
+  border-radius: 22%;
+  overflow: hidden;
+}
+
+.mark img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
 }
 
 .mark img { display: block; width: 18px; height: 18px; }
@@ -273,9 +281,11 @@
   align-items: center;
   flex: 1 1 auto;
   min-width: 0;
-  justify-content: center;
+  /* Left-aligned on the same grid as the nav links (12px inset): the
+     avatar + name group used to float in the middle of the row. */
+  justify-content: flex-start;
   gap: 10px;
-  padding: 0 10px;
+  padding: 0 12px;
   min-height: 40px;
   background: transparent;
   color: var(--sidebar-text);
@@ -321,7 +331,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: center;
+  text-align: left;
   font-weight: 600;
 }
 

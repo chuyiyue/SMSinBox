@@ -600,6 +600,9 @@
   display: grid;
   gap: 16px;
 }
+/* Advanced tab: save-name and delete share one row, half width each. */
+.device-advanced-actions { display: flex; gap: 10px; }
+.device-advanced-actions > button { flex: 1 1 0; min-width: 0; }
 .device-detail-summary,
 .device-detail-card {
   display: grid;
