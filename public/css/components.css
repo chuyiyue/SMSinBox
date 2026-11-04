@@ -211,8 +211,10 @@ mark.code {
   display: block;
   margin: 0;
   padding: 12px;
-  overflow-x: auto;
-  white-space: pre;
+  /* Code displays wrap inside their container instead of scrolling
+     sideways past it. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-break: normal;
   background: var(--bg-sunken);
   border: 1px solid var(--border);
