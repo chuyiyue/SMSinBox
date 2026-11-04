@@ -521,8 +521,8 @@ function setGithubStatus(message) {
 function paintTranslate() {
   translateEnabled = Boolean(me && me.translate_enabled);
   translateState.textContent = translateEnabled
-    ? "已开启：新收到的非简体中文短信会自动翻译成简体中文。"
-    : "未开启：短信只显示原文。";
+    ? "已开启，新收到的非简体中文短信会自动翻译成简体中文"
+    : "开启后，新收到的非简体中文短信会自动翻译成简体中文";
   translateToggle.disabled = false;
   translateToggle.textContent = translateEnabled ? "关闭短信翻译" : "开启短信翻译";
   translateToggle.className = translateEnabled ? "secondary" : "primary";
