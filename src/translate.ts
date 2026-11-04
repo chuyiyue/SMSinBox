@@ -32,6 +32,34 @@ export const M2M_LANG_NAME: Record<string, string> = {
   "zh-Hant": "chinese",
 };
 
+// Shown on bilingual pushes. Unknown codes fall back to the code itself.
+export const SOURCE_LANG_LABEL: Record<string, string> = {
+  en: "英语",
+  ja: "日语",
+  ko: "韩语",
+  ru: "俄语",
+  uk: "乌克兰语",
+  th: "泰语",
+  ar: "阿拉伯语",
+  hi: "印地语",
+  el: "希腊语",
+  he: "希伯来语",
+  fr: "法语",
+  de: "德语",
+  es: "西班牙语",
+  it: "意大利语",
+  pt: "葡萄牙语",
+  nl: "荷兰语",
+  vi: "越南语",
+  id: "印尼语",
+  "zh-Hant": "繁体中文",
+};
+
+export function sourceLangLabel(code: string | null | undefined): string {
+  if (!code) return "未知";
+  return SOURCE_LANG_LABEL[code] ?? code;
+}
+
 const LLAMA_MAX_TOKENS = 1024;
 
 // Glyphs that are traditional and are not the simplified form of the same

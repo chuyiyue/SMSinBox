@@ -1134,6 +1134,8 @@ async function testDevice(request: Request, env: Env, ctx: WaitCtx, rawId: strin
       code,
       deviceName: device.name,
       receivedAt: now,
+      translatedContent: null,
+      sourceLang: null,
     }),
   );
   return json({ ok: true, id: messageId, code });
