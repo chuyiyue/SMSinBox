@@ -706,6 +706,43 @@ describe("site consistency", () => {
     expect(css).toContain(".avatar .avatar-type-icon");
   });
 
+  it("prefers brand logos, then the system logo, as inbox row avatars", () => {
+    const inbox = readFileSync("public/inbox.js", "utf8");
+    expect(inbox).toContain("senderLogoSlug");
+    expect(inbox).toContain("/logos/");
+    expect(inbox).toContain('"/logo.png"');
+
+    // Every brand the sender table can produce ships its logo file.
+    const tableStart = inbox.indexOf("SENDER_LOGOS");
+    const table = inbox.slice(tableStart, inbox.indexOf("];", tableStart));
+    const slugs = [...table.matchAll(/\["([a-z0-9]+)", \[/g)].map((match) => match[1]);
+    expect(slugs.length).toBe(34);
+    for (const slug of slugs) {
+      expect(existsSync(`public/logos/${slug}.svg`), `public/logos/${slug}.svg`).toBe(true);
+    }
+    // Alias coverage anchors: old names and regional senders fold in.
+    expect(table).toContain('"twitter"');
+    expect(table).toContain('"meta"');
+    expect(table).toContain('"hsbcuk"');
+    expect(table).toContain('"vodafoneuk"');
+
+    // Priority inside the row renderer: brand logo first, the SMSinBox
+    // system logo second, the country flag only after both.
+    const avatarStart = inbox.indexOf("function avatarNode");
+    const avatar = inbox.slice(avatarStart, inbox.indexOf("\n}", avatarStart));
+    const brandAt = avatar.indexOf("senderLogoSlug");
+    const systemAt = avatar.indexOf('"/logo.png"');
+    const flagAt = avatar.indexOf("flagCountryForNumber");
+    expect(brandAt).toBeGreaterThan(-1);
+    expect(systemAt).toBeGreaterThan(brandAt);
+    expect(flagAt).toBeGreaterThan(systemAt);
+    expect(avatar).toContain('"smsinbox"');
+
+    const css = readFileSync("public/css/pages.css", "utf8");
+    expect(css).toContain(".avatar.has-logo");
+    expect(css).toContain(".avatar .avatar-logo");
+  });
+
   it("shortens log errors the same way everywhere", () => {
     expect(errorText(new Error("x".repeat(200)))).toHaveLength(180);
     expect(errorText(new Error("短"))).toBe("短");

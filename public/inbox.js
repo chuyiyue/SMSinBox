@@ -685,11 +685,84 @@ function flagCountryForNumber(from) {
   return null;
 }
 
+// Sender-id → brand logo. The sender is normalized (lowercased, stripped
+// of everything but letters and digits) and must equal an alias exactly,
+// so ordinary phone numbers never match. Only brands with a file in
+// /logos are listed; aliases are written already normalized.
+const SENDER_LOGOS = [
+  ["whatsapp", ["whatsapp"]],
+  ["telegram", ["telegram"]],
+  ["signal", ["signal"]],
+  ["facebook", ["facebook", "meta"]],
+  ["instagram", ["instagram"]],
+  ["x", ["x", "twitter"]],
+  ["google", ["google"]],
+  ["apple", ["apple"]],
+  ["github", ["github"]],
+  ["discord", ["discord"]],
+  ["steam", ["steam"]],
+  ["tiktok", ["tiktok"]],
+  ["netflix", ["netflix"]],
+  ["spotify", ["spotify"]],
+  ["ebay", ["ebay"]],
+  ["uber", ["uber", "ubereats"]],
+  ["paypal", ["paypal"]],
+  ["visa", ["visa"]],
+  ["mastercard", ["mastercard"]],
+  ["americanexpress", ["americanexpress", "amex"]],
+  ["hsbc", ["hsbc", "hsbcuk"]],
+  ["barclays", ["barclays", "barclaysuk"]],
+  ["chase", ["chase"]],
+  ["bankofamerica", ["bankofamerica", "bofa"]],
+  ["revolut", ["revolut"]],
+  ["wise", ["wise", "transferwise"]],
+  ["binance", ["binance"]],
+  ["coinbase", ["coinbase"]],
+  ["alipay", ["alipay"]],
+  ["wechat", ["wechat", "weixin"]],
+  ["vodafone", ["vodafone", "vodafoneuk"]],
+  ["orange", ["orange"]],
+  ["dhl", ["dhl"]],
+  ["fedex", ["fedex"]],
+];
+const SENDER_LOGO_MAP = new Map();
+for (const [slug, aliases] of SENDER_LOGOS) {
+  for (const alias of aliases) SENDER_LOGO_MAP.set(alias, slug);
+}
+
+function senderLogoSlug(from) {
+  const normalized = String(from ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!normalized) return null;
+  return SENDER_LOGO_MAP.get(normalized) ?? null;
+}
+
+function logoImg(src) {
+  const img = document.createElement("img");
+  img.className = "avatar-logo";
+  img.src = src;
+  img.alt = "";
+  return img;
+}
+
 function avatarNode(message) {
   const node = document.createElement("div");
   node.className = "avatar";
   node.setAttribute("aria-hidden", "true");
-  const iso = flagCountryForNumber(message?.from_number);
+  const from = message?.from_number;
+  // A known brand sender id wins over every other avatar treatment.
+  const slug = senderLogoSlug(from);
+  if (slug) {
+    node.classList.add("has-logo");
+    node.append(logoImg(`/logos/${slug}.svg`));
+    return node;
+  }
+  // Internal test messages come from the system itself: use its logo.
+  if (String(from ?? "").trim().toLowerCase() === "smsinbox") {
+    node.classList.add("has-logo");
+    node.append(logoImg("/logo.png"));
+    return node;
+  }
+  const iso = flagCountryForNumber(from);
   if (iso) {
     const img = document.createElement("img");
     img.className = "avatar-flag";
