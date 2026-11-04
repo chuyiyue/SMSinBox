@@ -28,9 +28,9 @@ iPhone 没有安卓那种常驻短信转发器。SMSinBox 用「快捷指令」�
 
 ## iCloud 分享链接
 
-推荐安装方式（已签名，名称 **SMSinBox Next**）：
+推荐安装方式（已签名，在 Apple 设备上点链接直接导入）：
 
-- https://www.icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494
+- https://www.icloud.com/shortcuts/f7880f724c5443aebffc1ab5c5b7788f
 
 分享里的「推送链接」文本默认为空，可安全转发此链接。导入后在快捷指令里贴上你自己的推送链接（32 位十六进制密钥）。`from`＝信息 › 发件人，`content`＝信息 › 内容，`timestamp`＝当前日期，`device`＝`iOS`。不要使用来路不明的其它分享链接。
 

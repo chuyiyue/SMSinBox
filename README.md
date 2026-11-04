@@ -150,7 +150,7 @@ npx wrangler deploy
 ## 部署之后
 
 1. 打开 Worker 的 `*.workers.dev` 地址（或你绑定的自定义域名），用 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 登录——第一次成功登录会在 D1 里创建管理员账号。
-2. 在「设备列表」里添加设备，把生成的推送链接填进手机上的转发工具（Android SmsForwarder / iOS 快捷指令），发一条测试短信确认收件箱能收到。
+2. 在「设备列表」里添加设备，把生成的推送链接填进手机上的转发工具，发一条测试短信确认收件箱能收到。iOS 点 [导入快捷指令](https://www.icloud.com/shortcuts/f7880f724c5443aebffc1ab5c5b7788f)（已签名，在 Apple 设备上会直接跳到快捷指令 App 导入），把推送链接填到指令里预留的位置即可；Android 用 SmsForwarder 的 Webhook 通道填推送链接。设备页的「接入指引」里有分平台的完整步骤。
 3. 按需在「推送渠道」里加通知渠道，在「API 与 MCP」里签发对外 Token。
 
 ### 启用 GitHub 登录（可选）

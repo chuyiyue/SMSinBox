@@ -1751,9 +1751,9 @@ describe("release checklist", () => {
     const setup = readFileSync("docs/ios-setup.md", "utf8");
     expect(devicesHtml).toContain('id="sms-url"');
     expect(devicesJs).toContain("/api/v1/sms");
-    expect(setup).toContain("https://www.icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494");
+    expect(setup).toContain("https://www.icloud.com/shortcuts/f7880f724c5443aebffc1ab5c5b7788f");
     expect(setup).toContain("信息 › 内容");
-    expect(devicesHtml).toContain("https://www.icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494");
+    expect(devicesHtml).toContain("https://www.icloud.com/shortcuts/f7880f724c5443aebffc1ab5c5b7788f");
     expect(setup).not.toContain("尚未发布");
     // Unsigned downloadable template must not embed the share URL.
     expect(readFileSync("shortcuts/SMSinBox-iOS.shortcut", "utf8")).not.toContain("icloud.com/shortcuts");

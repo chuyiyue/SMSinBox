@@ -817,6 +817,12 @@
 .setup-details > summary { font-size: var(--fs-md); }
 .setup-details > summary::marker { color: var(--text-3); }
 
+/* Breathing room inside the guide: blocks were stacked flush. */
+.setup-details .tabs { margin: 10px 0 14px; }
+.setup-details [data-panel] > h3 { margin: 18px 0 8px; }
+.setup-details [data-panel] li { margin: 5px 0; }
+.setup-details details.fold { margin-top: 10px; }
+
 /* Guide values copy on click: the value itself is the button, so it must
    not pick up the base black-fill button look or its hover. */
 .copy-value {

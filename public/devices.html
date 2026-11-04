@@ -154,7 +154,7 @@
                 <p>用 iPhone 自带的「快捷指令」自动化转发，不用装 App。</p>
                 <ol>
                   <li><strong>先复制推送链接。</strong>打开这台设备的「推送配置」，复制它的推送链接，下一步要用。链接会一直保存，以后也能随时回来看；万一泄露，在设备菜单里点「轮换接口」换一条新的。</li>
-                  <li><strong>安装快捷指令。</strong>点下面的链接安装「SMSinBox Next」（已签名版），导入时把推送链接粘贴进去。只用这个链接，不要装来路不明的分享。<br /><button type="button" class="copy-value" data-copy="https://www.icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494">https://www.icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494</button><br />系统拒绝导入时，可以下载 <a class="button secondary" href="/api/v1/ios/shortcut?variant=all" download="SMSinBox-iOS.shortcut">未签名版文件</a> 再试，但 iOS 15 及以上经常拒绝未签名文件，优先用上面的分享链接。</li>
+                  <li><strong>安装快捷指令。</strong>在 iPhone 上点「导入快捷指令」，会直接跳到快捷指令 App 导入做好的快捷指令（已签名）；导入后把第 1 步的推送链接填到指令里预留的位置，就能用了。只用这个链接，不要装来路不明的分享。<br /><a class="button" href="https://www.icloud.com/shortcuts/f7880f724c5443aebffc1ab5c5b7788f" target="_blank" rel="noopener">导入快捷指令</a> <button type="button" class="copy-value" data-copy="https://www.icloud.com/shortcuts/f7880f724c5443aebffc1ab5c5b7788f">https://www.icloud.com/shortcuts/f7880f724c5443aebffc1ab5c5b7788f</button><br />在电脑上看这页时，点链接可以先复制下来、发到手机上再打开。系统拒绝导入时，可以下载 <a class="button secondary" href="/api/v1/ios/shortcut?variant=all" download="SMSinBox-iOS.shortcut">未签名版文件</a> 再试，但 iOS 15 及以上经常拒绝未签名文件，优先用上面的导入。</li>
                   <li><strong>建自动化。</strong>打开「快捷指令 → 自动化」，给这条快捷指令新建「信息」触发器：
                     <ul>
                       <li>条件选「信息包含一个空格」，所有短信都会转发（短码发来的短信没有空格，这类会漏掉）；只收验证码时，条件改成包含「验证码」，并再建一条包含 <code>code</code> 的。</li>
@@ -177,7 +177,7 @@
                     <li>按第 3 步新建「信息」自动化，选「立即运行」并关闭询问。</li>
                     <li>加判断：「信息 › 内容」为空时停止；「信息 › 发件人」为空时用文本「（发件人为空）」，结果存为变量「发件人」。</li>
                     <li>加「文本」动作填入推送链接，再加「获取 URL 内容」：URL 选这个文本，方法选 POST。</li>
-                    <li>请求头只加 <button type="button" class="copy-value" data-copy="Content-Type: application/json">Content-Type: application/json</button>，不要加 Authorization。</li>
+                    <li>请求头只加一对：键填 <button type="button" class="copy-value" data-copy="Content-Type">Content-Type</button>、值填 <button type="button" class="copy-value" data-copy="application/json">application/json</button>。在快捷指令里它们是分开的两个输入框，点各自复制，不要加 Authorization。</li>
                     <li>请求体选 JSON：<code>from</code> 用变量「发件人」，<code>content</code> 用「信息 › 内容」，<code>timestamp</code> 用当前日期，<code>device</code> 填 <code>iOS</code>。</li>
                   </ol>
                 </details>
@@ -185,7 +185,7 @@
                   <summary>已有旧快捷指令（Bearer 方式）</summary>
                   <ol>
                     <li>已经装好的旧快捷指令不用改，继续 POST 到 <button type="button" class="copy-value guide-sms-url"></button>。</li>
-                    <li>请求头带 <button type="button" class="copy-value guide-auth"></button> 和 <button type="button" class="copy-value" data-copy="Content-Type: application/json">Content-Type: application/json</button>。</li>
+                    <li>请求头带 <button type="button" class="copy-value guide-auth"></button>，再加一对：键 <button type="button" class="copy-value" data-copy="Content-Type">Content-Type</button>、值 <button type="button" class="copy-value" data-copy="application/json">application/json</button>。</li>
                     <li>请求体字段是 <code>from</code>、<code>content</code>、<code>timestamp</code>、<code>device</code>。其中 <code>device</code>（设备类型）选填：不填按添加设备时预选的类型显示；填了且与预选不一致时，按上报的显示。</li>
                     <li>设备 token 丢了没法找回，只能删除设备重新添加。</li>
                   </ol>
@@ -212,7 +212,7 @@
                 <h3>方式二：Bearer token</h3>
                 <ol>
                   <li>向 <button type="button" class="copy-value guide-sms-url"></button> 发 POST。</li>
-                  <li>请求头带 <button type="button" class="copy-value guide-auth"></button> 和 <button type="button" class="copy-value" data-copy="Content-Type: application/json">Content-Type: application/json</button>。</li>
+                  <li>请求头带 <button type="button" class="copy-value guide-auth"></button>，再加一对：键 <button type="button" class="copy-value" data-copy="Content-Type">Content-Type</button>、值 <button type="button" class="copy-value" data-copy="application/json">application/json</button>。</li>
                 </ol>
                 <h3>请求体字段</h3>
                 <p><code>content</code> 必填，其余选填；字段名也可以用别名。</p>
