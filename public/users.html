@@ -128,6 +128,16 @@
                 </div>
               </section>
 
+              <section id="translate-panel" class="settings-section panel stack" aria-labelledby="translate-title">
+                <h2 id="translate-title">短信翻译</h2>
+                <p class="subtle">开启后，新收到的非简体中文短信会自动翻译成简体中文，译文显示在收件箱列表和短信详情里。翻译由 Workers AI 完成。</p>
+                <p id="translate-state" class="subtle">正在读取翻译设置…</p>
+                <p id="translate-error" class="callout danger" hidden></p>
+                <div class="actions">
+                  <button id="translate-toggle" class="secondary" type="button" disabled>开启短信翻译</button>
+                </div>
+              </section>
+
               <section id="system-panel" class="settings-section panel stack" aria-labelledby="system-title">
                 <h2 id="system-title">系统信息</h2>
                 <dl class="system-facts">

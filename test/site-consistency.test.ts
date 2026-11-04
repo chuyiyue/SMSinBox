@@ -639,6 +639,33 @@ describe("site consistency", () => {
     expect(common.indexOf("avatar_url")).toBeLessThan(common.indexOf("api.dicebear.com"));
   });
 
+  it("wires the SMS translation toggle and the translated message display", () => {
+    const users = readFileSync("public/users.html", "utf8");
+    const usersJs = readFileSync("public/users.js", "utf8");
+    expect(users).toContain('id="translate-panel"');
+    expect(users).toContain("短信翻译");
+    expect(users).toContain("翻译由 Workers AI 完成");
+    expect(users).toContain('id="translate-toggle"');
+    expect(usersJs).toContain("/api/v1/me/preferences");
+    expect(usersJs).toContain('method: "PATCH"');
+    expect(usersJs).toContain("translate_enabled");
+    expect(usersJs).toContain("paintTranslate");
+
+    const inbox = readFileSync("public/inbox.js", "utf8");
+    expect(inbox).toContain("translated_content");
+    expect(inbox).toContain("source_lang");
+    expect(inbox).toContain("已翻译 · 来自");
+    expect(inbox).toContain("短信翻译");
+    expect(inbox).toContain('"zh-Hant": "繁体中文"');
+    expect(inbox).toContain("message-translated");
+    expect(inbox).toContain("message-card");
+
+    const css = readFileSync("public/css/pages.css", "utf8");
+    expect(css).toContain(".message-card {");
+    expect(css).toContain(".message-card-note");
+    expect(css).toContain(".message-translated {");
+  });
+
   it("shortens log errors the same way everywhere", () => {
     expect(errorText(new Error("x".repeat(200)))).toHaveLength(180);
     expect(errorText(new Error("短"))).toBe("短");

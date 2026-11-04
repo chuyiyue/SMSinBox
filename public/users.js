@@ -22,6 +22,7 @@ let viewToken = 0;
 let me = null;
 let sessions = [];
 let systemInfo = null;
+let translateEnabled = false;
 
 let accountError;
 let accountStatus;
@@ -52,6 +53,9 @@ let sessionList;
 let sessionsError;
 let sessionsStatus;
 let revokeOthers;
+let translateState;
+let translateError;
+let translateToggle;
 let factVersion;
 let factDevices;
 let factSessions;
@@ -95,6 +99,9 @@ function startView() {
   sessionsError = document.querySelector("#sessions-error");
   sessionsStatus = document.querySelector("#sessions-status");
   revokeOthers = document.querySelector("#revoke-others");
+  translateState = document.querySelector("#translate-state");
+  translateError = document.querySelector("#translate-error");
+  translateToggle = document.querySelector("#translate-toggle");
   factVersion = document.querySelector("#fact-version");
   factDevices = document.querySelector("#fact-devices");
   factSessions = document.querySelector("#fact-sessions");
@@ -118,6 +125,9 @@ function startView() {
     });
   });
   revokeOthers.addEventListener("click", revokeOtherSessions);
+  translateToggle.addEventListener("click", () => {
+    void toggleTranslate();
+  });
   sessionList.addEventListener("click", (event) => {
     const button = event.target instanceof Element ? event.target.closest("[data-session-id]") : null;
     if (!button) return;
@@ -174,6 +184,7 @@ async function boot(token) {
   me = await loadNav();
   if (token !== viewToken) return;
   paintAccount();
+  paintTranslate();
   await Promise.all([loadSessions(), loadDeviceCount(), loadSystemInfo()]);
 }
 
@@ -500,6 +511,51 @@ function setGithubError(message) {
 
 function setGithubStatus(message) {
   showNotice(githubStatus, message);
+}
+
+// ─── SMS translation preference ──────────────────────────────────────────────
+
+// The initial state comes from the /me user object; toggling PATCHes the
+// preference and only repaints on success, so a failed save keeps the
+// switch exactly as it was.
+function paintTranslate() {
+  translateEnabled = Boolean(me && me.translate_enabled);
+  translateState.textContent = translateEnabled
+    ? "已开启：新收到的非简体中文短信会自动翻译成简体中文。"
+    : "未开启：短信只显示原文。";
+  translateToggle.disabled = false;
+  translateToggle.textContent = translateEnabled ? "关闭短信翻译" : "开启短信翻译";
+  translateToggle.className = translateEnabled ? "secondary" : "primary";
+}
+
+async function toggleTranslate() {
+  const next = !translateEnabled;
+  translateToggle.disabled = true;
+  showNotice(translateError, "");
+  try {
+    const result = await api("/api/v1/me/preferences", {
+      method: "PATCH",
+      body: JSON.stringify({ translate_enabled: next }),
+    });
+    if (!result.response.ok) {
+      const message = result.data.error || "保存翻译设置失败";
+      showNotice(translateError, message);
+      toast(message, { tone: "danger" });
+      return;
+    }
+    translateEnabled =
+      typeof result.data.translate_enabled === "boolean" ? result.data.translate_enabled : next;
+    me = { ...(me || { role: "admin" }), translate_enabled: translateEnabled };
+    noteMe({ translate_enabled: translateEnabled });
+    paintTranslate();
+    toast(translateEnabled ? "已开启短信翻译" : "已关闭短信翻译");
+  } catch (error) {
+    if (isUnauthorized(error)) return;
+    showNotice(translateError, "保存翻译设置失败，请重试");
+    toast("保存翻译设置失败，请重试", { tone: "danger" });
+  } finally {
+    translateToggle.disabled = false;
+  }
 }
 
 async function submitPassword(event) {

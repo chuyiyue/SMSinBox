@@ -425,12 +425,21 @@ function renderMessage(message) {
     device.textContent = message.device_name;
     senderLine.append(device);
   }
+  if (hasTranslation(message)) {
+    const tag = document.createElement("span");
+    tag.className = "message-translated";
+    tag.textContent = translatedTag(message);
+    senderLine.append(tag);
+  }
   const inlineTime = timeNode(message, "time-inline");
   senderLine.append(inlineTime);
   const preview = document.createElement("div");
   preview.className = "preview";
-  if (!unreadable(message)) renderContent(preview, previewText(message.content), message.code);
-  else preview.textContent = "这条短信无法解密";
+  if (!unreadable(message)) {
+    // The list prefers the translation; the original stays in the detail.
+    const previewSource = hasTranslation(message) ? message.translated_content : message.content;
+    renderContent(preview, previewText(previewSource), message.code);
+  } else preview.textContent = "这条短信无法解密";
   const slot = document.createElement("div");
   slot.className = "chip-slot";
   if (message.code && !unreadable(message)) slot.append(codeChip(message.code));
@@ -493,16 +502,33 @@ function buildDetail(message) {
       codeBlock.append(label, CodeChip(message.code));
       wrap.append(codeBlock);
     }
-    const contentBlock = document.createElement("section");
-    contentBlock.className = "message-detail-block";
+    if (hasTranslation(message)) {
+      const translatedCard = document.createElement("section");
+      translatedCard.className = "message-card";
+      const translatedLabel = document.createElement("h3");
+      translatedLabel.className = "message-card-title";
+      translatedLabel.textContent = "短信翻译";
+      const translatedBody = document.createElement("p");
+      translatedBody.className = "content";
+      translatedBody.dir = "auto";
+      translatedBody.textContent = message.translated_content;
+      const translatedNote = document.createElement("p");
+      translatedNote.className = "message-card-note";
+      translatedNote.textContent = translatedTag(message);
+      translatedCard.append(translatedLabel, translatedBody, translatedNote);
+      wrap.append(translatedCard);
+    }
+    const contentCard = document.createElement("section");
+    contentCard.className = "message-card";
     const label = document.createElement("h3");
-    label.className = "message-detail-label";
+    label.className = "message-card-title";
     label.textContent = "短信正文";
     const content = document.createElement("p");
     content.className = "content";
+    content.dir = "auto";
     renderContent(content, message.content, message.code);
-    contentBlock.append(label, content);
-    wrap.append(contentBlock);
+    contentCard.append(label, content);
+    wrap.append(contentCard);
 
     const actions = document.createElement("div");
     actions.className = "actions message-detail-actions";
@@ -660,6 +686,44 @@ function timeNode(message, extra) {
 
 function previewText(content) {
   return String(content || "").replace(/\s+/g, " ").trim();
+}
+
+// Source-language code → display name for the translation tag; codes the
+// map does not know fall back to the raw code.
+const LANG_NAMES = {
+  en: "英语",
+  ja: "日语",
+  ko: "韩语",
+  ru: "俄语",
+  uk: "乌克兰语",
+  th: "泰语",
+  ar: "阿拉伯语",
+  hi: "印地语",
+  el: "希腊语",
+  he: "希伯来语",
+  fr: "法语",
+  de: "德语",
+  es: "西班牙语",
+  it: "意大利语",
+  pt: "葡萄牙语",
+  nl: "荷兰语",
+  vi: "越南语",
+  id: "印尼语",
+  "zh-Hant": "繁体中文",
+};
+
+function langName(code) {
+  if (typeof code !== "string" || !code) return "";
+  return LANG_NAMES[code] || code;
+}
+
+function hasTranslation(message) {
+  return typeof message?.translated_content === "string" && message.translated_content.trim() !== "";
+}
+
+function translatedTag(message) {
+  const lang = langName(message?.source_lang);
+  return lang ? `已翻译 · 来自${lang}` : "已翻译";
 }
 
 function unreadable(message) {
