@@ -63,8 +63,6 @@
   object-fit: cover;
 }
 
-.mark img { display: block; width: 18px; height: 18px; }
-
 .sidebar-nav { display: grid; gap: 4px; }
 
 .sidebar-nav a {

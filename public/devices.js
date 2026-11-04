@@ -20,7 +20,7 @@ import {
 } from "./common.js";
 import { deviceStateOf, ensureDevices, getDevices, noteDeviceSeen, refreshDevices } from "./device-store.js";
 import { registerView } from "./shell.js";
-import { addFact, credentialBoxes, describeDevice, presenceDot, presenceLabel, pushConfirm } from "./device-panel.js";
+import { addFact, credentialBoxes, describeDevice, isStale, presenceDot, presenceLabel, pushConfirm } from "./device-panel.js";
 import { closeDeviceDetail, openDeviceDetail, removeDevice, runPush } from "./device-detail.js";
 
 const TEMPLATE = '{"from":"{{FROM}}","content":"{{SMS}}","timestamp":"{{RECEIVE_TIME}}","device":"{{DEVICE_NAME}}","sim":"{{CARD_SLOT}}"}';

@@ -12,9 +12,7 @@ import {
   toast,
 } from "./common.js";
 import { deviceStateOf, getDevices, noteDeviceSeen, refreshDevices } from "./device-store.js";
-import { addFact, describeDevice, presenceDot, presenceLabel, pushConfirm } from "./device-panel.js";
-
-const WEEK = 7 * 24 * 60 * 60 * 1000;
+import { addFact, describeDevice, isStale, presenceDot, presenceLabel, pushConfirm } from "./device-panel.js";
 
 function emitDevicesChanged() {
   document.dispatchEvent(new CustomEvent("smsinbox:devices-changed"));
@@ -430,10 +428,6 @@ function idLine(id) {
   return line;
 }
 
-function isStale(received) {
-  if (!received?.at) return false;
-  return Date.now() - received.at > WEEK;
-}
 
 function detailTestButton(device) {
   const test = document.createElement("button");

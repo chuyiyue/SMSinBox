@@ -146,3 +146,11 @@ export function addFact(list, label, value, options = {}) {
   wrap.append(term, detail);
   list.append(wrap);
 }
+
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+// A last message older than a week makes the card/drawer show a stale note.
+export function isStale(received) {
+  if (!received?.at) return false;
+  return Date.now() - received.at > WEEK_MS;
+}
