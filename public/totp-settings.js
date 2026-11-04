@@ -1,4 +1,5 @@
 import { api, copyText, formatTime, isUnauthorized, showNotice, toast } from "./common.js";
+import qrcode from "./vendor/qrcode.mjs";
 
 // Minimal two-factor settings card for /users.html. The full four-zone system
 // page arrives in a later batch; this only wires the TOTP API.
@@ -20,7 +21,6 @@ export function initTotpSettings() {
   let dialog = null;
   let mode = "enable";
   let busy = false;
-  let currentSecret = "";
 
   const setError = (message) => showNotice(errorBox, message);
   const setOk = (message) => showNotice(okBox, message);
@@ -118,12 +118,12 @@ export function initTotpSettings() {
     elements.code.value = "";
     elements.code.disabled = false;
     elements.submit.disabled = false;
-    currentSecret = nextMode === "enable" ? String(data.secret || "") : "";
+    elements.codeLabel.textContent = nextMode === "enable" ? "验证码" : "验证码或恢复码";
     if (nextMode === "enable") {
       elements.title.textContent = "启用两步验证";
       elements.text.textContent =
-        "在身份验证器里添加账户，然后输入它显示的 6 位验证码。若无法扫码，请手动输入下面的密钥。";
-      elements.secret.textContent = groupSecret(data.secret || "");
+        "用身份验证器扫下面的二维码，或通过下面的链接添加账户，然后输入它显示的 6 位验证码。";
+      renderQr(elements.qr, data.uri || "");
       elements.uri.textContent = data.uri || "";
       elements.submit.textContent = "确认启用";
     } else if (nextMode === "disable") {
@@ -167,7 +167,7 @@ export function initTotpSettings() {
       return;
     }
     const code = elements.code.value.trim();
-    if (!code) return showDialogError(elements, "请输入验证码或恢复码");
+    if (!code) return showDialogError(elements, mode === "enable" ? "请输入验证码" : "请输入验证码或恢复码");
     const passwordValue = elements.password.value;
     if (mode !== "enable" && !passwordValue) return showDialogError(elements, "请填写当前密码");
 
@@ -236,18 +236,14 @@ export function initTotpSettings() {
         <h2 data-totp="title">启用两步验证</h2>
         <p class="subtle" data-totp="text"></p>
         <div class="stack" data-totp="secret-block" hidden>
-          <p class="subtle">密钥（在验证器里选择手动输入）：</p>
-          <pre data-totp="secret"></pre>
-          <div class="actions">
-            <button class="ghost" type="button" data-totp="copy-secret">复制密钥</button>
-          </div>
+          <div class="totp-qr" data-totp="qr" hidden></div>
           <p class="subtle">或使用这个链接添加账户：</p>
           <pre data-totp="uri"></pre>
           <div class="actions">
             <button class="ghost" type="button" data-totp="copy-uri">复制链接</button>
           </div>
         </div>
-        <label data-totp="code-field">验证码或恢复码
+        <label data-totp="code-field"><span data-totp="code-label">验证码或恢复码</span>
           <input data-totp="code" autocomplete="one-time-code" inputmode="numeric" maxlength="24" />
         </label>
         <label data-totp="password-field" hidden>当前密码
@@ -274,9 +270,6 @@ export function initTotpSettings() {
     dialog.addEventListener("close", () => document.body.classList.remove("modal-open"));
     dialog.querySelector("form").addEventListener("submit", submit);
     dialog.querySelector('[data-totp="cancel"]').addEventListener("click", closeDialog);
-    dialog.querySelector('[data-totp="copy-secret"]').addEventListener("click", () => {
-      copyWithToast(currentSecret, "密钥已复制");
-    });
     dialog.querySelector('[data-totp="copy-uri"]').addEventListener("click", () => {
       copyWithToast(dialogElements().uri.textContent, "链接已复制");
     });
@@ -292,8 +285,9 @@ export function initTotpSettings() {
       title: find("title"),
       text: find("text"),
       secretBlock: find("secret-block"),
-      secret: find("secret"),
+      qr: find("qr"),
       uri: find("uri"),
+      codeLabel: find("code-label"),
       codeField: find("code-field"),
       code: find("code"),
       passwordField: find("password-field"),
@@ -303,6 +297,21 @@ export function initTotpSettings() {
       error: find("error"),
       submit: find("submit"),
     };
+  }
+
+  function renderQr(container, uri) {
+    container.replaceChildren();
+    container.hidden = true;
+    if (!uri) return;
+    try {
+      const qr = qrcode(0, "M");
+      qr.addData(uri);
+      qr.make();
+      container.innerHTML = qr.createSvgTag(4, 8);
+      container.hidden = false;
+    } catch {
+      // QR is a convenience; the manual secret below always works.
+    }
   }
 
   function copyWithToast(value, message) {
@@ -332,6 +341,4 @@ export function initTotpSettings() {
   };
 }
 
-function groupSecret(secret) {
-  return String(secret || "").replace(/(.{4})/g, "$1 ").trim();
-}
+

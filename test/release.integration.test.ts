@@ -1284,11 +1284,17 @@ describe("two-factor login", () => {
     let setup: Record<string, unknown>;
     let enabled: Record<string, unknown>;
     try {
+      await expectStatus(
+        await call("/api/v1/auth/profile", jsonInit({ username: "Admin Display" }), state.cookie),
+        200,
+      );
       setup = await expectStatus(await call("/api/v1/auth/totp/setup", jsonInit({}), state.cookie), 200);
       state.secret = String(setup.secret);
       expect(state.secret).toMatch(/^[A-Z2-7]{32}$/);
       const uri = String(setup.otpauth_uri);
       expect(uri.startsWith("otpauth://totp/")).toBe(true);
+      // The authenticator label follows the live profile username, not the login name.
+      expect(uri).toContain("SMSinBox%3AAdmin%20Display");
       expect(uri).toContain(`secret=${state.secret}`);
       expect(uri).toContain("issuer=SMSinBox");
       expect(uri).toContain("digits=6");

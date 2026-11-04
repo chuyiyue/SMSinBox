@@ -586,6 +586,19 @@ describe("site consistency", () => {
     expect(settings).toContain("/api/v1/auth/totp/recovery");
     expect(settings).toContain("recovery_codes");
     expect(settings).not.toContain("console.log");
+    // Setup offers a scannable QR plus the otpauth link; the raw secret is
+    // never displayed, and the code field is labelled per mode.
+    expect(settings).toContain('data-totp="qr"');
+    expect(settings).toContain('data-totp="uri"');
+    expect(settings).toContain("复制链接");
+    expect(settings).not.toContain('data-totp="secret"');
+    expect(settings).not.toContain("复制密钥");
+    expect(settings).toContain("vendor/qrcode.mjs");
+    expect(settings).toContain('data-totp="code-label"');
+    expect(settings).toContain("codeLabel");
+    const components = readFileSync("public/css/components.css", "utf8");
+    expect(components).toContain("scrollbar-width: none");
+    expect(components).toContain(".totp-qr");
   });
 
   it("wires the GitHub login entry, binding panel, and custom avatar upload", () => {
