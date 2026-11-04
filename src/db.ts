@@ -1268,6 +1268,26 @@ export async function getMessage(
   return row ? revealMessage(row, contentKey) : null;
 }
 
+export async function deleteMessages(db: D1Database, userId: string, ids: string[]): Promise<number> {
+  let deleted = 0;
+  // Chunked so a maximal request stays well under D1's bound-parameter
+  // limit per statement.
+  for (let start = 0; start < ids.length; start += 50) {
+    const chunk = ids.slice(start, start + 50);
+    const placeholders = chunk.map(() => "?").join(", ");
+    const result = await db
+      .prepare(
+        `DELETE FROM messages
+         WHERE id IN (${placeholders})
+           AND device_id IN (SELECT id FROM devices WHERE user_id = ?)`,
+      )
+      .bind(...chunk, userId)
+      .run();
+    deleted += result.meta.changes ?? 0;
+  }
+  return deleted;
+}
+
 export async function purgeExpired(db: D1Database, now: number, retention: string): Promise<void> {
   const days = retentionDays(retention);
   const messageCutoff = now - days * 24 * 60 * 60 * 1000;

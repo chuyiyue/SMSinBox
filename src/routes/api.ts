@@ -18,6 +18,7 @@ import {
   countNotifyChannels,
   deleteApiToken,
   deleteDevice,
+  deleteMessages,
   deleteNotifyChannel,
   deleteOtherUserSessions,
   deleteSession,
@@ -223,6 +224,10 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
   if (path === "/api/v1/messages") {
     if (method !== "GET") return methodNotAllowed("GET");
     return list(request, env, url);
+  }
+  if (path === "/api/v1/messages/delete") {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return deleteMessagesHandler(request, env);
   }
   const messageMatch = /^\/api\/v1\/messages\/([^/]+)$/.exec(path);
   if (messageMatch?.[1]) {
@@ -674,6 +679,30 @@ async function detail(request: Request, env: Env, rawId: string): Promise<Respon
   const message = await getMessage(env.DB, user.id, id, resolveContentKey(env.CONTENT_KEY));
   if (!message) return json({ ok: false, error: "短信不存在" }, 404);
   return json({ ok: true, message });
+}
+
+async function deleteMessagesHandler(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  if (!body.value || typeof body.value !== "object" || Array.isArray(body.value)) {
+    return json({ ok: false, error: "请求体无效" }, 400);
+  }
+  const rawIds = (body.value as Record<string, unknown>).ids;
+  if (!Array.isArray(rawIds) || rawIds.length === 0 || rawIds.length > 100) {
+    return json({ ok: false, error: "请选择要删除的短信（一次 1 到 100 条）" }, 400);
+  }
+  const ids: string[] = [];
+  for (const raw of rawIds) {
+    if (typeof raw !== "string" || !raw.trim()) {
+      return json({ ok: false, error: "短信编号无效" }, 400);
+    }
+    ids.push(raw.trim());
+  }
+  const deleted = await deleteMessages(env.DB, user.id, ids);
+  logInfo({ message: "messages_deleted", user_id: user.id, requested: ids.length, deleted });
+  return json({ ok: true, deleted });
 }
 
 // Stored secrets (device push tokens, API tokens) are kept so the owner
