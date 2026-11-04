@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import pkg from "../package.json";
+import { pickDesignatedUser } from "../src/admin-user";
 import { hashPassword } from "../src/auth";
 import { SINGLE_USER_MERGED_KEY } from "../src/db";
 import { handleApi } from "../src/routes/api";
+import type { UserRecord } from "../src/types";
 
 const ADMIN_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const MEMBER_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -127,6 +129,24 @@ function loginRequest(username: string, password: string) {
     body: JSON.stringify({ username, password }),
   });
 }
+
+describe("pickDesignatedUser", () => {
+  const row = (id: string, username: string): UserRecord => ({
+    id,
+    username,
+    password_hash: "x",
+    role: "admin",
+    disabled_at: null,
+    created_at: 0,
+  });
+
+  it("matches ADMIN_USERNAME ignoring case", () => {
+    const users = [row("1", "alice"), row("2", "ChuYiyue")];
+    expect(pickDesignatedUser(users, "chuyiyue")?.id).toBe("2");
+    expect(pickDesignatedUser(users, "CHUYIYUE")?.id).toBe("2");
+    expect(pickDesignatedUser(users, "mallory")).toBeNull();
+  });
+});
 
 describe("single admin", () => {
   it("closes user list, create, role, and delete routes", async () => {

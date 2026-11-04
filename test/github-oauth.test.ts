@@ -158,11 +158,10 @@ function envFor(db: D1Database, extra: Record<string, string> = {}): Env {
     ASSETS: { fetch: async () => new Response("") },
     RETENTION_DAYS: "90",
     CONTENT_KEY: "",
-    ADMIN_USERNAME: "root",
+    ADMIN_USERNAME: "octocat",
     ADMIN_PASSWORD: "secret",
     GH_CLIENT_ID: "client-id",
     GH_CLIENT_SECRET: "client-secret",
-    ADMIN_GH_USERNAME: "octocat",
     ...extra,
   } as unknown as Env;
 }
@@ -264,7 +263,7 @@ describe("github oauth and avatar http", () => {
     const disabledCases: Array<Record<string, string>> = [
       { GH_CLIENT_ID: "" },
       { GH_CLIENT_SECRET: "  " },
-      { ADMIN_GH_USERNAME: "" },
+      { ADMIN_USERNAME: "" },
     ];
     for (const extra of disabledCases) {
       const disabled = await handleApi(new Request(`${ORIGIN}/api/v1/auth/config`), envFor(makeDb().db, extra));
@@ -276,7 +275,7 @@ describe("github oauth and avatar http", () => {
     const missing: Array<Record<string, string>> = [
       { GH_CLIENT_ID: "" },
       { GH_CLIENT_SECRET: "" },
-      { ADMIN_GH_USERNAME: "" },
+      { ADMIN_USERNAME: "" },
     ];
     for (const extra of missing) {
       const response = await handleApi(
@@ -417,7 +416,7 @@ describe("github oauth and avatar http", () => {
     expect(cookiePairs(response).smsinbox_session?.header).toContain("HttpOnly");
     expect(script.totpTickets).toBe(0);
     expect(script.users).toHaveLength(1);
-    expect(script.users[0]).toMatchObject({ username: "root", role: "admin", disabled_at: null });
+    expect(script.users[0]).toMatchObject({ username: "octocat", role: "admin", disabled_at: null });
     expect(script.users[0]?.password_hash.startsWith("pbkdf2-sha256$")).toBe(true);
     expect(await verifyPassword("secret", script.users[0]?.password_hash ?? "")).toBe(false);
     expect(script.meta.get("github_id")).toBe("42");
@@ -438,7 +437,7 @@ describe("github oauth and avatar http", () => {
     expect(me.status).toBe(200);
     expect(await me.json()).toMatchObject({
       user: {
-        username: "root",
+        username: "octocat",
         profile_username: "OctoCat",
         github: { login: "OctoCat", avatar_url: "https://avatars.githubusercontent.com/u/42" },
         avatar_data: null,
@@ -446,12 +445,12 @@ describe("github oauth and avatar http", () => {
     });
   });
 
-  it("uses the GitHub login as the username when ADMIN_USERNAME is unset", async () => {
+  it("matches the shared ADMIN_USERNAME case-insensitively and names the row after it", async () => {
     installGithub({ id: 42, login: "OctoCat", avatar_url: "https://avatars.githubusercontent.com/u/42" });
     const script = makeDb({ users: [], sessions: [] });
-    const response = await callback(script, "login", "state-token", { ADMIN_USERNAME: "" });
+    const response = await callback(script, "login", "state-token", { ADMIN_USERNAME: "OCTOCAT" });
     expect(response.status).toBe(302);
-    expect(script.users[0]?.username).toBe("OctoCat");
+    expect(script.users[0]?.username).toBe("OCTOCAT");
   });
 
   it("signs in an admin who already has TOTP without a challenge and keeps a custom profile", async () => {
