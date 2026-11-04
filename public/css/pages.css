@@ -17,8 +17,12 @@
   min-width: 0;
 }
 
+/* Fields grow to share the row: when one control leaves the bar (a
+   segment, a field), the others fill the space instead of leaving a
+   hole. Nothing in the bar is fixed-width except the segmented range,
+   which sizes to its labels. */
 .filters .filter-field {
-  flex: 0 1 170px;
+  flex: 1 1 170px;
   min-width: 140px;
 }
 
@@ -548,6 +552,24 @@
 .add-device-panel { display: grid; gap: 12px; }
 .add-device-panel .add-device-head { margin-bottom: 0; }
 .add-device-panel .lede { margin: 0; }
+/* Device groups + the card pin toggle. */
+.device-group-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 4px;
+}
+.device-group-head:first-child { margin-top: 0; }
+.device-group-name { font-weight: 600; font-size: var(--fs-md); }
+.device-group-count { color: var(--text-3); font-size: var(--fs-sm); }
+.device-group-more { margin-left: auto; }
+.device-pin { flex: none; color: var(--text-3); }
+.device-pin:hover { background: var(--bg-sunken); color: var(--text-1); }
+.device-pin.is-pinned { color: var(--accent); }
+.device-pin.is-pinned:hover { background: var(--bg-sunken); color: var(--accent); }
+.device-pin.is-pinned svg { fill: currentColor; }
+
 .add-device-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .add-device-form input { flex: 1 1 220px; min-width: 0; }
 .add-device-form .select-field { flex: 1 1 150px; min-width: 0; }

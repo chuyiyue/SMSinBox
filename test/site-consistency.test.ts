@@ -45,7 +45,8 @@ describe("site consistency", () => {
     expect(boot).toContain('src="/logo.png"');
     expect(boot).toContain("SMSinBox");
     expect(boot).toContain('id="sidebar-devices"');
-    expect(boot).toContain('id="sidebar-devices-toggle"');
+    // The device section is a plain capped list now: no collapse toggle.
+    expect(boot).not.toContain("sidebar-devices-toggle");
     // The boot IIFE must invoke initSidebarChrome() only after the
     // SIDEBAR_CHROME assignment has executed (var hoisting trap).
     expect(boot.indexOf("initSidebarChrome();")).toBeGreaterThan(boot.indexOf("var SIDEBAR_CHROME"));
@@ -200,9 +201,12 @@ describe("site consistency", () => {
     const css = readFileSync("public/css/shell.css", "utf8");
     expect(boot).toContain('row.className = "sidebar-brand-row"');
     expect(css).toMatch(/\.sidebar-label-row \{[\s\S]*?margin: 0 12px 6px;/);
-    expect(css).toMatch(/\.sidebar-section-toggle \{[\s\S]*?flex: 1 1 auto;/);
+    // The device section header is a plain label now (no collapse toggle):
+    // it keeps the same inset as the device rows below it.
+    expect(css).toMatch(/\.sidebar-label \{[\s\S]*?padding: 2px 12px;/);
+    expect(css).not.toContain(".sidebar-section-toggle");
     // No add-device shortcut in the sidebar: adding happens on the devices
-    // page, and the section toggle spans the full row on its own.
+    // page.
     expect(css).not.toContain(".sidebar-add");
     for (const page of pages) {
       expect(readFileSync(page, "utf8"), page).not.toContain("sidebar-add");

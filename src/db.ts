@@ -7,6 +7,7 @@ import type {
   ApiTokenRecord,
   CodeSource,
   DeviceRecord,
+  DeviceGroupView,
   DeviceView,
   ListedSession,
   MessageRecord,
@@ -634,7 +635,7 @@ export async function listDevices(
 ): Promise<DeviceView[]> {
   const result = await db
     .prepare(
-      `SELECT id, name, platform, created_at, last_seen_at, push_token_hash, push_revoked_at, push_token_enc
+      `SELECT id, name, platform, created_at, last_seen_at, push_token_hash, push_revoked_at, push_token_enc, pinned_at, group_id
        FROM devices WHERE user_id = ?
        ORDER BY created_at DESC`,
     )
@@ -648,6 +649,8 @@ export async function listDevices(
       push_token_hash: string | null;
       push_revoked_at: number | null;
       push_token_enc: string | null;
+      pinned_at: number | null;
+      group_id: string | null;
     }>();
   return Promise.all(
     result.results.map(async (row) => {
@@ -663,6 +666,8 @@ export async function listDevices(
         platform: row.platform,
         created_at: row.created_at,
         last_seen_at: row.last_seen_at,
+        pinned_at: row.pinned_at ?? null,
+        group_id: row.group_id ?? null,
         push,
         push_url: pushUrl,
       };
@@ -793,6 +798,129 @@ export async function updateDeviceName(
   await db
     .prepare("UPDATE devices SET name = ? WHERE id = ? AND user_id = ?")
     .bind(name, deviceId, userId)
+    .run();
+  return true;
+}
+
+// The sidebar shows at most this many pinned devices.
+export const MAX_PINNED_DEVICES = 5;
+
+export async function countPinnedDevices(db: D1Database, userId: string): Promise<number> {
+  const row = await db
+    .prepare("SELECT COUNT(*) AS total FROM devices WHERE user_id = ? AND pinned_at IS NOT NULL")
+    .bind(userId)
+    .first<{ total: number }>();
+  return Number(row?.total ?? 0);
+}
+
+// Returns false when the device is not the user's.
+export async function setDevicePinned(
+  db: D1Database,
+  userId: string,
+  deviceId: string,
+  pinnedAt: number | null,
+): Promise<boolean> {
+  const owned = await findDeviceForUser(db, userId, deviceId);
+  if (!owned) return false;
+  await db
+    .prepare("UPDATE devices SET pinned_at = ? WHERE id = ? AND user_id = ?")
+    .bind(pinnedAt, deviceId, userId)
+    .run();
+  return true;
+}
+
+export async function isDevicePinned(db: D1Database, userId: string, deviceId: string): Promise<boolean> {
+  const row = await db
+    .prepare("SELECT pinned_at FROM devices WHERE id = ? AND user_id = ?")
+    .bind(deviceId, userId)
+    .first<{ pinned_at: number | null }>();
+  return row != null && row.pinned_at != null;
+}
+
+export async function listDeviceGroups(db: D1Database, userId: string): Promise<DeviceGroupView[]> {
+  const result = await db
+    .prepare(
+      `SELECT g.id, g.name, g.created_at, COUNT(d.id) AS device_count
+       FROM device_groups g
+       LEFT JOIN devices d ON d.group_id = g.id AND d.user_id = g.user_id
+       WHERE g.user_id = ?
+       GROUP BY g.id
+       ORDER BY g.created_at ASC`,
+    )
+    .bind(userId)
+    .all<{ id: string; name: string; created_at: number; device_count: number }>();
+  return result.results.map((row) => ({
+    id: row.id,
+    name: row.name,
+    created_at: row.created_at,
+    device_count: Number(row.device_count ?? 0),
+  }));
+}
+
+export async function createDeviceGroup(
+  db: D1Database,
+  group: { id: string; userId: string; name: string; createdAt: number },
+): Promise<void> {
+  await db
+    .prepare("INSERT INTO device_groups (id, user_id, name, created_at) VALUES (?, ?, ?, ?)")
+    .bind(group.id, group.userId, group.name, group.createdAt)
+    .run();
+}
+
+export async function findDeviceGroup(
+  db: D1Database,
+  userId: string,
+  groupId: string,
+): Promise<{ id: string; name: string } | null> {
+  return db
+    .prepare("SELECT id, name FROM device_groups WHERE id = ? AND user_id = ?")
+    .bind(groupId, userId)
+    .first<{ id: string; name: string }>();
+}
+
+export async function renameDeviceGroup(
+  db: D1Database,
+  userId: string,
+  groupId: string,
+  name: string,
+): Promise<boolean> {
+  const owned = await findDeviceGroup(db, userId, groupId);
+  if (!owned) return false;
+  await db
+    .prepare("UPDATE device_groups SET name = ? WHERE id = ? AND user_id = ?")
+    .bind(name, groupId, userId)
+    .run();
+  return true;
+}
+
+// Deleting a group ungroups its devices; it never deletes devices.
+export async function deleteDeviceGroup(db: D1Database, userId: string, groupId: string): Promise<boolean> {
+  const owned = await findDeviceGroup(db, userId, groupId);
+  if (!owned) return false;
+  await db.batch([
+    db.prepare("UPDATE devices SET group_id = NULL WHERE group_id = ? AND user_id = ?").bind(groupId, userId),
+    db.prepare("DELETE FROM device_groups WHERE id = ? AND user_id = ?").bind(groupId, userId),
+  ]);
+  return true;
+}
+
+// groupId null files the device under "ungrouped". Returns false when the
+// device (or a non-null group) is not the user's.
+export async function setDeviceGroup(
+  db: D1Database,
+  userId: string,
+  deviceId: string,
+  groupId: string | null,
+): Promise<boolean> {
+  const owned = await findDeviceForUser(db, userId, deviceId);
+  if (!owned) return false;
+  if (groupId !== null) {
+    const group = await findDeviceGroup(db, userId, groupId);
+    if (!group) return false;
+  }
+  await db
+    .prepare("UPDATE devices SET group_id = ? WHERE id = ? AND user_id = ?")
+    .bind(groupId, deviceId, userId)
     .run();
   return true;
 }

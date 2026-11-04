@@ -27,6 +27,18 @@ export interface ReceiveTime {
   at: number | null;
 }
 
+export const SIDEBAR_DEVICE_LIMIT: number;
+
+export interface SidebarSelection<T> {
+  shown: T[];
+  hasMore: boolean;
+}
+
+export function selectSidebarDevices<T extends { id?: unknown; pinned_at?: number | null }>(
+  devices: readonly T[] | null | undefined,
+  limit?: number,
+): SidebarSelection<T>;
+
 export function receiveTime(
   device: { last_seen_at?: number | null } | null | undefined,
   latest: { received_at?: number | null } | null | undefined,

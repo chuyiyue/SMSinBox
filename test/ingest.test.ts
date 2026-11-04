@@ -35,6 +35,8 @@ type DeviceRow = {
   push_token_hash: string | null;
   push_revoked_at: number | null;
   push_token_enc: string | null;
+  pinned_at?: number | null;
+  group_id?: string | null;
 };
 
 type MessageRow = {
@@ -183,6 +185,8 @@ function createDb() {
                   push_token_hash: device.push_token_hash,
                   push_revoked_at: device.push_revoked_at,
                   push_token_enc: device.push_token_enc,
+                  pinned_at: device.pinned_at ?? null,
+                  group_id: device.group_id ?? null,
                 })),
             };
           }

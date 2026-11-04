@@ -7,6 +7,7 @@ import {
   latestByDevice,
   platformFromPreselect,
   platformFromReport,
+  selectSidebarDevices,
   pushActions,
   pushConfirm,
   receiveTime,
@@ -98,6 +99,25 @@ describe("device panel status", () => {
       { device_id: DEVICE.id, reported_device: "", received_at: 20 },
     );
     expect(silent.platform).toEqual({ key: "preset", label: "路由器" });
+  });
+
+  it("caps the sidebar list at five and prefers pinned devices", () => {
+    const mk = (id: string, pinned_at: number | null = null) => ({ id, pinned_at });
+    const seven = ["a", "b", "c", "d", "e", "f", "g"].map((id) => mk(id));
+    const plain = selectSidebarDevices(seven);
+    expect(plain.shown.map((d) => d.id)).toEqual(["a", "b", "c", "d", "e"]);
+    expect(plain.hasMore).toBe(true);
+
+    const five = selectSidebarDevices(seven.slice(0, 5));
+    expect(five.shown).toHaveLength(5);
+    expect(five.hasMore).toBe(false);
+
+    const pinned = selectSidebarDevices([mk("a"), mk("b", 3), mk("c"), mk("d", 1), mk("e"), mk("f"), mk("g")]);
+    expect(pinned.shown.map((d) => d.id)).toEqual(["b", "d"]);
+    expect(pinned.hasMore).toBe(true);
+
+    expect(selectSidebarDevices([])).toEqual({ shown: [], hasMore: false });
+    expect(selectSidebarDevices(null)).toEqual({ shown: [], hasMore: false });
   });
 
   it("shows concise device status values", () => {

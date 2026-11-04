@@ -78,6 +78,18 @@ export function platformFromPreselect(value) {
   return null;
 }
 
+// The sidebar device list is a plain capped list: the owner's pinned
+// devices when any exist, otherwise the first devices in list order.
+// hasMore tells the caller to render the ellipsis row to the full list.
+export const SIDEBAR_DEVICE_LIMIT = 5;
+
+export function selectSidebarDevices(devices, limit = SIDEBAR_DEVICE_LIMIT) {
+  const all = (devices || []).filter((device) => device && device.id);
+  const pinned = all.filter((device) => device.pinned_at != null);
+  const shown = (pinned.length ? pinned : all).slice(0, Math.max(0, limit));
+  return { shown, hasMore: all.length > shown.length };
+}
+
 export function receiveTime(device, latest) {
   const at = Number(latest?.received_at);
   if (Number.isFinite(at) && at > 0) return { kind: "message", at };
