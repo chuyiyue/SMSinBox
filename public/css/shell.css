@@ -262,6 +262,9 @@
   gap: 4px;
   margin-top: 8px;
   padding-top: 12px;
+  /* Matches the brand row's right inset so the icon-only logout button
+     lines up with the collapse button above it. */
+  padding-right: 4px;
   border-top: 1px solid var(--border);
 }
 
@@ -322,11 +325,16 @@
   font-weight: 600;
 }
 
+/* Icon-only, same 30px square as the collapse button: the freed width
+   goes to the account name, which truncates long before this does. */
 .account-logout {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
   flex: none;
-  justify-content: flex-start;
-  min-height: 40px;
-  padding: 0 10px;
+  padding: 0;
+  justify-content: center;
   color: var(--sidebar-text-muted);
 }
 

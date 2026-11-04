@@ -47,7 +47,6 @@
     "</a>" +
     '<button class="account-logout ghost" type="button" data-logout title="退出登录" aria-label="退出登录">' +
     '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-log-out"/></svg>' +
-    '<span class="btn-label">退出登录</span>' +
     "</button>" +
     "</div>";
 
