@@ -318,6 +318,49 @@ describe("notification text and config", () => {
     expect(JSON.stringify(failed)).not.toContain("re_bad");
   });
 
+  it("parses, masks and delivers NotifyX channels without leaking the key", async () => {
+    const parsed = parseChannelInput({ kind: "notifyx", api_key: "nxkey1234567890" });
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.config).toEqual({ api_key: "nxkey1234567890" });
+      expect(redactConfig(parsed.kind, parsed.config)).toEqual({ api_key: "****7890" });
+    }
+    expect(parseChannelInput({ kind: "notifyx", api_key: "" }).ok).toBe(false);
+    expect(parseChannelInput({ kind: "notifyx", api_key: "has space" }).ok).toBe(false);
+
+    const calls: Array<{ url: string; body: string }> = [];
+    const results = await deliverChannels(
+      [channel({ kind: "notifyx", config: { api_key: "nxkey1234567890" } })],
+      { title: "验证码 123456", text: "正文内容" },
+      {
+        fetch: async (input, init) => {
+          calls.push({ url: String(input), body: String(init?.body ?? "") });
+          return Response.json({ success: true, message: "发送成功", data: { messageId: "msg_1", channels: ["wecom"] } });
+        },
+        openSmtp: async () => {
+          throw new Error("unused");
+        },
+      },
+    );
+    expect(results[0]?.ok).toBe(true);
+    expect(calls[0]?.url).toBe("https://www.notifyx.cn/api/v1/send/nxkey1234567890");
+    expect(JSON.parse(calls[0]?.body ?? "{}")).toEqual({ title: "验证码 123456", content: "正文内容" });
+
+    const failed = await deliverChannels(
+      [channel({ kind: "notifyx", config: { api_key: "nxkey1234567890" } })],
+      { title: "t", text: "x" },
+      {
+        fetch: async () => Response.json({ success: false, error: "Invalid API key" }, { status: 401 }),
+        openSmtp: async () => {
+          throw new Error("unused");
+        },
+      },
+    );
+    expect(failed[0]?.ok).toBe(false);
+    expect(failed[0]?.error).toBe("Invalid API key");
+    expect(JSON.stringify(failed)).not.toContain("nxkey1234567890");
+  });
+
   it("records webhook delivery results in push logs using the webhook kind", async () => {
     const calls: unknown[][] = [];
     const db = {
