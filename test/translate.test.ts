@@ -5,9 +5,11 @@ import {
   M2M_MODEL,
   M2M_TARGET_LANG,
   SOURCE_LANG_LABEL,
+  SOURCE_LANG_LABEL_EN,
   TRANSLATE_TIMEOUT_MS,
   detectSourceLang,
   sourceLangLabel,
+  sourceLangLabelEn,
   translateSmsContent,
 } from "../src/translate";
 
@@ -82,8 +84,9 @@ describe("M2M_LANG_NAME", () => {
       vi: "vietnamese",
       id: "indonesian",
       "zh-Hant": "chinese",
+      "zh-Hans": "chinese",
     });
-    expect(M2M_TARGET_LANG).toBe("chinese");
+    expect(M2M_TARGET_LANG).toEqual({ "zh-CN": "chinese", en: "english" });
     expect(M2M_MODEL).toBe("@cf/meta/m2m100-1.2b");
     expect(TRANSLATE_TIMEOUT_MS).toBe(6_000);
   });
@@ -111,12 +114,43 @@ describe("SOURCE_LANG_LABEL", () => {
       vi: "越南语",
       id: "印尼语",
       "zh-Hant": "繁体中文",
+      "zh-Hans": "简体中文",
     });
     expect(Object.keys(SOURCE_LANG_LABEL).sort()).toEqual(Object.keys(M2M_LANG_NAME).sort());
     expect(sourceLangLabel("ja")).toBe("日语");
     expect(sourceLangLabel("pt-BR")).toBe("pt-BR");
     expect(sourceLangLabel(null)).toBe("未知");
     expect(sourceLangLabel("")).toBe("未知");
+  });
+
+  it("names every code in English for an English system language", () => {
+    expect(SOURCE_LANG_LABEL_EN).toEqual({
+      en: "English",
+      ja: "Japanese",
+      ko: "Korean",
+      ru: "Russian",
+      uk: "Ukrainian",
+      th: "Thai",
+      ar: "Arabic",
+      hi: "Hindi",
+      el: "Greek",
+      he: "Hebrew",
+      fr: "French",
+      de: "German",
+      es: "Spanish",
+      it: "Italian",
+      pt: "Portuguese",
+      nl: "Dutch",
+      vi: "Vietnamese",
+      id: "Indonesian",
+      "zh-Hant": "Traditional Chinese",
+      "zh-Hans": "Simplified Chinese",
+    });
+    expect(Object.keys(SOURCE_LANG_LABEL_EN).sort()).toEqual(Object.keys(M2M_LANG_NAME).sort());
+    expect(sourceLangLabelEn("zh-Hans")).toBe("Simplified Chinese");
+    expect(sourceLangLabelEn("pt-BR")).toBe("pt-BR");
+    expect(sourceLangLabelEn(null)).toBe("Unknown");
+    expect(sourceLangLabelEn("")).toBe("Unknown");
   });
 });
 
@@ -225,5 +259,84 @@ describe("translateSmsContent", () => {
     const pending = translateSmsContent(envWithAi(aiBinding(run)), ENGLISH);
     await vi.advanceTimersByTimeAsync(TRANSLATE_TIMEOUT_MS);
     await expect(pending).resolves.toEqual({ translated: CHINESE, sourceLang: "en" });
+  });
+});
+
+describe("translateSmsContent with an English system language", () => {
+  const SIMPLIFIED = "您的包裹今天早上已到达大堂。";
+  const TRADITIONAL = "您的驗證碼是 123456，請勿洩露給他人。";
+  const JAPANESE = "お客様の確認コードは 482913 です。";
+  const ENGLISH_RESULT = "Your package arrived at the lobby this morning.";
+
+  it("skips English messages without calling the model", async () => {
+    const run = vi.fn(async () => ({ translated_text: "不应出现" }));
+    const result = await translateSmsContent(envWithAi(aiBinding(run)), ENGLISH, "en");
+    expect(result).toBeNull();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("translates simplified Chinese into English via m2m100", async () => {
+    const run = vi.fn(async (...args: unknown[]) => {
+      expect(args[0]).toBe(M2M_MODEL);
+      return { translated_text: ENGLISH_RESULT };
+    });
+    const result = await translateSmsContent(envWithAi(aiBinding(run)), SIMPLIFIED, "en");
+    expect(result).toEqual({ translated: ENGLISH_RESULT, sourceLang: "zh-Hans" });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith(M2M_MODEL, {
+      text: SIMPLIFIED,
+      source_lang: "chinese",
+      target_lang: "english",
+    });
+  });
+
+  it("translates traditional Chinese and other languages into English", async () => {
+    const run = vi.fn(async () => ({ translated_text: ENGLISH_RESULT }));
+    await expect(translateSmsContent(envWithAi(aiBinding(run)), TRADITIONAL, "en")).resolves.toEqual({
+      translated: ENGLISH_RESULT,
+      sourceLang: "zh-Hant",
+    });
+    expect(run).toHaveBeenCalledWith(M2M_MODEL, {
+      text: TRADITIONAL,
+      source_lang: "chinese",
+      target_lang: "english",
+    });
+    await expect(translateSmsContent(envWithAi(aiBinding(run)), JAPANESE, "en")).resolves.toEqual({
+      translated: ENGLISH_RESULT,
+      sourceLang: "ja",
+    });
+    expect(run).toHaveBeenCalledWith(M2M_MODEL, {
+      text: JAPANESE,
+      source_lang: "japanese",
+      target_lang: "english",
+    });
+  });
+
+  it("prompts llama in English when m2m100 fails for an English target", async () => {
+    // Short enough to stay within the llama path's 3x length cap.
+    const llamaResult = "Your package arrived this morning.";
+    const run = vi.fn(async (...args: unknown[]) => {
+      if (args[0] === M2M_MODEL) throw new Error("m2m down");
+      return { response: llamaResult };
+    });
+    await expect(translateSmsContent(envWithAi(aiBinding(run)), SIMPLIFIED, "en")).resolves.toEqual({
+      translated: llamaResult,
+      sourceLang: "zh-Hans",
+    });
+    expect(run).toHaveBeenCalledWith(
+      AI_MODEL,
+      expect.objectContaining({
+        messages: [
+          { role: "system", content: expect.stringContaining("into English") },
+          { role: "user", content: SIMPLIFIED },
+        ],
+      }),
+    );
+  });
+
+  it("still skips content with too little signal", async () => {
+    const run = vi.fn(async () => ({ translated_text: "不应出现" }));
+    await expect(translateSmsContent(envWithAi(aiBinding(run)), "482913", "en")).resolves.toBeNull();
+    expect(run).not.toHaveBeenCalled();
   });
 });

@@ -1112,18 +1112,25 @@ export async function setNotifyChannelEnabled(
   return (result.meta.changes ?? 0) > 0;
 }
 
-// The single administrator's preference. Callers treat a throw (missing
-// column, D1 error) as off so ingest still stores the SMS.
-export async function readAdminTranslateEnabled(db: D1Database): Promise<boolean> {
+// The single administrator's translation preferences: the on/off switch
+// and the UI locale, which is also the translation target language.
+// Callers treat a throw (missing column, D1 error) as off so ingest still
+// stores the SMS. Anything other than "en" normalizes to "zh-CN".
+export async function readAdminTranslatePrefs(
+  db: D1Database,
+): Promise<{ enabled: boolean; locale: "zh-CN" | "en" }> {
   const row = await db
     .prepare(
-      `SELECT translate_enabled FROM users
+      `SELECT translate_enabled, locale FROM users
        WHERE role = 'admin' AND disabled_at IS NULL
        ORDER BY created_at ASC
        LIMIT 1`,
     )
-    .first<{ translate_enabled: number | null }>();
-  return row?.translate_enabled === 1;
+    .first<{ translate_enabled: number | null; locale: string | null }>();
+  return {
+    enabled: row?.translate_enabled === 1,
+    locale: row?.locale === "en" ? "en" : "zh-CN",
+  };
 }
 
 export async function setUserTranslateEnabled(db: D1Database, userId: string, enabled: boolean): Promise<void> {

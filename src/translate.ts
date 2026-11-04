@@ -4,12 +4,20 @@ import { errorText, logError } from "./log";
 // Many-to-many translation. Cloudflare's published example passes full
 // language names ("english", "french"), not ISO codes.
 export const M2M_MODEL = "@cf/meta/m2m100-1.2b";
-export const M2M_TARGET_LANG = "chinese";
 export const TRANSLATE_TIMEOUT_MS = 6_000;
 
-// Language code from detectSourceLang → the name m2m100 expects.
-// zh-Hant shares the model's single Chinese name; a result that still
-// equals the traditional source fails validation and falls through to Llama.
+// Translations always land in the system language: the UI locale of the
+// user who owns the inbox. m2m100 target_lang takes the model's full
+// language name for that locale.
+export type TranslateTarget = "zh-CN" | "en";
+export const M2M_TARGET_LANG: Record<TranslateTarget, string> = {
+  "zh-CN": "chinese",
+  en: "english",
+};
+
+// Language code from detection → the name m2m100 expects. Both Chinese
+// codes share the model's single Chinese name; a result that still equals
+// the source fails validation and falls through to Llama.
 export const M2M_LANG_NAME: Record<string, string> = {
   en: "english",
   ja: "japanese",
@@ -30,6 +38,7 @@ export const M2M_LANG_NAME: Record<string, string> = {
   vi: "vietnamese",
   id: "indonesian",
   "zh-Hant": "chinese",
+  "zh-Hans": "chinese",
 };
 
 // Shown on bilingual pushes. Unknown codes fall back to the code itself.
@@ -53,11 +62,42 @@ export const SOURCE_LANG_LABEL: Record<string, string> = {
   vi: "越南语",
   id: "印尼语",
   "zh-Hant": "繁体中文",
+  "zh-Hans": "简体中文",
 };
 
 export function sourceLangLabel(code: string | null | undefined): string {
   if (!code) return "未知";
   return SOURCE_LANG_LABEL[code] ?? code;
+}
+
+// English names for the same codes, used when the system language is
+// English. Unknown codes fall back to the code itself.
+export const SOURCE_LANG_LABEL_EN: Record<string, string> = {
+  en: "English",
+  ja: "Japanese",
+  ko: "Korean",
+  ru: "Russian",
+  uk: "Ukrainian",
+  th: "Thai",
+  ar: "Arabic",
+  hi: "Hindi",
+  el: "Greek",
+  he: "Hebrew",
+  fr: "French",
+  de: "German",
+  es: "Spanish",
+  it: "Italian",
+  pt: "Portuguese",
+  nl: "Dutch",
+  vi: "Vietnamese",
+  id: "Indonesian",
+  "zh-Hant": "Traditional Chinese",
+  "zh-Hans": "Simplified Chinese",
+};
+
+export function sourceLangLabelEn(code: string | null | undefined): string {
+  if (!code) return "Unknown";
+  return SOURCE_LANG_LABEL_EN[code] ?? code;
 }
 
 const LLAMA_MAX_TOKENS = 1024;
@@ -162,15 +202,38 @@ export function detectSourceLang(content: string): string | null {
   }
 }
 
+// The source language to translate from for a given target, or null for
+// "already in the system language / not enough signal". detectSourceLang
+// returns null for simplified Chinese, which is the skip answer for a
+// zh-CN target — but for an English target it is exactly what still needs
+// translating, so it is re-checked and reported as "zh-Hans".
+function sourceForTarget(content: string, target: TranslateTarget): string | null {
+  const detected = detectSourceLang(content);
+  if (target === "zh-CN") return detected;
+  if (detected === "en") return null;
+  if (detected) return detected;
+  return isSimplifiedChinese(content) ? "zh-Hans" : null;
+}
+
+function isSimplifiedChinese(content: string): boolean {
+  const cleaned = stripNoise(content);
+  if (hasTraditional(cleaned)) return false;
+  return countScripts(cleaned).han >= 4;
+}
+
 // Never throws. A missing binding, timeout, or rejected model output is null
 // so ingest can store the original SMS unchanged.
-export async function translateSmsContent(env: Env, content: string): Promise<SmsTranslation | null> {
-  const sourceLang = detectSourceLang(content);
+export async function translateSmsContent(
+  env: Env,
+  content: string,
+  target: TranslateTarget = "zh-CN",
+): Promise<SmsTranslation | null> {
+  const sourceLang = sourceForTarget(content, target);
   if (!sourceLang) return null;
   try {
-    const primary = await runM2M(env.AI, content, sourceLang);
+    const primary = await runM2M(env.AI, content, sourceLang, target);
     if (primary.ok) return { translated: primary.text, sourceLang };
-    const fallback = await runLlama(env.AI, content, sourceLang);
+    const fallback = await runLlama(env.AI, content, sourceLang, target);
     if (fallback.ok) return { translated: fallback.text, sourceLang };
     const error = `${primary.error}; ${fallback.error}`.slice(0, 180);
     logError({ message: "sms_translate_failed", source_lang: sourceLang, error });
@@ -183,7 +246,12 @@ export async function translateSmsContent(env: Env, content: string): Promise<Sm
 
 type Attempt = { ok: true; text: string } | { ok: false; error: string };
 
-async function runM2M(ai: Ai | undefined, content: string, sourceLang: string): Promise<Attempt> {
+async function runM2M(
+  ai: Ai | undefined,
+  content: string,
+  sourceLang: string,
+  target: TranslateTarget,
+): Promise<Attempt> {
   if (!ai || typeof ai.run !== "function") return { ok: false, error: "ai_unavailable" };
   const sourceName = M2M_LANG_NAME[sourceLang];
   if (!sourceName) return { ok: false, error: "unknown_lang" };
@@ -192,7 +260,7 @@ async function runM2M(ai: Ai | undefined, content: string, sourceLang: string): 
       ai.run(M2M_MODEL, {
         text: content,
         source_lang: sourceName,
-        target_lang: M2M_TARGET_LANG,
+        target_lang: M2M_TARGET_LANG[target],
       }),
       TRANSLATE_TIMEOUT_MS,
     );
@@ -204,13 +272,18 @@ async function runM2M(ai: Ai | undefined, content: string, sourceLang: string): 
   }
 }
 
-async function runLlama(ai: Ai | undefined, content: string, sourceLang: string): Promise<Attempt> {
+async function runLlama(
+  ai: Ai | undefined,
+  content: string,
+  sourceLang: string,
+  target: TranslateTarget,
+): Promise<Attempt> {
   if (!ai || typeof ai.run !== "function") return { ok: false, error: "ai_unavailable" };
   try {
     const output = await withTimeout(
       ai.run(LLAMA_MODEL, {
         messages: [
-          { role: "system", content: llamaSystemPrompt(sourceLang) },
+          { role: "system", content: llamaSystemPrompt(sourceLang, target) },
           { role: "user", content },
         ],
         temperature: 0,
@@ -229,7 +302,15 @@ async function runLlama(ai: Ai | undefined, content: string, sourceLang: string)
   }
 }
 
-function llamaSystemPrompt(sourceLang: string): string {
+function llamaSystemPrompt(sourceLang: string, target: TranslateTarget): string {
+  if (target === "en") {
+    return [
+      "You are an SMS translator.",
+      `Translate the SMS message given by the user from ${sourceLang} into English.`,
+      "Output only the translation itself: no explanations, no quotes, no prefix or suffix, and not the original text.",
+      "If the message is already in English, output the original text unchanged.",
+    ].join(" ");
+  }
   return [
     "你是短信翻译器。",
     `把用户给出的短信正文从 ${sourceLang} 翻译成简体中文。`,
@@ -257,7 +338,7 @@ function readLlama(output: unknown): string | null {
 
 function cleanTranslation(raw: string): string {
   let text = raw.trim();
-  text = text.replace(/^(?:译文|翻译|简体中文|簡體中文)\s*[:：]\s*/u, "");
+  text = text.replace(/^(?:译文|翻译|简体中文|簡體中文|Translation)\s*[:：]\s*/u, "");
   if (
     (text.startsWith("「") && text.endsWith("」")) ||
     (text.startsWith('"') && text.endsWith('"')) ||

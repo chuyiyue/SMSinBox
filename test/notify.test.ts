@@ -193,6 +193,56 @@ describe("notification text and config", () => {
     expect(unknown.text).toContain("（原文为pt-BR）\n译文\n\n（原文）\noriginal");
   });
 
+  it("frames the translation in English when the system language is en", () => {
+    const note = renderNotification({
+      from: "10086",
+      content: "您的包裹今天早上已到达大堂。",
+      code: null,
+      deviceName: "pixel",
+      receivedAt: Date.UTC(2026, 0, 2, 3, 4, 5),
+      translatedContent: "Your package arrived at the lobby this morning.",
+      sourceLang: "zh-Hans",
+      locale: "en",
+    });
+    expect(note.text).toBe(
+      [
+        "pixel · 10086",
+        "2026-01-02T03:04:05.000Z",
+        "(Originally in Simplified Chinese)",
+        "Your package arrived at the lobby this morning.",
+        "",
+        "(Original)",
+        "您的包裹今天早上已到达大堂。",
+      ].join("\n"),
+    );
+
+    const japanese = renderNotification({
+      from: "10086",
+      content: "お客様の確認コードは 482913 です。",
+      code: "482913",
+      deviceName: "pixel",
+      receivedAt: Date.UTC(2026, 0, 2, 3, 4, 5),
+      translatedContent: "Your confirmation code is 482913.",
+      sourceLang: "ja",
+      locale: "en",
+    });
+    expect(japanese.text).toContain(
+      "(Originally in Japanese)\nYour confirmation code is 482913.\n\n(Original)\nお客様の確認コードは 482913 です。",
+    );
+
+    const unknown = renderNotification({
+      from: "10086",
+      content: "original",
+      code: null,
+      deviceName: "pixel",
+      receivedAt: Date.UTC(2026, 0, 2, 3, 4, 5),
+      translatedContent: "translation",
+      sourceLang: null,
+      locale: "en",
+    });
+    expect(unknown.text).toContain("(Originally in Unknown)\ntranslation\n\n(Original)\noriginal");
+  });
+
   it("accepts the supported channels and rejects unsafe endpoints", () => {
     expect(parseChannelInput({ kind: "telegram", bot_token: TOKEN, chat_id: "-100123" }).ok).toBe(true);
     expect(parseChannelInput({ kind: "telegram", bot_token: TOKEN, chat_id: "@alerts" }).ok).toBe(true);
