@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="robots" content="noindex, nofollow" />
-    <title>收件箱 · SMSinBox</title>
+    <title data-i18n="inbox.documentTitle">收件箱 · SMSinBox</title>
     <link rel="icon" href="/logo.png" type="image/png" />
     <script src="/theme-boot.js"></script>
     <link rel="stylesheet" href="/style.css" />
@@ -17,63 +17,63 @@
       </aside>
       <div class="main">
         <header class="topbar">
-          <button id="menu-toggle" class="ghost icon-btn" type="button" aria-label="打开导航" aria-expanded="false" aria-controls="sidebar">
+          <button id="menu-toggle" class="ghost icon-btn" type="button" aria-label="打开导航" aria-expanded="false" aria-controls="sidebar" data-i18n-attr="aria-label:shell.openNav">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-menu"/></svg>
           </button>
-          <h1 class="topbar-title">收件箱</h1>
+          <h1 class="topbar-title" data-i18n="nav.inbox">收件箱</h1>
           <p id="live-status" class="live-status" role="status"><span class="live-dot" aria-hidden="true"></span><span id="live-status-text">正在连接</span></p>
           <div class="topbar-actions">
             <button class="ghost icon-btn" type="button" data-theme-toggle aria-label="主题：自动">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-sun"/></svg>
               <span class="btn-label sr-only">主题：自动</span>
             </button>
-            <button id="refresh" class="ghost icon-btn" type="button" aria-label="刷新">
+            <button id="refresh" class="ghost icon-btn" type="button" aria-label="刷新" data-i18n-attr="aria-label:shell.refresh">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-refresh"/></svg>
             </button>
           </div>
         </header>
         <div class="page">
           <div class="filterbar">
-            <button id="open-filters" class="secondary mobile-filter-toggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="筛选" title="筛选">
+            <button id="open-filters" class="secondary mobile-filter-toggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="筛选" title="筛选" data-i18n-attr="aria-label:inbox.filter;title:inbox.filter">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-filter"/></svg>
             </button>
             <label class="filter-field filter-search-field">
               <span class="filter-label" id="summary">共 0 条</span>
               <div class="filter-search">
                 <svg class="icon filter-search-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-search"/></svg>
-                <input class="topbar-search" type="search" name="q" form="filters" maxlength="80" placeholder="搜索正文、号码或验证码" aria-label="搜索短信" />
+                <input class="topbar-search" type="search" name="q" form="filters" maxlength="80" placeholder="搜索正文、号码或验证码" aria-label="搜索短信" data-i18n-attr="placeholder:inbox.searchPlaceholder;aria-label:inbox.searchLabel" />
                 <span id="q-count" class="q-count" hidden></span>
               </div>
             </label>
             <form id="filters" class="filters" role="search">
               <label class="filter-field">
-                <span class="filter-label">设备</span>
+                <span class="filter-label" data-i18n="inbox.device">设备</span>
                 <div id="device"></div>
               </label>
               <label class="filter-field">
-                <span class="filter-label">号码</span>
-                <input name="from" placeholder="发件号码" maxlength="80" />
+                <span class="filter-label" data-i18n="inbox.number">号码</span>
+                <input name="from" placeholder="发件号码" maxlength="80" data-i18n-attr="placeholder:inbox.fromPlaceholder" />
               </label>
-              <div class="filter-range" role="group" aria-label="时间筛选">
-                <div class="segmented" aria-label="时间范围">
-                  <button class="segment" type="button" data-range="all" aria-pressed="true">全部</button>
-                  <button class="segment" type="button" data-range="today" aria-pressed="false">今天</button>
-                  <button class="segment" type="button" data-range="7d" aria-pressed="false">近 7 天</button>
+              <div class="filter-range" role="group" aria-label="时间筛选" data-i18n-attr="aria-label:inbox.timeFilter">
+                <div class="segmented" aria-label="时间范围" data-i18n-attr="aria-label:inbox.timeRange">
+                  <button class="segment" type="button" data-range="all" aria-pressed="true" data-i18n="inbox.rangeAll">全部</button>
+                  <button class="segment" type="button" data-range="today" aria-pressed="false" data-i18n="inbox.rangeToday">今天</button>
+                  <button class="segment" type="button" data-range="7d" aria-pressed="false" data-i18n="inbox.range7d">近 7 天</button>
                 </div>
                 <button id="manage-toggle" class="manage-toggle" type="button" aria-pressed="false">管理</button>
               </div>
             </form>
           </div>
           <div id="filter-chips" class="chips"></div>
-          <p id="query-error" class="field-error" hidden>关键词过长，请缩短</p>
+          <p id="query-error" class="field-error" hidden data-i18n="inbox.queryTooLong">关键词过长，请缩短</p>
           <div id="search-note" class="callout warn" hidden>
-            <span>已开启内容加密，仅搜索了最近 500 条。想查更早的短信，请先选择设备或号码缩小范围。</span>
-            <button id="search-note-close" class="ghost" type="button">关闭</button>
+            <span data-i18n="inbox.searchNote">已开启内容加密，仅搜索了最近 500 条。想查更早的短信，请先选择设备或号码缩小范围。</span>
+            <button id="search-note-close" class="ghost" type="button" data-i18n="common.close">关闭</button>
           </div>
           <button id="live-banner" class="new-pill" type="button" hidden>↑ 1 条新短信</button>
           <div id="inbox-error" class="callout danger" role="alert" hidden></div>
           <div id="list" class="list message-list"></div>
-          <p id="list-end" class="end-note" hidden>没有更多了 · 已到底</p>
+          <p id="list-end" class="end-note" hidden data-i18n="inbox.listEnd">没有更多了 · 已到底</p>
           <div id="list-sentinel" class="sentinel"></div>
           <div id="live-announcer" class="sr-only" aria-live="polite"></div>
         </div>

@@ -33,8 +33,8 @@
     '<span class="mark" aria-hidden="true"><img src="/logo.png" width="18" height="18" alt="" /></span>' +
     '<span class="brand-name">SMSinBox</span>' +
     "</a>" +
-    '<nav class="sidebar-nav" aria-label="主导航"></nav>' +
-    '<div class="sidebar-devices" aria-label="设备">' +
+    '<nav class="sidebar-nav" aria-label="主导航" data-i18n-attr="aria-label:nav.main"></nav>' +
+    '<div class="sidebar-devices" aria-label="设备" data-i18n-attr="aria-label:nav.deviceList">' +
     '<div id="sidebar-devices" class="device-list"></div>' +
     "</div>" +
     '<div class="sidebar-footer">' +
@@ -42,7 +42,7 @@
     '<span class="account-avatar" id="sidebar-avatar" aria-hidden="true">管</span>' +
     '<span class="account-name btn-label" id="sidebar-account-name">管理员</span>' +
     "</a>" +
-    '<button class="account-logout ghost" type="button" data-logout title="退出登录" aria-label="退出登录">' +
+    '<button class="account-logout ghost" type="button" data-logout title="退出登录" aria-label="退出登录" data-i18n-attr="title:nav.logout;aria-label:nav.logout">' +
     '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-log-out"/></svg>' +
     "</button>" +
     "</div>";
@@ -72,7 +72,9 @@
       var link = document.createElement("a");
       link.href = item.href;
       link.setAttribute("data-nav-key", item.key);
-      link.title = item.title;
+      var labelKey = "nav." + item.key;
+      link.title = bootT(labelKey);
+      link.setAttribute("data-i18n-attr", "title:" + labelKey);
       if (item.href === active) {
         link.classList.add("active");
         link.setAttribute("aria-current", "page");
@@ -80,8 +82,10 @@
       link.innerHTML =
         '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#' +
         item.icon +
-        '"/></svg><span class="nav-label">' +
-        item.title +
+        '"/></svg><span class="nav-label" data-i18n="' +
+        labelKey +
+        '">' +
+        bootT(labelKey) +
         "</span>";
       nav.append(link);
     }
@@ -126,15 +130,22 @@
     }
     var button = document.querySelector(".sidebar-collapse");
     if (button) {
-      var label = collapsed ? "展开侧栏" : "收起侧栏";
+      var labelKey = collapsed ? "nav.expand" : "nav.collapse";
+      var label = bootT(labelKey);
+      button.setAttribute("data-i18n-attr", "aria-label:" + labelKey + ";title:" + labelKey);
       button.setAttribute("aria-label", label);
       button.setAttribute("title", label);
       button.setAttribute("aria-expanded", collapsed ? "false" : "true");
     }
     var brandEl = document.querySelector(".sidebar .brand");
     if (brandEl) {
-      if (collapsed) brandEl.setAttribute("title", "展开侧栏");
-      else brandEl.removeAttribute("title");
+      if (collapsed) {
+        brandEl.setAttribute("data-i18n-attr", "title:nav.expand");
+        brandEl.setAttribute("title", bootT("nav.expand"));
+      } else {
+        brandEl.removeAttribute("data-i18n-attr");
+        brandEl.removeAttribute("title");
+      }
     }
   }
 
@@ -145,8 +156,9 @@
     var button = document.createElement("button");
     button.type = "button";
     button.className = "sidebar-collapse ghost icon-btn";
-    button.setAttribute("aria-label", "收起侧栏");
-    button.setAttribute("title", "收起侧栏");
+    button.setAttribute("data-i18n-attr", "aria-label:nav.collapse;title:nav.collapse");
+    button.setAttribute("aria-label", bootT("nav.collapse"));
+    button.setAttribute("title", bootT("nav.collapse"));
     button.innerHTML =
       '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-panel-left"/></svg>';
     button.addEventListener("click", function () {
@@ -218,14 +230,15 @@
     if (!devices.length) {
       var empty = document.createElement("p");
       empty.className = "sidebar-empty";
-      empty.textContent = "还没有设备。";
+      empty.setAttribute("data-i18n", "devices.sidebarEmpty");
+      empty.textContent = bootT("devices.sidebarEmpty");
       box.append(empty);
       return;
     }
     var selection = sidebarSelection(devices);
     for (var index = 0; index < selection.shown.length; index += 1) {
       var device = selection.shown[index];
-      box.append(button(String(device.id), String(device.id), String(device.name || "未命名设备"), String(device.id) === active, device));
+      box.append(button(String(device.id), String(device.id), String(device.name || bootT("common.unnamedDevice")), String(device.id) === active, device));
     }
   }
 
@@ -239,7 +252,7 @@
       var state = deviceState(device);
       node.setAttribute("data-state", state.key);
       var dotStatus = state.key === "recent" ? "ok" : "idle";
-      var dotLabel = state.key === "recent" ? "在线" : (state.key === "stale" ? "离线" : "未上报");
+      var dotLabel = state.key === "recent" ? bootT("devices.online") : (state.key === "stale" ? bootT("devices.offline") : bootT("devices.unreported"));
       node.title = name + " (" + dotLabel + " · " + state.text + ")";
 
       var dot = document.createElement("span");
@@ -295,22 +308,22 @@
 
   function deviceState(device) {
     var seen = Number(device && device.last_seen_at);
-    if (!isFinite(seen) || seen <= 0) return { key: "none", text: "尚未收到" };
+    if (!isFinite(seen) || seen <= 0) return { key: "none", text: bootT("time.noReport") };
     var stale = Date.now() - seen > STALE_MS;
-    return { key: stale ? "stale" : "recent", text: "最近上报 " + relative(seen) };
+    return { key: stale ? "stale" : "recent", text: bootT("time.lastReport").replace("{when}", relative(seen)) };
   }
 
   function relative(ms) {
     var diff = Date.now() - ms;
-    if (diff >= 0 && diff < 60000) return "刚刚";
-    if (diff >= 0 && diff < 3600000) return Math.floor(diff / 60000) + " 分钟前";
+    if (diff >= 0 && diff < 60000) return bootT("time.justNow");
+    if (diff >= 0 && diff < 3600000) return bootT("time.minutesAgo").replace("{n}", String(Math.floor(diff / 60000)));
     var date = new Date(ms);
     var now = new Date();
     var clock = pad(date.getHours()) + ":" + pad(date.getMinutes());
     if (date.toDateString() === now.toDateString()) return clock;
     var yesterday = new Date(now);
     yesterday.setDate(now.getDate() - 1);
-    if (date.toDateString() === yesterday.toDateString()) return "昨天 " + clock;
+    if (date.toDateString() === yesterday.toDateString()) return bootT("time.yesterdayAt").replace("{time}", clock);
     var monthDay = pad(date.getMonth() + 1) + "-" + pad(date.getDate()) + " " + clock;
     if (date.getFullYear() === now.getFullYear()) return monthDay;
     return date.getFullYear() + "-" + monthDay;
@@ -318,6 +331,70 @@
 
   function pad(value) {
     return String(value).padStart(2, "0");
+  }
+
+  // Classic script: the module dictionary is not loaded yet. Chinese strings
+  // below match public/i18n.js so the first paint matches the default
+  // locale. English uses the same keys once SMSINBOX_I18N exists, and
+  // applyI18n rewrites data-i18n nodes after the module loads.
+  var BOOT_ZH = {
+    "nav.main": "主导航",
+    "nav.deviceList": "设备",
+    "nav.inbox": "收件箱",
+    "nav.devices": "设备列表",
+    "nav.notify": "推送渠道",
+    "nav.api-mcp": "API 与 MCP",
+    "nav.users": "系统管理",
+    "nav.collapse": "收起侧栏",
+    "nav.expand": "展开侧栏",
+    "common.unnamedDevice": "未命名设备",
+    "devices.sidebarEmpty": "还没有设备。",
+    "devices.online": "在线",
+    "devices.offline": "离线",
+    "devices.unreported": "未上报",
+    "time.justNow": "刚刚",
+    "time.minutesAgo": "{n} 分钟前",
+    "time.yesterdayAt": "昨天 {time}",
+    "time.noReport": "尚未收到",
+    "time.lastReport": "最近上报 {when}",
+  };
+  var BOOT_EN = {
+    "nav.main": "Main",
+    "nav.deviceList": "Devices",
+    "nav.inbox": "Inbox",
+    "nav.devices": "Devices",
+    "nav.notify": "Notifications",
+    "nav.api-mcp": "API & MCP",
+    "nav.users": "Settings",
+    "nav.collapse": "Collapse sidebar",
+    "nav.expand": "Expand sidebar",
+    "common.unnamedDevice": "Unnamed device",
+    "devices.sidebarEmpty": "No devices yet.",
+    "devices.online": "Online",
+    "devices.offline": "Offline",
+    "devices.unreported": "Not reported",
+    "time.justNow": "just now",
+    "time.minutesAgo": "{n} minutes ago",
+    "time.yesterdayAt": "Yesterday, {time}",
+    "time.noReport": "No reports yet",
+    "time.lastReport": "Last report {when}",
+  };
+
+  function bootLocale() {
+    try {
+      var value = localStorage.getItem("smsinbox.locale");
+      if (value === "en" || value === "zh-CN") return value;
+    } catch (error) {
+      return "zh-CN";
+    }
+    return "zh-CN";
+  }
+
+  function bootT(key) {
+    var api = window.SMSINBOX_I18N;
+    if (api && typeof api.t === "function") return api.t(key);
+    var table = bootLocale() === "en" ? BOOT_EN : BOOT_ZH;
+    return table[key] || BOOT_ZH[key] || key;
   }
 
   function readInboxDevice() {

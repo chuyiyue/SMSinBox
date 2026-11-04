@@ -1,4 +1,5 @@
 import { clearShellCache } from "./device-store.js";
+import { t } from "./i18n.js";
 import { rememberFlash } from "./ui.js";
 
 // ─── API client ─────────────────────────────────────────────────────────────
@@ -52,12 +53,12 @@ export async function api(path, options = {}) {
     try {
       data = JSON.parse(text);
     } catch {
-      data = { ok: false, error: "响应无法解析" };
+      data = { ok: false, error: t("auth.unparseable") };
     }
   }
   if (response.status === 401 && !options.allowUnauthorized) {
     clearShellCache();
-    rememberFlash("登录已过期");
+    rememberFlash(t("auth.sessionExpired"));
     const next = encodeURIComponent(`${location.pathname}${location.search}`);
     location.assign(`/login.html?next=${next}`);
     throw tagKind(new Error("unauthorized"), "unauthorized");

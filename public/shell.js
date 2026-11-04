@@ -1,5 +1,6 @@
 import "./registry.js";
 import { closeSidebar, clearSidebarDevices, paintDevicePresence, renderSidebarDevices, setActiveDevice, setNavigator } from "./common.js";
+import { applyI18n, t } from "./i18n.js";
 import {
   devicesKnown,
   ensureDevices,
@@ -175,10 +176,19 @@ async function navigate(href, options = {}) {
       return;
     }
     main.querySelectorAll("script").forEach((node) => node.remove());
+    applyI18n(main);
     runCleanup();
     document.querySelector(".app-layout > .main")?.replaceWith(document.importNode(main, true));
     swapPortals(doc);
-    if (doc.title) document.title = doc.title;
+    const titleNode = doc.querySelector("title");
+    const titleKey = titleNode?.getAttribute("data-i18n");
+    const liveTitle = document.querySelector("title");
+    if (titleKey) {
+      if (liveTitle) liveTitle.setAttribute("data-i18n", titleKey);
+      document.title = t(titleKey);
+    } else if (doc.title) {
+      document.title = doc.title;
+    }
     markActiveNav(path);
     closeMenu();
     closeSidebar();
@@ -225,6 +235,7 @@ function swapPortals(doc) {
     const next = doc.querySelector(selector);
     if (!next) continue;
     next.querySelectorAll("script").forEach((node) => node.remove());
+    applyI18n(next);
     document.body.append(document.importNode(next, true));
   }
 }

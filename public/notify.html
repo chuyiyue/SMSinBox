@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="robots" content="noindex, nofollow" />
-    <title>推送渠道 · SMSinBox</title>
+    <title data-i18n="notify.documentTitle">推送渠道 · SMSinBox</title>
     <link rel="icon" href="/logo.png" type="image/png" />
     <script src="/theme-boot.js"></script>
     <link rel="stylesheet" href="/style.css" />
@@ -17,46 +17,46 @@
       </aside>
       <div class="main">
         <header class="topbar">
-          <button id="menu-toggle" class="ghost icon-btn" type="button" aria-label="打开导航" aria-expanded="false" aria-controls="sidebar">
+          <button id="menu-toggle" class="ghost icon-btn" type="button" aria-label="打开导航" data-i18n-attr="aria-label:shell.openNav" aria-expanded="false" aria-controls="sidebar">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-menu"/></svg>
           </button>
-          <h1 class="topbar-title">推送渠道</h1>
+          <h1 class="topbar-title" data-i18n="nav.notify">推送渠道</h1>
           <div class="topbar-actions">
             <button class="ghost icon-btn" type="button" data-theme-toggle aria-label="主题：自动">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-sun"/></svg>
               <span class="btn-label sr-only">主题：自动</span>
             </button>
-            <button id="refresh" class="ghost icon-btn" type="button" aria-label="刷新">
+            <button id="refresh" class="ghost icon-btn" type="button" aria-label="刷新" data-i18n-attr="aria-label:shell.refresh">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-refresh"/></svg>
             </button>
           </div>
         </header>
         <div class="page">
           <div class="notify-toolbar">
-            <div class="tabs api-tabs notify-page-tabs" role="tablist" aria-label="推送页面视图">
-              <button class="tab is-active" id="ntab-system" type="button" role="tab" aria-selected="true" aria-controls="npanel-system">系统推送</button>
-              <button class="tab" id="ntab-external" type="button" role="tab" aria-selected="false" aria-controls="npanel-external">外部推送</button>
-              <button class="tab" id="ntab-history" type="button" role="tab" aria-selected="false" aria-controls="npanel-history">推送历史</button>
+            <div class="tabs api-tabs notify-page-tabs" role="tablist" aria-label="推送页面视图" data-i18n-attr="aria-label:notify.pageTabs">
+              <button class="tab is-active" id="ntab-system" type="button" role="tab" aria-selected="true" aria-controls="npanel-system" data-i18n="notify.tabSystem">系统推送</button>
+              <button class="tab" id="ntab-external" type="button" role="tab" aria-selected="false" aria-controls="npanel-external" data-i18n="notify.tabExternal">外部推送</button>
+              <button class="tab" id="ntab-history" type="button" role="tab" aria-selected="false" aria-controls="npanel-history" data-i18n="notify.tabHistory">推送历史</button>
             </div>
             <div class="notify-actions">
-              <button id="add-channel" class="primary" type="button">添加渠道</button>
+              <button id="add-channel" class="primary" type="button" data-i18n="notify.addChannel">添加渠道</button>
             </div>
           </div>
           <section id="npanel-system" role="tabpanel" aria-labelledby="ntab-system">
             <p id="notify-error" class="callout danger" hidden></p>
             <p id="notify-status" class="callout ok" hidden></p>
             <div id="notify-list" class="channel-grid"></div>
-            <p class="privacy">渠道配置保存在你自己的 D1 数据库中；日志不会记录正文、token 或密码。</p>
+            <p class="privacy" data-i18n="notify.privacy">渠道配置保存在你自己的 D1 数据库中；日志不会记录正文、token 或密码。</p>
           </section>
           <section id="npanel-external" role="tabpanel" aria-labelledby="ntab-external" hidden>
-            <h2>外部推送</h2>
-            <p class="subtle">开发中。之后会与其他项目打通，把消息推送到外部系统。</p>
+            <h2 data-i18n="notify.tabExternal">外部推送</h2>
+            <p class="subtle" data-i18n="notify.externalSoon">开发中。之后会与其他项目打通，把消息推送到外部系统。</p>
           </section>
           <section id="npanel-history" role="tabpanel" aria-labelledby="ntab-history" hidden>
             <div id="notify-history-list" class="push-history-list"></div>
             <div id="notify-history-error" hidden></div>
-            <button id="notify-history-more" class="secondary" type="button" hidden>加载更多</button>
-            <p id="notify-history-end" class="push-history-end" hidden>已到底</p>
+            <button id="notify-history-more" class="secondary" type="button" hidden data-i18n="notify.historyMore">加载更多</button>
+            <p id="notify-history-end" class="push-history-end" hidden data-i18n="notify.historyEnd">已到底</p>
           </section>
         </div>
       </div>
@@ -64,25 +64,25 @@
     <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
     <dialog id="notify-dialog" class="modal wide">
       <div class="modal-card">
-        <h2 id="notify-dialog-title">添加渠道</h2>
+        <h2 id="notify-dialog-title" data-i18n="notify.addChannel">添加渠道</h2>
         <div id="kind-step">
           <div id="notify-kinds" class="kind-grid"></div>
           <div class="modal-actions">
-            <button id="notify-close" class="secondary" type="button">取消</button>
+            <button id="notify-close" class="secondary" type="button" data-i18n="common.cancel">取消</button>
           </div>
         </div>
         <form id="notify-form" class="stack" hidden>
           <div id="notify-fields"></div>
           <p id="notify-form-error" class="field-error" hidden></p>
           <div class="modal-actions">
-            <button id="notify-back" class="secondary" type="button">返回</button>
-            <button type="submit">添加</button>
+            <button id="notify-back" class="secondary" type="button" data-i18n="common.back">返回</button>
+            <button type="submit" data-i18n="notify.addSubmit">添加</button>
           </div>
         </form>
         <div id="notify-view" class="stack" hidden>
           <div id="notify-view-fields"></div>
           <div class="modal-actions">
-            <button id="notify-view-close" class="secondary" type="button">关闭</button>
+            <button id="notify-view-close" class="secondary" type="button" data-i18n="common.close">关闭</button>
           </div>
         </div>
       </div>

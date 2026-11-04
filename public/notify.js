@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 import { api, emptyState, errorState, formatDateTime, formatTime, initShell, isUnauthorized, loadNav, logout, openModal, showNotice, statusDot, toast } from "./common.js";
 import { registerView } from "./shell.js";
 
@@ -5,44 +6,44 @@ const MAX_CHANNELS = 10;
 const KINDS = [
   {
     kind: "telegram",
-    label: "Telegram",
-    hint: "Bot 与 Chat",
+    label: () => t("notify.kindTelegram"),
+    hint: () => t("notify.kindTelegramHint"),
     icon: '<use href="/icons.svg#icon-send"/>',
   },
   {
     kind: "wecom",
-    label: "企业微信",
-    hint: "群机器人",
+    label: () => t("notify.kindWecom"),
+    hint: () => t("notify.kindGroupBot"),
     icon: '<use href="/icons.svg#icon-message-square"/>',
   },
   {
     kind: "bark",
-    label: "Bark",
-    hint: "iOS 通知",
+    label: () => t("notify.kindBark"),
+    hint: () => t("notify.kindBarkHint"),
     icon: '<use href="/icons.svg#icon-bell"/>',
   },
   {
     kind: "email",
-    label: "邮件",
-    hint: "Webhook / SMTP / Resend",
+    label: () => t("notify.kindEmail"),
+    hint: () => t("notify.kindEmailHint"),
     icon: '<use href="/icons.svg#icon-mail"/>',
   },
   {
     kind: "webhook",
-    label: "Webhook",
-    hint: "自定义 JSON",
+    label: () => t("notify.kindWebhook"),
+    hint: () => t("notify.kindWebhookHint"),
     icon: '<use href="/icons.svg#icon-link"/>',
   },
   {
     kind: "feishu",
-    label: "飞书",
-    hint: "群机器人",
+    label: () => t("notify.kindFeishu"),
+    hint: () => t("notify.kindGroupBot"),
     icon: '<use href="/icons.svg#icon-message-square-text"/>',
   },
   {
     kind: "dingtalk",
-    label: "钉钉",
-    hint: "群机器人",
+    label: () => t("notify.kindDingtalk"),
+    hint: () => t("notify.kindGroupBot"),
     icon: '<use href="/icons.svg#icon-message-square-text"/>',
   },
 ];
@@ -68,6 +69,14 @@ let viewToken = 0;
 let historyOffset = 0;
 let historyTotal = 0;
 let historyLoading = false;
+let channelRows = null;
+let listErrorKey = "";
+let listErrorText = "";
+let bannerErrorKey = "";
+let bannerStatusKey = "";
+let historyItems = [];
+let historyState = "idle";
+let historyErrorWasReset = true;
 const lastTest = new Map();
 
 function startView() {
@@ -93,14 +102,43 @@ function startView() {
   historyOffset = 0;
   historyTotal = 0;
   historyLoading = false;
+  channelRows = null;
+  listErrorKey = "";
+  listErrorText = "";
+  bannerErrorKey = "";
+  bannerStatusKey = "";
+  historyItems = [];
+  historyState = "idle";
+  historyErrorWasReset = true;
   lastTest.clear();
   renderKindGrid();
   wirePageTabs();
+  const onLocale = () => {
+    if (token !== viewToken) return;
+    renderKindGrid();
+    if (channelRows) paintChannels();
+    paintListError();
+    if (bannerErrorKey) setErrorKey(bannerErrorKey);
+    if (bannerStatusKey) setStatusKey(bannerStatusKey);
+    if (historyState === "loading") {
+      if (historyList) historyList.textContent = t("notify.historyLoading");
+    } else if (historyState === "error") {
+      paintHistoryError();
+      if (historyItems.length && historyList) {
+        historyList.replaceChildren();
+        for (const item of historyItems) historyList.append(renderPushLog(item));
+      }
+    } else if (historyState === "ready") {
+      repaintHistory();
+    }
+    if (dialog?.open) dialog.close();
+  };
+  document.addEventListener("smsinbox:locale", onLocale);
   initShell({
-    onLogout: () => logout().catch(() => setError("退出失败")),
+    onLogout: () => logout().catch(() => setErrorKey("notify.logoutFailed")),
     onRefresh: () => (document.querySelector("#npanel-history").hidden ? loadChannels() : loadHistory(true)).catch((error) => {
       if (isUnauthorized(error)) return;
-      setError("加载推送渠道失败");
+      setErrorKey("notify.loadFailed");
     }),
   });
   addButton.addEventListener("click", openCreate);
@@ -118,15 +156,16 @@ function startView() {
   });
   loadChannels().catch((error) => {
     if (token !== viewToken || isUnauthorized(error)) return;
-    setError("加载推送渠道失败");
+    setErrorKey("notify.loadFailed");
   });
   return () => {
+    document.removeEventListener("smsinbox:locale", onLocale);
     if (viewToken === token) viewToken += 1;
     if (dialog?.open) dialog.close();
   };
 }
 
-// 添加渠道 belongs to 系统推送; history and the external placeholder hide it.
+// The add-channel action belongs to the system tab; history and the external placeholder hide it.
 function wirePageTabs() {
   const systemTab = document.querySelector("#ntab-system");
   const externalTab = document.querySelector("#ntab-external");
@@ -163,10 +202,12 @@ async function loadHistory(reset = true) {
   if (reset) {
     historyOffset = 0;
     historyTotal = 0;
+    historyItems = [];
     historyList.replaceChildren();
-    historyList.textContent = "加载中…";
+    historyList.textContent = t("notify.historyLoading");
     historyMore.hidden = true;
     historyEnd.hidden = true;
+    historyState = "loading";
   }
   historyError.hidden = true;
   try {
@@ -178,18 +219,11 @@ async function loadHistory(reset = true) {
     }
     const items = Array.isArray(result.data.items) ? result.data.items : [];
     historyTotal = Number(result.data.total) || 0;
-    if (reset) historyList.replaceChildren();
-    if (reset && items.length === 0) {
-      historyList.append(emptyState({
-        text: "还没有推送记录。短信推送到渠道后会记在这里。",
-      }));
-    } else {
-      for (const item of items) historyList.append(renderPushLog(item));
-    }
-    historyOffset += items.length;
-    const hasMore = historyOffset < historyTotal;
-    historyMore.hidden = !hasMore;
-    historyEnd.hidden = hasMore || historyOffset === 0;
+    if (reset) historyItems = items.slice();
+    else historyItems.push(...items);
+    historyOffset = historyItems.length;
+    historyState = "ready";
+    repaintHistory();
   } catch (error) {
     if (isUnauthorized(error)) return;
     showHistoryError(reset);
@@ -198,15 +232,39 @@ async function loadHistory(reset = true) {
   }
 }
 
-function showHistoryError(reset) {
+function repaintHistory() {
+  if (!historyList) return;
+  historyList.replaceChildren();
+  if (historyItems.length === 0) {
+    historyList.append(emptyState({
+      text: t("notify.historyEmpty"),
+    }));
+  } else {
+    for (const item of historyItems) historyList.append(renderPushLog(item));
+  }
+  const hasMore = historyOffset < historyTotal;
+  historyMore.hidden = !hasMore;
+  historyEnd.hidden = hasMore || historyOffset === 0;
+}
+
+function paintHistoryError() {
   historyError.replaceChildren(errorState({
-    message: "加载推送历史失败",
-    onRetry: () => loadHistory(reset),
+    message: t("notify.historyFailed"),
+    onRetry: () => loadHistory(historyErrorWasReset),
   }));
   historyError.hidden = false;
   historyMore.hidden = true;
   historyEnd.hidden = true;
-  if (reset) historyList.replaceChildren();
+}
+
+function showHistoryError(reset) {
+  historyState = "error";
+  historyErrorWasReset = reset;
+  paintHistoryError();
+  if (reset) {
+    historyItems = [];
+    historyList.replaceChildren();
+  }
 }
 
 function renderPushLog(item) {
@@ -220,10 +278,10 @@ function renderPushLog(item) {
   channel.className = "push-history-channel";
   const name = document.createElement("strong");
   name.className = "push-history-name";
-  name.textContent = item.channel_name || meta?.label || item.channel_kind;
+  name.textContent = item.channel_name || (meta ? meta.label() : item.channel_kind);
   const kind = document.createElement("span");
   kind.className = "push-history-kind";
-  kind.textContent = meta?.label || item.channel_kind;
+  kind.textContent = meta ? meta.label() : item.channel_kind;
   channel.append(name, kind);
   const time = document.createElement("time");
   time.className = "push-history-time";
@@ -236,10 +294,10 @@ function renderPushLog(item) {
   badges.className = "push-history-badges";
   const source = document.createElement("span");
   source.className = "push-history-source";
-  source.textContent = item.source === "test" ? "测试" : "短信";
+  source.textContent = item.source === "test" ? t("notify.test") : t("notify.sourceMessage");
   const status = document.createElement("span");
   status.className = `push-history-status ${item.ok ? "is-ok" : "is-failed"}`;
-  status.textContent = item.ok ? "成功" : "失败";
+  status.textContent = item.ok ? t("notify.statusOk") : t("notify.statusFailed");
   badges.append(source, status);
 
   const preview = document.createElement("p");
@@ -258,11 +316,13 @@ function renderPushLog(item) {
 
 function renderKindGrid() {
   const grid = document.querySelector("#notify-kinds");
+  if (!grid) return;
+  grid.replaceChildren();
   for (const item of KINDS) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "kind-card";
-    button.append(icon(item.icon), strong(item.label), hint(item.hint));
+    button.append(icon(item.icon), strong(item.label()), hint(item.hint()));
     button.addEventListener("click", () => chooseKind(item.kind));
     grid.append(button);
   }
@@ -280,7 +340,7 @@ function showKindStep() {
   kindStep.hidden = false;
   form.hidden = true;
   view.hidden = true;
-  document.querySelector("#notify-dialog-title").textContent = "添加渠道";
+  document.querySelector("#notify-dialog-title").textContent = t("notify.addChannel");
 }
 
 function chooseKind(kind) {
@@ -291,8 +351,9 @@ function chooseKind(kind) {
   kindStep.hidden = true;
   view.hidden = true;
   form.hidden = false;
-  const label = KINDS.find((item) => item.kind === kind)?.label || "渠道";
-  document.querySelector("#notify-dialog-title").textContent = `添加${label}`;
+  const meta = KINDS.find((item) => item.kind === kind);
+  const label = meta ? meta.label() : t("notify.channelFallback");
+  document.querySelector("#notify-dialog-title").textContent = t("notify.addKind", { name: label });
   form.querySelector("input")?.focus();
 }
 
@@ -301,23 +362,23 @@ function openView(channel) {
   const blocks = viewFieldsFor(channel);
   // The config itself stays read-only here; the remark is editable.
   const noteLabel = document.createElement("label");
-  noteLabel.append("备注");
+  noteLabel.append(t("notify.note"));
   const noteInput = document.createElement("input");
   noteInput.value = channel.note || "";
   noteInput.maxLength = 80;
-  noteInput.placeholder = "给这个渠道起个备注名";
+  noteInput.placeholder = t("notify.notePlaceholder");
   noteLabel.append(noteInput);
   const saveNote = document.createElement("button");
   saveNote.type = "button";
   saveNote.className = "secondary";
-  saveNote.textContent = "保存备注";
+  saveNote.textContent = t("notify.saveNote");
   saveNote.addEventListener("click", () => saveChannelNote(channel, noteInput, saveNote));
   blocks.push(noteLabel, saveNote);
   viewFields.replaceChildren(...blocks);
   kindStep.hidden = true;
   form.hidden = true;
   view.hidden = false;
-  document.querySelector("#notify-dialog-title").textContent = `${meta?.label || channel.kind}配置`;
+  document.querySelector("#notify-dialog-title").textContent = t("notify.kindConfig", { name: meta ? meta.label() : channel.kind });
   if (!dialog.open) dialog.showModal();
   document.body.classList.add("modal-open");
 }
@@ -331,15 +392,15 @@ async function saveChannelNote(channel, input, button) {
       body: JSON.stringify({ note }),
     });
     if (!result.response.ok) {
-      toast(result.data?.error || "保存备注失败", { tone: "danger" });
+      toast(result.data?.error || t("notify.noteSaveFailed"), { tone: "danger" });
       return;
     }
     channel.note = note;
-    toast("备注已保存");
+    toast(t("notify.noteSaved"));
     await loadChannels();
   } catch (error) {
     if (isUnauthorized(error)) return;
-    toast("保存备注失败", { tone: "danger" });
+    toast(t("notify.noteSaveFailed"), { tone: "danger" });
   } finally {
     button.disabled = false;
   }
@@ -348,14 +409,14 @@ async function saveChannelNote(channel, input, button) {
 function renderFields() {
   fields.replaceChildren();
   // Every kind takes an optional remark, shown on the channel card.
-  const noteField = field("备注（可选）", "note", "给这个渠道起个备注名", "off");
+  const noteField = field(t("notify.noteOptional"), "note", t("notify.notePlaceholder"), "off");
   noteField.querySelector("input").maxLength = 80;
   fields.append(noteField);
   if (selectedKind === "telegram") {
     fields.append(
       field("Bot token", "bot_token", "123456:AA...", "off"),
-      field("Chat ID", "chat_id", "数字或 @频道", "off"),
-      help("在哪里获取", "Bot token：@BotFather；Chat ID：数字或 @频道。", "https://core.telegram.org/bots#botfather"),
+      field("Chat ID", "chat_id", t("notify.chatIdPlaceholder"), "off"),
+      help(t("notify.where"), t("notify.telegramHelp"), "https://core.telegram.org/bots#botfather"),
     );
     return;
   }
@@ -368,24 +429,24 @@ function renderFields() {
       const value = input.querySelector("input").value.trim();
       const bad = value && !wecomHostOk(value);
       error.hidden = !bad;
-      error.textContent = bad ? "企业微信 Webhook 必须是 qyapi.weixin.qq.com 的 https 地址" : "";
+      error.textContent = bad ? t("notify.wecomHost") : "";
       input.querySelector("input").setAttribute("aria-invalid", bad ? "true" : "false");
     });
-    fields.append(input, error, help("在哪里获取", "复制群机器人的 Webhook URL。", "https://developer.work.weixin.qq.com/document/path/91770"));
+    fields.append(input, error, help(t("notify.where"), t("notify.wecomHelp"), "https://developer.work.weixin.qq.com/document/path/91770"));
     return;
   }
   if (selectedKind === "bark") {
     fields.append(
-      field("Device key", "device_key", "Bark 设备密钥", "off"),
-      field("服务器", "server", "留空则使用 https://api.day.app", "off"),
-      help("在哪里获取", "复制设备密钥；服务器可留空。", "https://bark.day.app/#/tutorial"),
+      field("Device key", "device_key", t("notify.barkKeyPlaceholder"), "off"),
+      field(t("notify.server"), "server", t("notify.barkServerPlaceholder"), "off"),
+      help(t("notify.where"), t("notify.barkHelp"), "https://bark.day.app/#/tutorial"),
     );
     return;
   }
   if (selectedKind === "webhook") {
     fields.append(
       field("Webhook URL", "url", "https://example.com/webhook", "off"),
-      help("在哪里获取", "任何能接收 POST JSON 的地址，推送时发送 title 与 text 两个字段。"),
+      help(t("notify.where"), t("notify.webhookHelp")),
     );
     return;
   }
@@ -398,14 +459,14 @@ function renderFields() {
       const value = input.querySelector("input").value.trim();
       const bad = value && !feishuHostOk(value);
       error.hidden = !bad;
-      error.textContent = bad ? "飞书 Webhook 必须是 open.feishu.cn 的 https 地址" : "";
+      error.textContent = bad ? t("notify.feishuHost") : "";
       input.querySelector("input").setAttribute("aria-invalid", bad ? "true" : "false");
     });
     fields.append(
       input,
       error,
-      secretField("签名密钥（可选）", "secret"),
-      help("在哪里获取", "复制群机器人 Webhook；启用签名校验时填写密钥。", "https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot"),
+      secretField(t("notify.signSecretOptional"), "secret"),
+      help(t("notify.where"), t("notify.feishuHelp"), "https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot"),
     );
     return;
   }
@@ -418,21 +479,21 @@ function renderFields() {
       const value = input.querySelector("input").value.trim();
       const bad = value && !dingtalkHostOk(value);
       error.hidden = !bad;
-      error.textContent = bad ? "钉钉 Webhook 必须是 oapi.dingtalk.com 的 https 地址" : "";
+      error.textContent = bad ? t("notify.dingtalkHost") : "";
       input.querySelector("input").setAttribute("aria-invalid", bad ? "true" : "false");
     });
     fields.append(
       input,
       error,
-      secretField("签名密钥（可选）", "secret"),
-      help("在哪里获取", "复制群机器人 Webhook；启用加签时填写密钥。", "https://open.dingtalk.com/document/robots/custom-robot-access"),
+      secretField(t("notify.signSecretOptional"), "secret"),
+      help(t("notify.where"), t("notify.dingtalkHelp"), "https://open.dingtalk.com/document/robots/custom-robot-access"),
     );
     return;
   }
   const modes = document.createElement("div");
   modes.className = "segmented";
   modes.setAttribute("role", "group");
-  modes.setAttribute("aria-label", "邮件方式");
+  modes.setAttribute("aria-label", t("notify.emailMode"));
   const extra = document.createElement("div");
   extra.className = "stack";
   const paintMode = () => {
@@ -442,20 +503,20 @@ function renderFields() {
     extra.replaceChildren();
     if (emailMode === "webhook") {
       extra.append(field("Webhook URL", "webhook_url", "https://example.com/mail", "off"));
-      extra.append(help("在哪里获取", "HTTPS 地址；通知包含收件与发件邮箱。"));
+      extra.append(help(t("notify.where"), t("notify.emailWebhookHelp")));
       return;
     }
     if (emailMode === "resend") {
       extra.append(
         secretField("Resend API Key", "resend_api_key"),
-        help("在哪里获取", "到 resend.com 的 API Keys 页面创建密钥；发件邮箱必须是已验证域名下的地址。", "https://resend.com/docs/api-reference/introduction"),
+        help(t("notify.where"), t("notify.resendHelp"), "https://resend.com/docs/api-reference/introduction"),
       );
       return;
     }
     extra.append(
-      field("SMTP 主机", "smtp_host", "smtp.example.com", "off"),
-      field("SMTP 用户名", "smtp_username", "smtp-user", "off"),
-      secretField("SMTP 密码", "smtp_password"),
+      field(t("notify.smtpHost"), "smtp_host", "smtp.example.com", "off"),
+      field(t("notify.smtpUser"), "smtp_username", "smtp-user", "off"),
+      secretField(t("notify.smtpPassword"), "smtp_password"),
       portNote(),
     );
   };
@@ -471,7 +532,7 @@ function renderFields() {
     });
     modes.append(button);
   }
-  fields.append(field("收件邮箱", "to", "you@example.com", "email"), field("发件邮箱", "from", "sms@example.com", "email"), modes, extra);
+  fields.append(field(t("notify.emailTo"), "to", "you@example.com", "email"), field(t("notify.emailFrom"), "from", "sms@example.com", "email"), modes, extra);
   paintMode();
 }
 
@@ -487,29 +548,28 @@ async function submitChannel(event) {
   }
   const button = form.querySelector("button[type=submit]");
   button.disabled = true;
-  const previous = button.textContent;
-  button.textContent = "添加中…";
+  button.textContent = t("notify.adding");
   try {
     const created = await api("/api/v1/notifications", { method: "POST", body: JSON.stringify(body) });
     if (token !== viewToken) return;
     if (!created.response.ok) {
-      const message = created.data.error || "添加失败";
+      const message = created.data.error || t("notify.addFailed");
       showFormError(message);
       toast(message, { tone: "danger" });
       return;
     }
     form.reset();
     dialog.close();
-    setStatus("已添加。密钥只以掩码显示。");
-    toast("已添加。密钥只以掩码显示。");
+    setStatusKey("notify.added");
+    toast(t("notify.added"));
     await loadChannels();
   } catch (error) {
     if (isUnauthorized(error)) return;
-    showFormError("添加失败");
-    toast("添加失败", { tone: "danger" });
+    showFormError(t("notify.addFailed"));
+    toast(t("notify.addFailed"), { tone: "danger" });
   } finally {
     button.disabled = false;
-    button.textContent = previous;
+    button.textContent = t("notify.addSubmit");
   }
 }
 
@@ -518,21 +578,21 @@ function readForm() {
   const body = { kind: selectedKind };
   if (selectedKind === "wecom") {
     const webhook = String(payload.get("webhook_url") || "").trim();
-    if (!wecomHostOk(webhook)) return { error: "企业微信 Webhook 必须是 qyapi.weixin.qq.com 的 https 地址" };
+    if (!wecomHostOk(webhook)) return { error: t("notify.wecomHost") };
   }
   if (selectedKind === "webhook") {
     const webhook = String(payload.get("url") || "").trim();
-    if (!httpUrlOk(webhook)) return { error: "Webhook URL 必须是 http/https 地址" };
+    if (!httpUrlOk(webhook)) return { error: t("notify.webhookUrlInvalid") };
     body.url = webhook;
     return body;
   }
   if (selectedKind === "feishu") {
     const webhook = String(payload.get("webhook_url") || "").trim();
-    if (!feishuHostOk(webhook)) return { error: "飞书 Webhook 必须是 open.feishu.cn 的 https 地址" };
+    if (!feishuHostOk(webhook)) return { error: t("notify.feishuHost") };
   }
   if (selectedKind === "dingtalk") {
     const webhook = String(payload.get("webhook_url") || "").trim();
-    if (!dingtalkHostOk(webhook)) return { error: "钉钉 Webhook 必须是 oapi.dingtalk.com 的 https 地址" };
+    if (!dingtalkHostOk(webhook)) return { error: t("notify.dingtalkHost") };
   }
   for (const [key, value] of payload.entries()) {
     const text = String(value).trim();
@@ -547,12 +607,12 @@ function readForm() {
     const from = String(payload.get("from") || "").trim();
     if (emailMode === "resend") {
       const key = String(payload.get("resend_api_key") || "").trim();
-      if (!key) return { error: "Resend API Key 不能为空" };
-      if (!emailOk(to) || !emailOk(from)) return { error: "收件邮箱或发件邮箱无效" };
+      if (!key) return { error: t("notify.resendKeyRequired") };
+      if (!emailOk(to) || !emailOk(from)) return { error: t("notify.emailInvalid") };
       body.resend_api_key = key;
       return body;
     }
-    if (!emailOk(to) || !emailOk(from)) return { error: "收件邮箱或发件邮箱无效" };
+    if (!emailOk(to) || !emailOk(from)) return { error: t("notify.emailInvalid") };
   }
   return body;
 }
@@ -562,35 +622,55 @@ async function loadChannels() {
   const result = await api("/api/v1/notifications");
   if (token !== viewToken) return;
   if (!result.response.ok) {
-    const message = result.data.error || "加载推送渠道失败";
-    if (list.querySelector(".channel-card")) {
-      setError(message);
-      return;
-    }
-    setError("");
-    list.replaceChildren(retryState(message));
+    showChannelLoadError(result.data.error || "");
+    return;
+  }
+  listErrorKey = "";
+  listErrorText = "";
+  setError("");
+  channelRows = result.data.channels || [];
+  paintChannels();
+}
+
+function showChannelLoadError(serverMessage) {
+  listErrorText = serverMessage || "";
+  listErrorKey = serverMessage ? "" : "notify.loadFailed";
+  if (list.querySelector(".channel-card")) {
+    if (serverMessage) setError(serverMessage);
+    else setErrorKey("notify.loadFailed");
     return;
   }
   setError("");
-  const rows = result.data.channels || [];
-  paintCount(rows.length);
+  paintListError();
+}
+
+function paintListError() {
+  if (!list || list.querySelector(".channel-card")) return;
+  if (!listErrorKey && !listErrorText) return;
+  const message = listErrorText || t("notify.loadFailed");
+  list.replaceChildren(retryState(message));
+}
+
+function paintChannels() {
+  if (!list || !channelRows) return;
+  paintCount(channelRows.length);
   list.replaceChildren();
-  if (rows.length === 0) {
+  if (channelRows.length === 0) {
     list.append(emptyChannels());
     return;
   }
-  for (const channel of rows) list.append(renderChannel(channel));
+  for (const channel of channelRows) list.append(renderChannel(channel));
 }
 
 function paintCount(total) {
   const full = total >= MAX_CHANNELS;
   addButton.disabled = full;
-  addButton.title = full ? "最多 10 个推送渠道" : "";
+  addButton.title = full ? t("notify.maxChannels", { n: MAX_CHANNELS }) : "";
 }
 
 function renderChannel(channel) {
   const meta = KINDS.find((item) => item.kind === channel.kind);
-  const name = meta?.label || channel.kind;
+  const name = meta ? meta.label() : channel.kind;
   const row = document.createElement("article");
   row.className = "channel-card";
   row.dataset.channelId = channel.id;
@@ -609,7 +689,7 @@ function renderChannel(channel) {
   hintText.className = "channel-hint";
   // The owner's remark replaces the generic kind description under
   // the channel title when one is set (Roye).
-  hintText.textContent = channel.note || meta?.hint || "";
+  hintText.textContent = channel.note || (meta ? meta.hint() : "");
   title.append(nameNode, hintText);
   head.append(badge, title, enabledDot(channel.enabled));
 
@@ -628,23 +708,23 @@ function renderChannel(channel) {
   const edit = document.createElement("button");
   edit.type = "button";
   edit.className = "secondary";
-  edit.textContent = "编辑";
+  edit.textContent = t("notify.edit");
   edit.addEventListener("click", () => openView(channel));
   const testButton = document.createElement("button");
   testButton.type = "button";
   testButton.className = "secondary";
-  testButton.textContent = "测试";
+  testButton.textContent = t("notify.test");
   testButton.addEventListener("click", () => sendTest(channel, testButton));
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = channel.enabled ? "btn-disable" : "btn-enable";
-  toggle.textContent = channel.enabled ? "禁用" : "启用";
-  toggle.setAttribute("aria-label", channel.enabled ? `禁用${name}` : `启用${name}`);
+  toggle.textContent = channel.enabled ? t("notify.disable") : t("notify.enable");
+  toggle.setAttribute("aria-label", channel.enabled ? t("notify.disableNamed", { name }) : t("notify.enableNamed", { name }));
   toggle.addEventListener("click", () => setEnabled(channel, toggle));
   const remove = document.createElement("button");
   remove.type = "button";
   remove.className = "danger";
-  remove.textContent = "删除";
+  remove.textContent = t("common.delete");
   remove.addEventListener("click", () => removeChannel(channel));
   actions.append(edit, testButton, toggle, remove);
 
@@ -654,7 +734,7 @@ function renderChannel(channel) {
 
 function enabledDot(enabled) {
   // statusDot() only emits ok/warn/bad; disabled falls back to the gray base dot.
-  const status = statusDot(enabled ? "ok" : "idle", enabled ? "已启用" : "已停用");
+  const status = statusDot(enabled ? "ok" : "idle", enabled ? t("notify.enabled") : t("notify.disabled"));
   if (!enabled) status.querySelector(".ui-status-dot")?.setAttribute("data-status", "idle");
   return status;
 }
@@ -664,10 +744,11 @@ function testStatus(channel) {
   if (!record) {
     const empty = document.createElement("span");
     empty.className = "channel-test-empty";
-    empty.textContent = "尚未测试";
+    empty.textContent = t("notify.notTested");
     return empty;
   }
-  return statusDot(record.ok ? "ok" : "bad", `${record.ok ? "测试成功" : "测试失败"} · ${formatTime(record.at)}`);
+  const status = record.ok ? t("notify.testOk") : t("notify.testFailed");
+  return statusDot(record.ok ? "ok" : "bad", t("notify.testResult", { status, time: formatTime(record.at) }));
 }
 
 function paintTest(channel) {
@@ -677,30 +758,30 @@ function paintTest(channel) {
 
 async function sendTest(channel, button) {
   button.disabled = true;
-  const previous = button.textContent;
-  button.textContent = "发送中…";
+  button.textContent = t("notify.sending");
   try {
     const tested = await api(`/api/v1/notifications/${channel.id}/test`, { method: "POST", body: "{}" });
     if (!tested.response.ok || !tested.data.ok) {
-      const message = tested.data.error || "测试失败";
+      const message = tested.data.error || t("notify.testFailed");
       lastTest.set(channel.id, { ok: false, at: Date.now() });
-      setError(message);
+      if (tested.data.error) setError(tested.data.error);
+      else setErrorKey("notify.testFailed");
       setStatus("");
       toast(message, { tone: "danger" });
       return;
     }
     lastTest.set(channel.id, { ok: true, at: Date.now() });
     setError("");
-    setStatus("测试通知已发送。");
-    toast("测试通知已发送。");
+    setStatusKey("notify.testSent");
+    toast(t("notify.testSent"));
   } catch (error) {
     if (isUnauthorized(error)) return;
     lastTest.set(channel.id, { ok: false, at: Date.now() });
-    setError("测试失败");
-    toast("测试失败", { tone: "danger" });
+    setErrorKey("notify.testFailed");
+    toast(t("notify.testFailed"), { tone: "danger" });
   } finally {
     button.disabled = false;
-    button.textContent = previous;
+    button.textContent = t("notify.test");
     paintTest(channel);
   }
 }
@@ -714,8 +795,9 @@ async function setEnabled(channel, toggle) {
       body: JSON.stringify({ enabled: next }),
     });
     if (!updated.response.ok) {
-      const message = updated.data.error || "更新失败";
-      setError(message);
+      const message = updated.data.error || t("notify.updateFailed");
+      if (updated.data.error) setError(updated.data.error);
+      else setErrorKey("notify.updateFailed");
       toast(message, { tone: "danger" });
       return;
     }
@@ -723,37 +805,39 @@ async function setEnabled(channel, toggle) {
     await loadChannels();
   } catch (error) {
     if (isUnauthorized(error)) return;
-    setError("更新失败");
-    toast("更新失败", { tone: "danger" });
+    setErrorKey("notify.updateFailed");
+    toast(t("notify.updateFailed"), { tone: "danger" });
   } finally {
     toggle.disabled = false;
   }
 }
 
 async function removeChannel(channel) {
-  const label = KINDS.find((item) => item.kind === channel.kind)?.label || "这个渠道";
+  const meta = KINDS.find((item) => item.kind === channel.kind);
+  const label = meta ? meta.label() : t("notify.thisChannel");
   const confirmed = await openModal({
-    title: `删除${label}？`,
-    text: "删除后，新短信不会再推送到这里。",
-    confirmLabel: "删除",
+    title: t("notify.deleteTitle", { name: label }),
+    text: t("notify.deleteText"),
+    confirmLabel: t("common.delete"),
     danger: true,
   });
   if (!confirmed) return;
   try {
     const removed = await api(`/api/v1/notifications/${channel.id}`, { method: "DELETE" });
     if (!removed.response.ok) {
-      const message = removed.data.error || "删除失败";
-      setError(message);
+      const message = removed.data.error || t("notify.deleteFailed");
+      if (removed.data.error) setError(removed.data.error);
+      else setErrorKey("notify.deleteFailed");
       toast(message, { tone: "danger" });
       return;
     }
     setError("");
-    toast("已删除");
+    toast(t("notify.deleted"));
     await loadChannels();
   } catch (error) {
     if (isUnauthorized(error)) return;
-    setError("删除失败");
-    toast("删除失败", { tone: "danger" });
+    setErrorKey("notify.deleteFailed");
+    toast(t("notify.deleteFailed"), { tone: "danger" });
   }
 }
 
@@ -783,7 +867,7 @@ function describe(channel) {
   if (channel.kind === "webhook") return `Webhook · ${hostOf(config.url)}`;
   if (channel.kind === "bark") return `${hostOf(config.server)} · ${maskTail(config.device_key)}`;
   if (channel.kind === "feishu" || channel.kind === "dingtalk") {
-    return config.secret ? `Webhook · ${hostOf(config.webhook_url)} · 已签名` : `Webhook · ${hostOf(config.webhook_url)}`;
+    return config.secret ? `Webhook · ${hostOf(config.webhook_url)} · ${t("notify.signed")}` : `Webhook · ${hostOf(config.webhook_url)}`;
   }
   if (config.resend_api_key) return `${config.from || ""} → ${config.to || ""} · Resend`;
   if (config.webhook_url) return `${config.from || ""} → ${config.to || ""} · Webhook ${hostOf(config.webhook_url)}`;
@@ -796,17 +880,16 @@ function retryState(message) {
     onRetry: () => {
       loadChannels().catch((error) => {
         if (isUnauthorized(error)) return;
-        setError("加载推送渠道失败");
+        setErrorKey("notify.loadFailed");
       });
     },
   });
 }
 
 function emptyChannels() {
-  // No add button here: the topbar already carries the page's 添加渠道.
   return emptyState({
-    title: "还没有推送渠道",
-    text: "短信入库后，可以推到 Telegram、企业微信、Bark、飞书、钉钉、Webhook 或邮箱。",
+    title: t("notify.emptyTitle"),
+    text: t("notify.emptyText"),
   });
 }
 
@@ -898,30 +981,30 @@ function viewFieldsFor(channel) {
     return [viewField("Webhook URL", config.url)];
   }
   if (channel.kind === "bark") {
-    return [viewField("Device key", config.device_key), viewField("服务器", config.server)];
+    return [viewField("Device key", config.device_key), viewField(t("notify.server"), config.server)];
   }
   if (channel.kind === "feishu" || channel.kind === "dingtalk") {
-    return [viewField("Webhook URL", config.webhook_url), viewField("签名密钥（可选）", config.secret || "未设置")];
+    return [viewField("Webhook URL", config.webhook_url), viewField(t("notify.signSecretOptional"), config.secret || t("notify.notSet"))];
   }
   if (config.resend_api_key) {
-    return [viewField("收件邮箱", config.to), viewField("发件邮箱", config.from), viewField("Resend API Key", config.resend_api_key)];
+    return [viewField(t("notify.emailTo"), config.to), viewField(t("notify.emailFrom"), config.from), viewField("Resend API Key", config.resend_api_key)];
   }
   if (config.webhook_url) {
-    return [viewField("收件邮箱", config.to), viewField("发件邮箱", config.from), viewField("Webhook URL", config.webhook_url)];
+    return [viewField(t("notify.emailTo"), config.to), viewField(t("notify.emailFrom"), config.from), viewField("Webhook URL", config.webhook_url)];
   }
   return [
-    viewField("收件邮箱", config.to),
-    viewField("发件邮箱", config.from),
-    viewField("SMTP 主机", config.smtp_host),
-    viewField("SMTP 用户名", config.smtp_username),
-    viewField("SMTP 密码", config.smtp_password),
-    viewField("端口", 465),
+    viewField(t("notify.emailTo"), config.to),
+    viewField(t("notify.emailFrom"), config.from),
+    viewField(t("notify.smtpHost"), config.smtp_host),
+    viewField(t("notify.smtpUser"), config.smtp_username),
+    viewField(t("notify.smtpPassword"), config.smtp_password),
+    viewField(t("notify.port"), 465),
   ];
 }
 
 function portNote() {
   const wrap = document.createElement("label");
-  wrap.append("端口");
+  wrap.append(t("notify.port"));
   const input = document.createElement("input");
   input.value = "465";
   input.readOnly = true;
@@ -929,7 +1012,7 @@ function portNote() {
   wrap.append(input);
   const note = document.createElement("p");
   note.className = "subtle";
-  note.textContent = "SMTP 只支持 465 端口（隐式 TLS）。";
+  note.textContent = t("notify.smtpPortNote");
   const stack = document.createElement("div");
   stack.className = "stack";
   stack.append(wrap, note);
@@ -950,7 +1033,7 @@ function help(summary, text, href) {
     link.href = href;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
-    link.textContent = "打开说明";
+    link.textContent = t("notify.openDocs");
     details.append(link);
   }
   return details;
@@ -980,11 +1063,38 @@ function showFormError(message) {
 }
 
 function setError(message) {
-  showNotice(errorBox, message);
+  bannerErrorKey = "";
+  showNotice(errorBox, message || "");
+}
+
+function setErrorKey(key) {
+  bannerErrorKey = key || "";
+  showNotice(errorBox, errorKeyText(key));
+}
+
+function errorKeyText(key) {
+  if (key === "notify.logoutFailed") return t("notify.logoutFailed");
+  if (key === "notify.loadFailed") return t("notify.loadFailed");
+  if (key === "notify.testFailed") return t("notify.testFailed");
+  if (key === "notify.updateFailed") return t("notify.updateFailed");
+  if (key === "notify.deleteFailed") return t("notify.deleteFailed");
+  return "";
 }
 
 function setStatus(message) {
-  showNotice(statusBox, message);
+  bannerStatusKey = "";
+  showNotice(statusBox, message || "");
+}
+
+function setStatusKey(key) {
+  bannerStatusKey = key || "";
+  showNotice(statusBox, statusKeyText(key));
+}
+
+function statusKeyText(key) {
+  if (key === "notify.added") return t("notify.added");
+  if (key === "notify.testSent") return t("notify.testSent");
+  return "";
 }
 
 registerView("/notify.html", startView);

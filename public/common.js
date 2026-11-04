@@ -19,8 +19,10 @@ import {
   toast,
 } from "./ui.js";
 import { selectSidebarDevices, sidebarDeviceIcon } from "./device-panel.js";
+import { applyI18n, currentLocale, formatAbsoluteStamp, formatMinuteStamp, formatRelative, setLocale, t } from "./i18n.js";
 
 export { api, isUnauthorized, openEventStream } from "./api-client.js";
+export { applyI18n, currentLocale, setLocale, t };
 export { mountSelect, openHelp, openMenu, openModal, passwordScore, generatePassword, selectContents, toast } from "./ui.js";
 
 const URL_RE = /https?:\/\/[^\s<>"']+/gi;
@@ -32,51 +34,17 @@ export function safeNext(value) {
 }
 
 export function formatTime(ms) {
-  const date = new Date(ms);
-  if (Number.isNaN(date.getTime())) return "";
-  const diff = Date.now() - ms;
-  if (diff >= 0 && diff < 60_000) return "刚刚";
-  if (diff >= 0 && diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
-  const clock = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  const now = new Date();
-  if (sameDay(date, now)) return clock;
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (sameDay(date, yesterday)) return `昨天 ${clock}`;
-  const monthDay = `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${clock}`;
-  if (date.getFullYear() === now.getFullYear()) return monthDay;
-  return `${date.getFullYear()}-${monthDay}`;
+  return formatRelative(ms, Date.now());
 }
 
 export function absoluteTime(ms) {
-  const date = new Date(ms);
-  if (Number.isNaN(date.getTime())) return "";
-  const text = date.toLocaleString("zh-CN", {
-    hour12: false,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-  let zone = "";
-  try {
-    zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
-  } catch {
-    zone = "";
-  }
-  return zone ? `${text}（${zone}）` : text;
+  return formatAbsoluteStamp(ms);
 }
 
 // Inbox rows and details use only the device receive time, to the minute,
 // in the browser's own timezone. Never build it from created_at.
 export function formatDateTime(ms) {
-  const date = new Date(Number(ms));
-  if (Number.isNaN(date.getTime())) return "";
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(
-    date.getMinutes(),
-  )}`;
+  return formatMinuteStamp(ms);
 }
 
 // Kept for callers that adopted the earlier helper name.
@@ -86,7 +54,7 @@ export function minuteStamp(ms) {
 
 export function receivedStamp(ms) {
   const text = formatDateTime(ms);
-  return text ? `收到时间 ${text}` : "";
+  return text ? t("time.receivedAt", { time: text }) : "";
 }
 
 export function showNotice(element, message) {
@@ -109,10 +77,10 @@ export async function flashLabel(button, value, label) {
   try {
     await copyText(value);
     copied = true;
-    button.textContent = "已复制 ✓";
+    button.textContent = t("common.copied");
     button.classList.add("is-copied");
   } catch {
-    button.textContent = "请手动复制";
+    button.textContent = t("common.copyManual");
     button.classList.remove("is-copied");
   }
   window.setTimeout(() => {
@@ -204,7 +172,7 @@ export function renderSidebarDevices(devices, activeId = getActiveId()) {
     rows.push({
       id: String(device.id),
       key: String(device.id),
-      name: String(device.name || "未命名设备"),
+      name: String(device.name || t("common.unnamedDevice")),
       device,
     });
   }
@@ -235,7 +203,8 @@ export function renderSidebarDevices(devices, activeId = getActiveId()) {
     if (!empty) {
       empty = document.createElement("p");
       empty.className = "sidebar-empty";
-      empty.textContent = "还没有设备。";
+      empty.textContent = t("devices.sidebarEmpty");
+      empty.setAttribute("data-i18n", "devices.sidebarEmpty");
       box.append(empty);
     }
   } else {
@@ -247,9 +216,16 @@ export function renderSidebarDevices(devices, activeId = getActiveId()) {
 
 export function initShell(options = {}) {
   shellHooks = options;
+  applyI18n(document);
   if (shellBound) return;
   shellBound = true;
   applyTheme(currentTheme());
+  document.addEventListener("smsinbox:locale", () => {
+    applyTheme(currentTheme());
+    renderSidebarDevices(getDevices(), getActiveId());
+    const user = getMe();
+    if (user) paintSidebarProfile(user);
+  });
   const flash = takeFlash();
   if (flash) toast(flash, { tone: "danger" });
   document.querySelector("#sidebar")?.addEventListener("click", (event) => {
@@ -332,13 +308,13 @@ export function paintSidebarProfile(user) {
   if (!footer) return;
   const profileUsername =
     user && typeof user.profile_username === "string" ? user.profile_username.trim() : "";
-  const name = profileUsername || (user && (user.username || user.name)) || "管理员";
+  const name = profileUsername || (user && (user.username || user.name)) || t("nav.admin");
   const avatar = footer.querySelector(".account-avatar");
   const label = footer.querySelector(".account-name");
   const accountBtn = footer.querySelector(".account-btn");
   if (avatar) paintSidebarAvatar(avatar, name, profileUsername, user);
   if (label) label.textContent = name;
-  const title = `${name} · 系统管理`;
+  const title = t("nav.accountTitle", { name });
   if (accountBtn) {
     accountBtn.title = title;
     accountBtn.setAttribute("aria-label", title);
@@ -387,7 +363,7 @@ export function paintSidebarAvatar(avatar, name, profileUsername, user = null) {
 
 function initialOf(name) {
   const value = String(name || "").trim();
-  return value ? [...value][0].toUpperCase() : "管";
+  return value ? [...value][0].toUpperCase() : t("nav.adminInitial");
 }
 
 
@@ -438,7 +414,7 @@ function paintLabel(button, name, device) {
 function paintState(button, device) {
   const state = deviceStateOf(device);
   const dotStatus = state.key === "recent" ? "ok" : "idle";
-  const dotLabel = state.key === "recent" ? "在线" : (state.key === "stale" ? "离线" : "未上报");
+  const dotLabel = state.key === "recent" ? t("devices.online") : (state.key === "stale" ? t("devices.offline") : t("devices.unreported"));
   const dot = button.querySelector(".ui-status-dot");
   if (dot && dot.getAttribute("data-status") !== dotStatus) {
     dot.setAttribute("data-status", dotStatus);
@@ -448,18 +424,6 @@ function paintState(button, device) {
   if (button.getAttribute("data-state") !== state.key) button.setAttribute("data-state", state.key);
   const name = button.querySelector(".device-name")?.textContent || "";
   button.title = name ? `${name} (${dotLabel} · ${state.text})` : state.text;
-}
-
-function pad(value) {
-  return String(value).padStart(2, "0");
-}
-
-function sameDay(left, right) {
-  return (
-    left.getFullYear() === right.getFullYear() &&
-    left.getMonth() === right.getMonth() &&
-    left.getDate() === right.getDate()
-  );
 }
 
 function appendRich(parent, content, code) {
@@ -535,7 +499,7 @@ export function openDrawer({ title = "", bodyHTML = "", onClose = null } = {}) {
   const close = document.createElement("button");
   close.type = "button";
   close.className = "ui-drawer-close secondary";
-  close.textContent = "关闭";
+  close.textContent = t("common.close");
   close.addEventListener("click", closeDrawer);
   head.append(heading, close);
 
@@ -582,12 +546,12 @@ export function CodeChip(code) {
   const copy = document.createElement("button");
   copy.type = "button";
   copy.className = "ui-codechip-copy secondary";
-  copy.textContent = "复制";
+  copy.textContent = t("common.copy");
   copy.addEventListener("click", async (event) => {
     event.stopPropagation();
-    const copied = await flashLabel(copy, value, "复制");
-    if (copied) toast(`验证码 ${value} 已复制`);
-    else toast("复制失败，请手动复制", { tone: "danger" });
+    const copied = await flashLabel(copy, value, t("common.copy"));
+    if (copied) toast(t("common.copiedCode", { code: value }));
+    else toast(t("common.copyFailed"), { tone: "danger" });
   });
   box.append(chip, copy);
   return box;
@@ -651,13 +615,13 @@ export function loadingState({ count = 3, className = "skeleton", ariaHidden = f
   return fragment;
 }
 
-export function errorState({ message = "", onRetry = null, retryLabel = "重试" } = {}) {
+export function errorState({ message = "", onRetry = null, retryLabel = "" } = {}) {
   const actions = [];
   if (onRetry) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "secondary";
-    button.textContent = retryLabel;
+    button.textContent = retryLabel || t("common.retry");
     button.addEventListener("click", () => {
       onRetry();
     });
@@ -677,7 +641,7 @@ export function errorBanner(element, message, onRetry = null) {
     const retry = document.createElement("button");
     retry.type = "button";
     retry.className = "secondary";
-    retry.textContent = "重试";
+    retry.textContent = t("common.retry");
     retry.addEventListener("click", () => {
       onRetry();
     });

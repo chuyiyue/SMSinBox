@@ -23,6 +23,7 @@ import { ensureDevices, getDevices, noteDeviceSeen, setActiveId } from "./device
 import { sidebarDeviceIcon } from "./device-panel.js";
 import { registerView, syncShellHistory } from "./shell.js";
 import { isTyping } from "./ui.js";
+import { t } from "./i18n.js";
 
 const PAGE_SIZE = 30;
 const FALLBACK_MS = 30_000;
@@ -90,8 +91,8 @@ function startView() {
   errorBox = document.querySelector("#inbox-error");
   deviceSelect = mountSelect({
     name: "device_id",
-    options: [{ value: "", label: "全部设备" }],
-    ariaLabel: "设备",
+    options: deviceOptions(),
+    ariaLabel: t("inbox.device"),
   });
   deviceSelect.root.id = "device";
   document.querySelector("#device")?.replaceWith(deviceSelect.root);
@@ -120,7 +121,7 @@ function startView() {
   initShell({
     onLogout() {
       stopRealtime();
-      return logout().catch(() => toast("退出失败", { tone: "danger" }));
+      return logout().catch(() => toast(t("inbox.logoutFailed"), { tone: "danger" }));
     },
     onRefresh() {
       banner.hidden = true;
@@ -164,6 +165,9 @@ function startView() {
     if (entries.some((entry) => entry.isIntersecting)) loadMore().catch(showError);
   });
   observer.observe(sentinel);
+  paintSummary();
+  setLive(t("inbox.liveConnecting"), "connecting");
+  document.addEventListener("smsinbox:locale", onInboxLocale);
   showSkeleton();
   boot(token).catch((error) => {
     if (token !== viewToken || isUnauthorized(error)) return;
@@ -176,10 +180,90 @@ function startView() {
     observer?.disconnect();
     observer = null;
     document.removeEventListener("keydown", onInboxKey, true);
+    document.removeEventListener("smsinbox:locale", onInboxLocale);
     document.removeEventListener("visibilitychange", onVisibility);
     media?.removeEventListener("change", onMedia);
     closeDrawer();
   };
+}
+
+function onInboxLocale() {
+  paintDeviceSelect();
+  paintManageButton();
+  repaintList();
+  paintSummary();
+  paintLive();
+  paintNotes();
+  paintChips();
+  paintPending();
+  repaintOpenDrawer();
+}
+
+function paintNotes() {
+  const note = searchNote?.querySelector("span");
+  if (note) note.textContent = t("inbox.searchNote");
+  if (endNote) endNote.textContent = t("inbox.listEnd");
+  if (queryError) queryError.textContent = t("inbox.queryTooLong");
+}
+
+function paintLive() {
+  setLive(liveLabel(state.liveMode), state.liveMode);
+}
+
+function liveLabel(mode) {
+  if (mode === "ok") return t("inbox.liveOk");
+  if (mode === "paused") return t("inbox.livePaused");
+  if (mode === "danger") return t("inbox.liveInterrupted");
+  if (mode === "warn") return t("inbox.liveReconnecting");
+  return t("inbox.liveConnecting");
+}
+
+function deviceOptions() {
+  return [{ value: "", label: t("inbox.allDevices") }, ...state.devices.map((device) => ({ value: device.id, label: device.name }))];
+}
+
+function paintDeviceSelect() {
+  if (!deviceSelect) return;
+  deviceSelect.setOptions(deviceOptions(), deviceSelect.value);
+  deviceSelect.root.querySelector(".select-toggle")?.setAttribute("aria-label", t("inbox.device"));
+}
+
+function repaintList() {
+  if (!list) return;
+  const rows = [...list.querySelectorAll(".message-row")];
+  if (rows.length === 0) {
+    const empty = list.querySelector(".empty-state");
+    if (empty) empty.replaceWith(inboxEmptyState());
+    return;
+  }
+  const active = document.activeElement;
+  const focusId = active instanceof Element && list.contains(active) ? active.closest(".message-row")?.id || "" : "";
+  for (const row of rows) {
+    const message = messages.get(row.id.replace(/^msg-/, ""));
+    if (!message) continue;
+    const next = renderMessage(message);
+    if (row.classList.contains("is-selected")) next.classList.add("is-selected");
+    if (row.classList.contains("is-fresh")) next.classList.add("is-fresh");
+    row.replaceWith(next);
+  }
+  if (focusId) document.getElementById(focusId)?.focus();
+}
+
+function repaintOpenDrawer() {
+  const drawer = document.querySelector(".ui-drawer");
+  if (!drawer) return;
+  const title = drawer.querySelector(".ui-drawer-title");
+  const closeButton = drawer.querySelector(".ui-drawer-close");
+  if (closeButton) closeButton.textContent = t("common.close");
+  if (drawer.classList.contains("ui-drawer--filters")) {
+    if (title) title.textContent = t("inbox.filter");
+    return;
+  }
+  const message = state.selectedId ? messages.get(state.selectedId) : null;
+  if (!message) return;
+  if (title) title.textContent = t("inbox.detailTitle");
+  const body = drawer.querySelector(".ui-drawer-body");
+  if (body) body.replaceChildren(buildDetail(message));
 }
 
 function resetInbox() {
@@ -213,7 +297,7 @@ function onVisibility() {
   if (document.hidden) {
     state.paused = true;
     stopRealtime();
-    setLive("已暂停", "paused");
+    setLive(t("inbox.livePaused"), "paused");
     return;
   }
   state.paused = false;
@@ -244,24 +328,24 @@ function startRealtime() {
     onOpen() {
       state.expectReconnect = false;
       state.failures = 0;
-      setLive("实时", "ok");
+      setLive(t("inbox.liveOk"), "ok");
     },
     onMessage(message) {
       onLiveMessage(message);
     },
     onBye() {
       state.expectReconnect = true;
-      setLive("重新连接中…", "warn");
+      setLive(t("inbox.liveReconnecting"), "warn");
     },
     onError() {
       if (state.expectReconnect) {
         state.expectReconnect = false;
-        setLive("重新连接中…", "warn");
+        setLive(t("inbox.liveReconnecting"), "warn");
         return;
       }
       state.failures += 1;
-      if (state.failures > 3) setLive("连接中断，已每 30 秒自动刷新", "danger");
-      else setLive("重新连接中…", "warn");
+      if (state.failures > 3) setLive(t("inbox.liveInterrupted"), "danger");
+      else setLive(t("inbox.liveReconnecting"), "warn");
     },
   });
   state.fallback = window.setInterval(() => {
@@ -304,12 +388,9 @@ async function loadDevices(preferred = "") {
   if (token !== viewToken || result?.stale) return;
   state.devices = getDevices();
   const current = preferred || deviceSelect.value;
-  deviceSelect.setOptions(
-    [{ value: "", label: "全部设备" }, ...state.devices.map((device) => ({ value: device.id, label: device.name }))],
-    current,
-  );
+  deviceSelect.setOptions(deviceOptions(), current);
   setActiveId(deviceSelect.value);
-  if (!result.ok && state.devices.length === 0) showError(result.error || "加载设备失败");
+  if (!result.ok && state.devices.length === 0) showError(result.error || t("devices.loadFailed"));
 }
 
 async function loadMessages(options = {}) {
@@ -333,7 +414,7 @@ async function loadMessages(options = {}) {
     if (state.listGen !== mine) return;
     if (!result.response.ok) {
       if (append) state.page = Math.max(1, state.page - 1);
-      showError(result.data.error || "加载失败");
+      showError(result.data.error || t("inbox.loadFailed"));
       return;
     }
     clearError();
@@ -421,7 +502,7 @@ function renderMessage(message) {
   article.className = `message-row ${read ? "is-read" : "is-unread"}`;
   article.id = `msg-${message.id}`;
   article.tabIndex = 0;
-  const senderText = message.from_number || "未知发件人";
+  const senderText = message.from_number || t("inbox.unknownSender");
   const line = document.createElement("div");
   line.className = "message-row-line";
   const senderLine = document.createElement("div");
@@ -450,8 +531,8 @@ function renderMessage(message) {
   if (!unreadable(message)) {
     // The list prefers the translation; the original stays in the detail.
     const previewSource = hasTranslation(message) ? message.translated_content : message.content;
-    renderContent(preview, previewText(previewSource), message.code);
-  } else preview.textContent = "这条短信无法解密";
+    renderContent(preview, previewText(shownContent(previewSource)), message.code);
+  } else preview.textContent = t("inbox.unreadableShort");
   const slot = document.createElement("div");
   slot.className = "chip-slot";
   if (message.code && !unreadable(message)) slot.append(codeChip(message.code));
@@ -492,7 +573,7 @@ function rowSelectNode(message) {
   input.type = "checkbox";
   input.className = "message-check";
   input.checked = state.checked.has(message.id);
-  input.setAttribute("aria-label", "选择这条短信");
+  input.setAttribute("aria-label", t("inbox.selectMessage"));
   input.addEventListener("change", () => {
     if (input.checked) state.checked.add(message.id);
     else state.checked.delete(message.id);
@@ -526,7 +607,7 @@ function paintManageButton() {
   if (!manageButton) return;
   const count = state.checked.size;
   const deleting = state.manageMode && count > 0;
-  manageButton.textContent = deleting ? `删除（${count}）` : "管理";
+  manageButton.textContent = deleting ? t("inbox.deleteCount", { count }) : t("inbox.manage");
   manageButton.classList.toggle("danger", deleting);
   manageButton.setAttribute("aria-pressed", String(state.manageMode));
 }
@@ -552,9 +633,9 @@ async function onManageToggle() {
   }
   const ids = [...state.checked];
   const confirmed = await openModal({
-    title: "删除短信",
-    body: `确定要删除选中的 ${ids.length} 条短信吗？删除后不可恢复。`,
-    confirmLabel: "删除",
+    title: t("inbox.deleteTitle"),
+    body: t("inbox.deleteManyConfirm", { count: ids.length }),
+    confirmLabel: t("common.delete"),
     danger: true,
   });
   if (!confirmed) return;
@@ -566,7 +647,7 @@ async function onManageToggle() {
   exitManageMode();
   state.page = 1;
   await loadMessages().catch(showError);
-  toast(`已删除 ${outcome.deleted} 条`);
+  toast(t("inbox.deletedCount", { count: outcome.deleted }));
 }
 
 async function requestDeleteMessages(ids) {
@@ -574,7 +655,7 @@ async function requestDeleteMessages(ids) {
     method: "POST",
     body: JSON.stringify({ ids }),
   });
-  if (!result.response.ok) return { ok: false, error: result.data?.error || "删除失败" };
+  if (!result.response.ok) return { ok: false, error: result.data?.error || t("inbox.deleteFailed") };
   return { ok: true, deleted: result.data?.deleted ?? ids.length };
 }
 
@@ -588,7 +669,7 @@ function openMessage(article, message) {
 
 function showDrawer(message) {
   openDrawer({
-    title: "短信详情",
+    title: t("inbox.detailTitle"),
     bodyHTML: buildDetail(message),
   });
 }
@@ -600,24 +681,24 @@ function buildDetail(message) {
   const meta = document.createElement("div");
   meta.className = "ui-drawer-meta message-detail-meta";
   meta.append(
-    detailRow("发件方", message.from_number || "未知发件人"),
-    detailRow("设备", message.device_name || message.device_id || "未知设备"),
+    detailRow(t("inbox.fromLabel"), message.from_number || t("inbox.unknownSender")),
+    detailRow(t("inbox.device"), message.device_name || message.device_id || t("inbox.unknownDevice")),
   );
   const stamp = receivedStamp(message.received_at);
-  if (stamp) meta.append(detailRow("收到时间", stamp.replace(/^收到时间\s*/, "")));
+  if (stamp) meta.append(detailRow(t("inbox.receivedLabel"), formatDateTime(message.received_at) || stamp));
   wrap.append(meta);
 
   if (unreadable(message)) {
     const warn = document.createElement("div");
     warn.className = "callout warn";
-    warn.textContent = "这条短信无法解密（加密密钥已更换或被清空）";
+    warn.textContent = t("inbox.unreadableDetail");
     wrap.append(warn);
   } else {
     if (message.code) {
       const codeBlock = document.createElement("section");
       codeBlock.className = "message-card";
       codeBlock.append(
-        cardHead("验证码", cardCopyButton("复制验证码", message.code, `验证码 ${message.code} 已复制`)),
+        cardHead(t("inbox.codeHeading"), cardCopyButton(t("inbox.copyCode"), message.code, t("common.copiedCode", { code: message.code }))),
         CodeChip(message.code),
       );
       wrap.append(codeBlock);
@@ -633,7 +714,7 @@ function buildDetail(message) {
       translatedNote.className = "message-card-note";
       translatedNote.textContent = translatedTag(message);
       translatedCard.append(
-        cardHead("短信翻译", cardCopyButton("复制译文", message.translated_content, "译文已复制")),
+        cardHead(t("inbox.translationHeading"), cardCopyButton(t("inbox.copyTranslation"), message.translated_content, t("inbox.translationCopied"))),
         translatedBody,
         translatedNote,
       );
@@ -644,9 +725,9 @@ function buildDetail(message) {
     const content = document.createElement("p");
     content.className = "content";
     content.dir = "auto";
-    renderContent(content, message.content, message.code);
+    renderContent(content, shownContent(message.content), message.code);
     contentCard.append(
-      cardHead("短信正文", cardCopyButton("复制原文", message.content, "原文已复制")),
+      cardHead(t("inbox.bodyHeading"), cardCopyButton(t("inbox.copyOriginal"), message.content, t("inbox.originalCopied"))),
       content,
     );
     wrap.append(contentCard);
@@ -655,13 +736,13 @@ function buildDetail(message) {
   const del = document.createElement("button");
   del.type = "button";
   del.className = "danger message-detail-delete";
-  del.textContent = "删除这条短信";
+  del.textContent = t("inbox.deleteMessage");
   del.addEventListener("click", async (event) => {
     event.stopPropagation();
     const confirmed = await openModal({
-      title: "删除短信",
-      body: "确定要删除这条短信吗？删除后不可恢复。",
-      confirmLabel: "删除",
+      title: t("inbox.deleteTitle"),
+      body: t("inbox.deleteOneConfirm"),
+      confirmLabel: t("common.delete"),
       danger: true,
     });
     if (!confirmed) return;
@@ -675,7 +756,7 @@ function buildDetail(message) {
     closeDrawer();
     state.page = 1;
     await loadMessages().catch(showError);
-    toast(`已删除 ${outcome.deleted} 条`);
+    toast(t("inbox.deletedCount", { count: outcome.deleted }));
   });
   wrap.append(del);
 
@@ -703,7 +784,7 @@ function cardCopyButton(label, value, doneText) {
     event.stopPropagation();
     const copied = await flashLabel(button, value || "", label);
     if (copied) toast(doneText);
-    else toast("复制失败，请手动复制", { tone: "danger" });
+    else toast(t("common.copyFailed"), { tone: "danger" });
   });
   return button;
 }
@@ -725,7 +806,7 @@ function rawJsonFold(message) {
   const details = document.createElement("details");
   details.className = "fold message-raw";
   const summary = document.createElement("summary");
-  summary.textContent = "原始 JSON";
+  summary.textContent = t("inbox.rawJson");
   const pre = document.createElement("pre");
   pre.className = "code-block";
   pre.textContent = JSON.stringify(message, null, 2);
@@ -737,8 +818,8 @@ function codeChip(code) {
   const chip = document.createElement("button");
   chip.type = "button";
   chip.className = "message-codechip";
-  chip.title = "复制验证码";
-  chip.setAttribute("aria-label", `复制验证码 ${code}`);
+  chip.title = t("inbox.copyCode");
+  chip.setAttribute("aria-label", t("inbox.copyCodeValue", { code }));
   const value = document.createElement("span");
   value.className = "ui-codechip-code";
   value.textContent = code;
@@ -746,8 +827,8 @@ function codeChip(code) {
   chip.addEventListener("click", async (event) => {
     event.stopPropagation();
     const copied = await flashLabel(value, code, code);
-    if (copied) toast(`验证码 ${code} 已复制`);
-    else toast("复制失败，请手动复制", { tone: "danger" });
+    if (copied) toast(t("common.copiedCode", { code }));
+    else toast(t("common.copyFailed"), { tone: "danger" });
   });
   return chip;
 }
@@ -760,7 +841,7 @@ function openFilterSheet() {
   body.append(filters);
   filterToggle.setAttribute("aria-expanded", "true");
   const drawer = openDrawer({
-    title: "筛选",
+    title: t("inbox.filter"),
     bodyHTML: body,
     onClose() {
       parent.insertBefore(filters, nextSibling);
@@ -774,23 +855,23 @@ function inboxEmptyState() {
   const filtered = Boolean(deviceSelect.value || filters.elements.from.value.trim() || qInput.value.trim() || state.range !== "all");
   if (filtered) {
     return emptyState({
-      title: "没有符合条件的短信",
-      text: "换一个设备、号码，或缩短搜索词；也可以点筛选标签上的 × 清除条件。",
+      title: t("inbox.emptyFilteredTitle"),
+      text: t("inbox.emptyFilteredText"),
     });
   }
   if (state.devices.length === 0) {
     const link = document.createElement("a");
     link.className = "button";
     link.href = "/devices.html";
-    link.textContent = "去添加设备";
+    link.textContent = t("inbox.addDevice");
     const box = emptyState({
-      title: "收件箱还是空的",
-      text: "让手机把短信转发到这里。",
+      title: t("inbox.emptyTitle"),
+      text: t("inbox.emptyNoDevice"),
       actions: [link],
     });
     const steps = document.createElement("ol");
     steps.className = "steps";
-    for (const line of ["创建设备", "在手机上配置转发（iOS 或 Android）", "发送一条测试短信"]) {
+    for (const line of [t("inbox.stepCreate"), t("inbox.stepSetup"), t("inbox.stepTest")]) {
       const item = document.createElement("li");
       item.textContent = line;
       steps.append(item);
@@ -801,10 +882,10 @@ function inboxEmptyState() {
   const link = document.createElement("a");
   link.className = "button";
   link.href = "/devices.html";
-  link.textContent = "发送一条测试短信";
+  link.textContent = t("inbox.stepTest");
   return emptyState({
-    title: "收件箱还是空的",
-    text: "设备已经就绪。发送一条测试短信，确认转发通了。",
+    title: t("inbox.emptyTitle"),
+    text: t("inbox.emptyReady"),
     actions: [link],
   });
 }
@@ -954,30 +1035,33 @@ function previewText(content) {
 // Source-language code → display name for the translation tag; codes the
 // map does not know fall back to the raw code.
 const LANG_NAMES = {
-  en: "英语",
-  ja: "日语",
-  ko: "韩语",
-  ru: "俄语",
-  uk: "乌克兰语",
-  th: "泰语",
-  ar: "阿拉伯语",
-  hi: "印地语",
-  el: "希腊语",
-  he: "希伯来语",
-  fr: "法语",
-  de: "德语",
-  es: "西班牙语",
-  it: "意大利语",
-  pt: "葡萄牙语",
-  nl: "荷兰语",
-  vi: "越南语",
-  id: "印尼语",
-  "zh-Hant": "繁体中文",
+  en: "lang.en",
+  ja: "lang.ja",
+  ko: "lang.ko",
+  ru: "lang.ru",
+  uk: "lang.uk",
+  th: "lang.th",
+  ar: "lang.ar",
+  hi: "lang.hi",
+  el: "lang.el",
+  he: "lang.he",
+  fr: "lang.fr",
+  de: "lang.de",
+  es: "lang.es",
+  it: "lang.it",
+  pt: "lang.pt",
+  nl: "lang.nl",
+  vi: "lang.vi",
+  id: "lang.id",
+  "zh-Hant": "lang.zh-Hant",
 };
 
 function langName(code) {
   if (typeof code !== "string" || !code) return "";
-  return LANG_NAMES[code] || code;
+  const key = LANG_NAMES[code];
+  if (!key) return code;
+  const name = t(key);
+  return name === key ? code : name;
 }
 
 function hasTranslation(message) {
@@ -986,11 +1070,15 @@ function hasTranslation(message) {
 
 function translatedTag(message) {
   const lang = langName(message?.source_lang);
-  return lang ? `已翻译 · 来自${lang}` : "已翻译";
+  return lang ? t("inbox.translatedFrom", { lang }) : t("inbox.translated");
 }
 
 function unreadable(message) {
   return message?.content === UNREADABLE;
+}
+
+function shownContent(content) {
+  return content === UNREADABLE ? t("inbox.unreadable") : content;
 }
 
 function rangeSince() {
@@ -1035,7 +1123,8 @@ function paintRangeButtons() {
 function paintChips() {
   chips.replaceChildren();
   if (deviceSelect.value) {
-    chips.append(filterChip("设备", deviceSelect.label || "设备", () => {
+    const deviceLabel = t("inbox.device");
+    chips.append(filterChip(deviceLabel, deviceSelect.label || deviceLabel, () => {
       deviceSelect.value = "";
       state.page = 1;
       loadMessages().catch(showError);
@@ -1043,7 +1132,7 @@ function paintChips() {
   }
   const from = String(filters.elements.from.value || "").trim();
   if (from) {
-    chips.append(filterChip("号码", from, () => {
+    chips.append(filterChip(t("inbox.number"), from, () => {
       filters.elements.from.value = "";
       state.page = 1;
       loadMessages().catch(showError);
@@ -1051,7 +1140,7 @@ function paintChips() {
   }
   const query = String(qInput.value || "").trim();
   if (query) {
-    chips.append(filterChip("搜索", query, () => {
+    chips.append(filterChip(t("inbox.chipSearch"), query, () => {
       qInput.value = "";
       paintQueryGuard();
       state.page = 1;
@@ -1059,7 +1148,7 @@ function paintChips() {
     }));
   }
   if (state.range !== "all") {
-    chips.append(filterChip("时间", rangeLabel(state.range), () => {
+    chips.append(filterChip(t("inbox.chipTime"), rangeLabel(state.range), () => {
       state.range = "all";
       paintRangeButtons();
       state.page = 1;
@@ -1069,18 +1158,18 @@ function paintChips() {
 }
 
 function rangeLabel(range) {
-  if (range === "today") return "今天";
-  if (range === "7d") return "近 7 天";
-  return "全部";
+  if (range === "today") return t("inbox.rangeToday");
+  if (range === "7d") return t("inbox.range7d");
+  return t("inbox.rangeAll");
 }
 
 function filterChip(label, value, onRemove) {
   const chip = document.createElement("span");
   chip.className = "filter-chip";
-  chip.append(`${label}：${value}`);
+  chip.append(t("inbox.chipValue", { label, value }));
   const button = document.createElement("button");
   button.type = "button";
-  button.setAttribute("aria-label", `移除${label}筛选`);
+  button.setAttribute("aria-label", t("inbox.removeFilter", { label }));
   button.textContent = "×";
   button.addEventListener("click", onRemove);
   chip.append(button);
@@ -1118,18 +1207,18 @@ function paintSearchNote(truncated) {
 }
 
 function paintSummary() {
-  summary.textContent = `共 ${state.total} 条`;
+  summary.textContent = t("inbox.summary", { count: state.total });
 }
 
 function paintPending() {
   const count = state.pending.length;
   banner.hidden = count === 0;
-  banner.textContent = `↑ ${count} 条新短信`;
+  banner.textContent = t("inbox.newCount", { count });
   paintTitle();
 }
 
 function paintTitle() {
-  const base = "收件箱 · SMSinBox";
+  const base = t("inbox.documentTitle");
   document.title = state.pending.length ? `(${state.pending.length}) ${base}` : base;
 }
 
@@ -1143,8 +1232,8 @@ function flushPending() {
 }
 
 function announce(message) {
-  const sender = message.from_number || "未知发件人";
-  announcer.textContent = `收到来自 ${sender} 的新短信`;
+  const sender = message.from_number || t("inbox.unknownSender");
+  announcer.textContent = t("inbox.announced", { sender });
 }
 
 function remember(message) {
@@ -1155,7 +1244,7 @@ function unreadDot() {
   const dot = document.createElement("span");
   dot.className = "unread-dot";
   dot.setAttribute("role", "img");
-  dot.setAttribute("aria-label", "未读");
+  dot.setAttribute("aria-label", t("inbox.unread"));
   return dot;
 }
 
@@ -1219,7 +1308,7 @@ function setLive(text, mode) {
 }
 
 function showError(reason) {
-  const message = reason instanceof Error ? "加载失败，请重试" : String(reason || "加载失败");
+  const message = reason instanceof Error ? t("inbox.loadFailedRetry") : String(reason || t("inbox.loadFailed"));
   errorBanner(errorBox, message, () => {
     loadMessages().catch(showError);
   });

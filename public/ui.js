@@ -1,9 +1,11 @@
+import { currentLocale, t } from "./i18n.js";
+
 const THEME_KEY = "smsinbox-theme";
 const THEME_ORDER = ["system", "light", "dark"];
-const THEME_LABEL = {
-  system: "主题：自动",
-  light: "主题：浅色",
-  dark: "主题：深色",
+const THEME_LABEL_KEY = {
+  system: "shell.themeAuto",
+  light: "shell.themeLight",
+  dark: "shell.themeDark",
 };
 // One icon per mode (Roye): auto = contrast, light = sun, dark = moon.
 const THEME_ICON = {
@@ -29,9 +31,10 @@ export function applyTheme(theme) {
   }
   for (const button of document.querySelectorAll("[data-theme-toggle]")) {
     const label = button.querySelector(".btn-label");
-    if (label) label.textContent = THEME_LABEL[next];
-    else button.textContent = THEME_LABEL[next];
-    button.setAttribute("aria-label", THEME_LABEL[next]);
+    const themeLabel = t(THEME_LABEL_KEY[next]);
+    if (label) label.textContent = themeLabel;
+    else button.textContent = themeLabel;
+    button.setAttribute("aria-label", themeLabel);
     const use = button.querySelector("use");
     if (use) use.setAttribute("href", THEME_ICON[next]);
   }
@@ -80,14 +83,14 @@ export function toast(message, options = {}) {
   if (options.href) {
     const link = document.createElement("a");
     link.href = options.href;
-    link.textContent = options.linkLabel || "查看";
+    link.textContent = options.linkLabel || t("common.view");
     item.append(link);
   }
   if (options.tone === "danger") {
     const close = document.createElement("button");
     close.type = "button";
     close.className = "toast-close";
-    close.textContent = "关闭";
+    close.textContent = t("common.close");
     close.addEventListener("click", () => item.remove());
     item.append(close);
   }
@@ -304,7 +307,7 @@ export function openModal(options) {
     let gate = null;
     if (options.requireText) {
       const label = document.createElement("label");
-      label.textContent = `输入「${options.requireText}」以确认`;
+      label.textContent = t("common.typeToConfirm", { text: options.requireText });
       gate = document.createElement("input");
       gate.autocomplete = "off";
       label.append(gate);
@@ -319,11 +322,11 @@ export function openModal(options) {
     const cancel = document.createElement("button");
     cancel.type = "button";
     cancel.className = "secondary";
-    cancel.textContent = options.cancelLabel || "取消";
+    cancel.textContent = options.cancelLabel || t("common.cancel");
     const confirm = document.createElement("button");
     confirm.type = "button";
     confirm.className = options.danger ? "danger" : "primary";
-    confirm.textContent = options.confirmLabel || "确定";
+    confirm.textContent = options.confirmLabel || t("common.confirm");
     if (options.requireText) confirm.disabled = true;
     actions.append(cancel, confirm);
     card.append(actions);
@@ -385,35 +388,34 @@ export function openModal(options) {
 
 export function openHelp() {
   let dialog = document.querySelector("#help-dialog");
+  if (dialog && dialog.dataset.locale !== currentLocale()) {
+    dialog.remove();
+    dialog = null;
+  }
   if (!dialog) {
     dialog = document.createElement("dialog");
     dialog.id = "help-dialog";
     dialog.className = "modal";
+    dialog.dataset.locale = currentLocale();
     const card = document.createElement("div");
     card.className = "modal-card";
     const heading = document.createElement("h2");
     heading.id = "help-title";
-    heading.textContent = "键盘快捷键";
+    heading.textContent = t("shell.helpTitle");
     dialog.setAttribute("aria-labelledby", "help-title");
     const list = document.createElement("ul");
-    for (const line of [
-      ["/ 聚焦搜索", "/"],
-      ["j / k 在收件箱上下移动", "j k"],
-      ["Enter 展开或收起当前短信", "Enter"],
-      ["c 复制当前短信的验证码", "c"],
-      ["Esc 关闭弹出层", "Esc"],
-    ]) {
+    for (const line of ["shell.helpSearch", "shell.helpMove", "shell.helpEnter", "shell.helpCopy", "shell.helpEsc"]) {
       const item = document.createElement("li");
-      item.textContent = line[0];
+      item.textContent = t(line);
       list.append(item);
     }
     const note = document.createElement("p");
     note.className = "subtle";
-    note.textContent = "光标在输入框里时，这些快捷键不会触发。";
+    note.textContent = t("shell.helpNote");
     const close = document.createElement("button");
     close.type = "button";
     close.className = "secondary";
-    close.textContent = "关闭";
+    close.textContent = t("common.close");
     close.addEventListener("click", () => dialog.close());
     card.append(heading, list, note, close);
     dialog.append(card);

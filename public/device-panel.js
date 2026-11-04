@@ -1,5 +1,6 @@
 // Presentation rules for the device page. Secrets stay out of this module:
 // the database stores only hashes, and nothing here can ask for plaintext again.
+import { t } from "./i18n.js";
 
 export function canRevealPushSecret() {
   // The push secret is stored server-side (0012), so the owner can view
@@ -10,29 +11,29 @@ export function canRevealPushSecret() {
 export function pushActions(push) {
   if (push === "active") {
     return [
-      { action: "rotate", label: "轮换接口" },
-      { action: "revoke", label: "撤销接口" },
+      { action: "rotate", label: t("devices.rotateEndpoint") },
+      { action: "revoke", label: t("devices.revokeEndpoint") },
     ];
   }
   if (push === "revoked") {
     return [
-      { action: "issue", label: "生成推送链接" },
-      { action: "rotate", label: "轮换接口" },
+      { action: "issue", label: t("devices.issuePushLink") },
+      { action: "rotate", label: t("devices.rotateEndpoint") },
     ];
   }
-  return [{ action: "issue", label: "生成推送链接" }];
+  return [{ action: "issue", label: t("devices.issuePushLink") }];
 }
 
 export function pushConfirm(action, name) {
-  const safe = String(name || "").trim() || "该设备";
+  const safe = String(name || "").trim() || t("devices.thisDevice");
   if (action === "issue") {
-    return `为「${safe}」生成推送链接？生成后可在「推送配置」里随时查看和复制。`;
+    return t("devices.pushConfirmIssue", { name: safe });
   }
   if (action === "rotate") {
-    return `轮换「${safe}」的推送链接？手机上的旧链接会立刻失效，新链接可在「推送配置」里随时查看。`;
+    return t("devices.pushConfirmRotate", { name: safe });
   }
   if (action === "revoke") {
-    return `撤销「${safe}」的推送链接？短信仍会保留。旧链接不会再显示。`;
+    return t("devices.pushConfirmRevoke", { name: safe });
   }
   return null;
 }
@@ -73,20 +74,20 @@ export function deviceTypeOf(value) {
 
 export function platformFromReport(value) {
   const text = String(value ?? "").trim();
-  if (!text) return { key: "unknown", label: "尚未上报", icon: "icon-type-other" };
+  if (!text) return { key: "unknown", label: t("devices.notReported"), icon: "icon-type-other" };
   const type = deviceTypeOf(text);
   if (type) return { key: type.value, label: type.label, icon: type.icon };
   return { key: "reported", label: text, icon: "icon-type-other" };
 }
 
 export function platformBadge(platform) {
-  if (!platform || platform.key === "unknown") return "尚未上报";
+  if (!platform || platform.key === "unknown") return t("devices.notReported");
   if (platform.key === "reported") return "Other";
   return platform.label;
 }
 
 export function platformDetail(platform) {
-  if (!platform || platform.key === "unknown") return "尚未上报";
+  if (!platform || platform.key === "unknown") return t("devices.notReported");
   return platform.label;
 }
 
@@ -189,9 +190,9 @@ export function presenceDot(presence) {
 }
 
 export function presenceLabel(presence) {
-  if (presence.key === "recent") return "在线";
-  if (presence.key === "stale") return "离线";
-  return "尚未上报";
+  if (presence.key === "recent") return t("devices.online");
+  if (presence.key === "stale") return t("devices.offline");
+  return t("devices.notReported");
 }
 
 export function addFact(list, label, value, options = {}) {

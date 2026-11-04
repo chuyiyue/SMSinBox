@@ -34,6 +34,7 @@ const EXPECTED_MIGRATIONS = [
   "0016_notify_channel_note.sql",
   "0017_message_translation.sql",
   "0018_push_logs.sql",
+  "0019_user_locale.sql",
 ];
 const TABLES = [
   "api_tokens",
@@ -287,7 +288,7 @@ describe("release migrations", () => {
 
     // The worker under test reads the later additive columns, so finish the
     // schema before exercising login on the legacy rows.
-    await applyFiles(["0006_single_user.sql", "0007_totp.sql", "0008_device_identity.sql", "0009_api_tokens.sql", "0010_message_code_source.sql", "0011_session_client_info.sql", "0012_device_push_secret.sql", "0013_api_token_secret.sql", "0014_device_pins_groups.sql", "0015_device_group_order.sql", "0016_notify_channel_note.sql", "0017_message_translation.sql", "0018_push_logs.sql"]);
+    await applyFiles(["0006_single_user.sql", "0007_totp.sql", "0008_device_identity.sql", "0009_api_tokens.sql", "0010_message_code_source.sql", "0011_session_client_info.sql", "0012_device_push_secret.sql", "0013_api_token_secret.sql", "0014_device_pins_groups.sql", "0015_device_group_order.sql", "0016_notify_channel_note.sql", "0017_message_translation.sql", "0018_push_logs.sql", "0019_user_locale.sql"]);
     const migrated = await env.DB.prepare("PRAGMA table_info(devices)").all<{ name: string; dflt_value: unknown }>();
     expect(migrated.results.map((column) => column.name)).toEqual([
       "id",
@@ -1843,6 +1844,49 @@ describe("release storage edges", () => {
     const inbox = await expectStatus(await call("/api/v1/messages", {}, cookie), 200);
     const listed = (inbox.messages as Array<Record<string, unknown>>).find((message) => message.id === stored.id);
     expect(listed).toMatchObject({ translated_content: null, source_lang: null });
+  }, 20_000);
+
+  it("stores the UI locale and echoes it from the session", async () => {
+    await resetSchema();
+    const sql = readFileSync("migrations/0019_user_locale.sql", "utf8");
+    expect(sql).toMatch(/ADD COLUMN locale TEXT NOT NULL DEFAULT 'zh-CN'/);
+
+    const users = await env.DB.prepare("PRAGMA table_info(users)").all<{ name: string; dflt_value: string | null }>();
+    const column = users.results.find((item) => item.name === "locale");
+    expect(column?.dflt_value).toBe("'zh-CN'");
+
+    const login = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
+    const cookie = sessionCookie(login);
+    const me = await expectStatus(await call("/api/v1/me", {}, cookie), 200);
+    expect(me.user).toMatchObject({ username: ADMIN_USERNAME, locale: "zh-CN" });
+    const authMe = await expectStatus(await call("/api/v1/auth/me", {}, cookie), 200);
+    expect(authMe.user).toMatchObject({ locale: "zh-CN" });
+
+    const preference = (body: unknown) =>
+      call(
+        "/api/v1/me/preferences",
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        cookie,
+      );
+    expect((await call("/api/v1/me/preferences", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ locale: "en" }) })).status).toBe(401);
+    for (const bad of ["zh", "EN", "en-US", "", 1, true, null]) {
+      expect((await preference({ locale: bad })).status).toBe(400);
+    }
+    expect((await preference({})).status).toBe(400);
+
+    const english = await expectStatus(await preference({ locale: "en" }), 200);
+    expect(english).toEqual({ ok: true, locale: "en" });
+    const after = await expectStatus(await call("/api/v1/auth/me", {}, cookie), 200);
+    expect(after.user).toMatchObject({ locale: "en", translate_enabled: false });
+
+    const both = await expectStatus(await preference({ locale: "zh-CN", translate_enabled: true }), 200);
+    expect(both).toEqual({ ok: true, locale: "zh-CN", translate_enabled: true });
+    const restored = await expectStatus(await call("/api/v1/me", {}, cookie), 200);
+    expect(restored.user).toMatchObject({ locale: "zh-CN", translate_enabled: true });
   }, 20_000);
 });
 

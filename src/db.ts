@@ -273,6 +273,7 @@ export async function findSessionUser(db: D1Database, sessionHash: string): Prom
     .prepare(
       `SELECT u.id AS id, u.username AS username, u.role AS role, u.disabled_at AS disabled_at,
               u.totp_enabled_at AS totp_enabled_at, u.translate_enabled AS translate_enabled,
+              u.locale AS locale,
               s.expires_at AS expires_at
        FROM sessions s
        JOIN users u ON u.id = s.user_id
@@ -1114,6 +1115,10 @@ export async function readAdminTranslateEnabled(db: D1Database): Promise<boolean
 
 export async function setUserTranslateEnabled(db: D1Database, userId: string, enabled: boolean): Promise<void> {
   await db.prepare("UPDATE users SET translate_enabled = ? WHERE id = ?").bind(enabled ? 1 : 0, userId).run();
+}
+
+export async function setUserLocale(db: D1Database, userId: string, locale: "zh-CN" | "en"): Promise<void> {
+  await db.prepare("UPDATE users SET locale = ? WHERE id = ?").bind(locale, userId).run();
 }
 
 export interface PushLogInput {

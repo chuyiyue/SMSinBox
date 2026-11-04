@@ -1,4 +1,5 @@
 import { api, isUnauthorized } from "./common.js";
+import { adoptLocale, formatRelative, t } from "./i18n.js";
 
 export const STORAGE_KEY = "smsinbox.shell";
 // Devices that have not reported for a week show a weak warning tone.
@@ -21,28 +22,15 @@ let meFetched = false;
 let mePending = null;
 
 export function relativeReport(ms, now = Date.now()) {
-  const date = new Date(Number(ms));
-  if (Number.isNaN(date.getTime())) return "";
-  const diff = now - date.getTime();
-  if (diff >= 0 && diff < 60_000) return "刚刚";
-  if (diff >= 0 && diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
-  const clock = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  const today = new Date(now);
-  if (sameDay(date, today)) return clock;
-  const yesterday = new Date(now);
-  yesterday.setDate(today.getDate() - 1);
-  if (sameDay(date, yesterday)) return `昨天 ${clock}`;
-  const monthDay = `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${clock}`;
-  if (date.getFullYear() === today.getFullYear()) return monthDay;
-  return `${date.getFullYear()}-${monthDay}`;
+  return formatRelative(Number(ms), now);
 }
 
 // Honest device status: only what the last report time proves.
 export function deviceStateOf(device, now = Date.now()) {
   const seen = Number(device?.last_seen_at);
-  if (!Number.isFinite(seen) || seen <= 0) return { key: "none", text: "尚未收到", stale: false };
+  if (!Number.isFinite(seen) || seen <= 0) return { key: "none", text: t("time.noReport"), stale: false };
   const stale = now - seen > DEVICE_STALE_MS;
-  return { key: stale ? "stale" : "recent", text: `最近上报 ${relativeReport(seen, now)}`, stale };
+  return { key: stale ? "stale" : "recent", text: t("time.lastReport", { when: relativeReport(seen, now) }), stale };
 }
 
 // Inbox device filter lives in the URL. `device` is the current name;
@@ -151,7 +139,7 @@ export async function refreshDevices() {
     return {
       ok: false,
       stale: false,
-      error: result.data.error || "加载设备失败",
+      error: result.data.error || t("devices.loadFailed"),
       devices: state.devices,
     };
   }
@@ -213,6 +201,7 @@ async function loadMe() {
     };
   }
   state.me = result.data.user || null;
+  if (state.me && state.me.locale) adoptLocale(state.me.locale);
   meFetched = true;
   persist();
   return { ok: true, stale: false, status: 200, user: state.me };
@@ -263,16 +252,4 @@ function readStorage() {
 
 function isInboxPath(pathname) {
   return pathname === "/" || pathname === "/index.html";
-}
-
-function pad(value) {
-  return String(value).padStart(2, "0");
-}
-
-function sameDay(left, right) {
-  return (
-    left.getFullYear() === right.getFullYear() &&
-    left.getMonth() === right.getMonth() &&
-    left.getDate() === right.getDate()
-  );
 }

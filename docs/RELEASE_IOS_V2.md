@@ -26,6 +26,7 @@
 - `0016_notify_channel_note.sql`
 - `0017_message_translation.sql`
 - `0018_push_logs.sql`
+- `0019_user_locale.sql`
 
 `0005_device_push.sql` 只追加 `push_token_hash`、`push_revoked_at` 和唯一索引。它不改已有 `token_hash`，不改短信，不删行。SQLite 的唯一索引允许多个 NULL，还没签发推送链接的旧设备可以共存。
 
@@ -55,7 +56,9 @@
 
 `0018_push_logs.sql` 新建 `push_logs` 表，保留系统推送渠道的短信发送与测试发送结果快照；历史按用户和时间索引，并按 `RETENTION_DAYS` 与短信一同清理。还没跑过 `0018` 时不要部署这份 Worker。
 
-新 Worker 会读取推送列、TOTP 列和 `translate_enabled`。数据库还没跑过 `0005` / `0007` / `0008` / `0009` / `0010` / `0011` / `0012` / `0013` / `0014` / `0015` / `0016` / `0017` / `0018` 时不要部署这份 Worker。旧 Worker 不读这些列，所以先迁移再部署是安全的。
+`0019_user_locale.sql` 只给 `users` 追加 `locale`（`TEXT NOT NULL DEFAULT 'zh-CN'`）。没选过语言的账号保持简体中文界面。用户在系统管理里改成 English 后，`PATCH /api/v1/me/preferences` 写入这一列，`GET /api/v1/auth/me` 回显；前端同时记一份 localStorage 镜像，避免下次打开时闪一下中文。还没跑过 `0019` 时不要部署这份 Worker。
+
+新 Worker 会读取推送列、TOTP 列、`translate_enabled` 和 `locale`。数据库还没跑过 `0005` / `0007` / `0008` / `0009` / `0010` / `0011` / `0012` / `0013` / `0014` / `0015` / `0016` / `0017` / `0018` / `0019` 时不要部署这份 Worker。旧 Worker 不读这些列，所以先迁移再部署是安全的。
 
 ## 已在本地完成
 
