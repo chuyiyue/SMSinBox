@@ -10,8 +10,11 @@
 (function () {
   var STORAGE_KEY = "smsinbox.shell";
   var SIDEBAR_KEY = "smsinbox-sidebar";
-  var SIDEBAR_DEVICES_KEY = "smsinbox-sidebar-devices";
   var STALE_MS = 7 * 24 * 60 * 60 * 1000;
+  // The sidebar device list is a plain list, never collapsible: it shows
+  // the pinned devices (or the first devices when nothing is pinned),
+  // capped at this many, with an ellipsis row linking to the full list.
+  var SIDEBAR_DEVICE_LIMIT = 5;
 
   // Only modules marked for the nav render here; a module with nav: false
   // (users / 系统管理) stays routable but is entered through the sidebar
@@ -33,10 +36,7 @@
     '<nav class="sidebar-nav" aria-label="主导航"></nav>' +
     '<div class="sidebar-devices" aria-labelledby="sidebar-devices-title">' +
     '<div class="sidebar-label-row">' +
-    '<button type="button" class="sidebar-section-toggle ghost" id="sidebar-devices-toggle" aria-expanded="true" aria-controls="sidebar-devices" title="收起设备列表" aria-label="收起设备列表">' +
-    '<svg class="icon chevron" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-chevron-down"/></svg>' +
     '<span class="sidebar-label" id="sidebar-devices-title">设备</span>' +
-    "</button>" +
     "</div>" +
     '<div id="sidebar-devices" class="device-list"></div>' +
     "</div>" +
@@ -63,7 +63,6 @@
     var collapsed = readCollapsed();
     injectCollapseButton();
     applySidebarState(collapsed, false);
-    initDevicesCollapse();
   }
 
   function renderNav() {
@@ -181,46 +180,27 @@
     row.append(brand, button);
   }
 
-  function initDevicesCollapse() {
-    var collapsed = readDevicesCollapsed();
-    applyDevicesCollapsedState(collapsed, false);
-    var button = document.querySelector("#sidebar-devices-toggle");
-    if (button) {
-      button.addEventListener("click", function () {
-        var section = document.querySelector(".sidebar-devices");
-        var isCurrentlyCollapsed = section ? section.classList.contains("is-collapsed") : false;
-        applyDevicesCollapsedState(!isCurrentlyCollapsed, true);
-      });
+  // Mirrors selectSidebarDevices in device-panel.js (this script cannot
+  // import modules): pinned devices when any exist, else the first ones,
+  // capped at the limit; hasMore drives the ellipsis row.
+  function sidebarSelection(devices) {
+    var all = [];
+    for (var i = 0; i < devices.length; i += 1) {
+      if (devices[i] && devices[i].id) all.push(devices[i]);
     }
+    var pinned = all.filter(function (device) { return device.pinned_at != null; });
+    var shown = (pinned.length ? pinned : all).slice(0, SIDEBAR_DEVICE_LIMIT);
+    return { shown: shown, hasMore: all.length > shown.length };
   }
 
-  function readDevicesCollapsed() {
-    try {
-      return localStorage.getItem(SIDEBAR_DEVICES_KEY) === "collapsed";
-    } catch (error) {
-      return false;
-    }
-  }
-
-  function applyDevicesCollapsedState(collapsed, persist) {
-    var section = document.querySelector(".sidebar-devices");
-    if (section) {
-      section.classList.toggle("is-collapsed", collapsed);
-    }
-    if (persist) {
-      try {
-        localStorage.setItem(SIDEBAR_DEVICES_KEY, collapsed ? "collapsed" : "expanded");
-      } catch (error) {
-        // Storage disabled or private browsing mode
-      }
-    }
-    var button = document.querySelector("#sidebar-devices-toggle");
-    if (button) {
-      button.setAttribute("aria-expanded", collapsed ? "false" : "true");
-      var label = collapsed ? "展开设备列表" : "收起设备列表";
-      button.setAttribute("aria-label", label);
-      button.setAttribute("title", label);
-    }
+  function moreRow() {
+    var link = document.createElement("a");
+    link.className = "device-more";
+    link.href = "/devices.html";
+    link.textContent = "…";
+    link.title = "查看全部设备";
+    link.setAttribute("aria-label", "查看全部设备");
+    return link;
   }
 
   function paintCachedDevices() {
@@ -255,11 +235,12 @@
       box.append(empty);
       return;
     }
-    for (var index = 0; index < devices.length; index += 1) {
-      var device = devices[index];
-      if (!device || !device.id) continue;
+    var selection = sidebarSelection(devices);
+    for (var index = 0; index < selection.shown.length; index += 1) {
+      var device = selection.shown[index];
       box.append(button(String(device.id), String(device.id), String(device.name || "未命名设备"), String(device.id) === active, device));
     }
+    if (selection.hasMore) box.append(moreRow());
   }
 
   function button(id, key, name, on, device) {

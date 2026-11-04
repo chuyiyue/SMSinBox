@@ -27,6 +27,7 @@ import { closeDeviceDetail, openDeviceDetail, removeDevice, runPush } from "./de
 const TEMPLATE = '{"from":"{{FROM}}","content":"{{SMS}}","timestamp":"{{RECEIVE_TIME}}","device":"{{DEVICE_NAME}}","sim":"{{CARD_SLOT}}"}';
 let form;
 let platformField;
+let deviceGroups = [];
 let errorBox;
 let statusBox;
 let tokenBox;
@@ -75,6 +76,7 @@ function startView() {
   });
   document.addEventListener("smsinbox:devices-changed", onSharedDevicesChanged);
   document.querySelector("#add-device").addEventListener("click", openCreate);
+  document.querySelector("#add-group")?.addEventListener("click", () => void editGroup(null));
   buildPageGuide();
   wirePageTabs();
   hashListener = () => {
@@ -324,6 +326,8 @@ async function loadDevices(options = {}) {
   const ticket = ++generation;
   if (!devices.querySelector(".device") && getDevices().length === 0) showSkeletons();
   try {
+    await loadGroups();
+    if (ticket !== generation || token !== viewToken) return;
     const listResult = options.refresh ? await refreshDevices() : await ensureDevices();
     if (ticket !== generation || token !== viewToken || listResult.stale) return;
     const rows = getDevices();
@@ -362,6 +366,17 @@ async function loadLatest(rows) {
   return found;
 }
 
+async function loadGroups() {
+  try {
+    const result = await api("/api/v1/device-groups");
+    if (result.response.ok && Array.isArray(result.data.groups)) {
+      deviceGroups = result.data.groups;
+    }
+  } catch {
+    // Groups are an organizational extra; the flat list still renders.
+  }
+}
+
 function renderDeviceList(rows, latest) {
   devices.replaceChildren();
   if (rows.length === 0) {
@@ -369,8 +384,124 @@ function renderDeviceList(rows, latest) {
     applyLocationHash();
     return;
   }
-  for (const device of rows) devices.append(renderDevice(device, latest.get(device.id) || null));
+  if (!deviceGroups.length) {
+    for (const device of rows) devices.append(renderDevice(device, latest.get(device.id) || null));
+    applyLocationHash();
+    return;
+  }
+  // With groups defined, the list is filed under group headers; devices
+  // whose group is gone (or never set) land in 未分组 at the end.
+  for (const group of deviceGroups) {
+    const members = rows.filter((device) => device.group_id === group.id);
+    devices.append(groupHeader(group, members.length));
+    for (const device of members) devices.append(renderDevice(device, latest.get(device.id) || null));
+  }
+  const ungrouped = rows.filter((device) => !deviceGroups.some((group) => group.id === device.group_id));
+  if (ungrouped.length) {
+    devices.append(groupHeader(null, ungrouped.length));
+    for (const device of ungrouped) devices.append(renderDevice(device, latest.get(device.id) || null));
+  }
   applyLocationHash();
+}
+
+function groupHeader(group, count) {
+  const head = document.createElement("div");
+  head.className = "device-group-head";
+  const name = document.createElement("span");
+  name.className = "device-group-name";
+  name.textContent = group ? group.name : "未分组";
+  const meta = document.createElement("span");
+  meta.className = "device-group-count";
+  meta.textContent = `${count} 台`;
+  head.append(name, meta);
+  if (group) {
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "ghost icon-btn device-group-more";
+    more.setAttribute("aria-label", `管理分组 ${group.name}`);
+    more.textContent = "⋯";
+    more.addEventListener("click", () => {
+      openMenu(more, [
+        { label: "重命名分组", onSelect: () => void editGroup(group) },
+        { label: "删除分组", danger: true, onSelect: () => void removeGroup(group) },
+      ]);
+    });
+    head.append(more);
+  }
+  return head;
+}
+
+async function editGroup(group) {
+  const input = document.createElement("input");
+  input.maxLength = 32;
+  input.value = group?.name || "";
+  input.placeholder = "分组名称";
+  input.setAttribute("aria-label", "分组名称");
+  const confirmed = await openModal({
+    title: group ? "重命名分组" : "新建分组",
+    body: input,
+    confirmLabel: group ? "保存" : "创建",
+  });
+  if (!confirmed) return;
+  const name = input.value.trim();
+  if (!name || name.length > 32) {
+    toast("分组名称需要 1 到 32 个字符", { tone: "danger" });
+    return;
+  }
+  const result = group
+    ? await api(`/api/v1/device-groups/${encodeURIComponent(group.id)}`, { method: "PATCH", body: JSON.stringify({ name }) })
+    : await api("/api/v1/device-groups", { method: "POST", body: JSON.stringify({ name }) });
+  if (!result.response.ok) {
+    toast(result.data?.error || "保存分组失败", { tone: "danger" });
+    return;
+  }
+  toast(group ? "分组已重命名" : "分组已创建");
+  await loadGroups();
+  await loadDevices({ refresh: true });
+}
+
+async function removeGroup(group) {
+  const confirmed = await openModal({
+    title: "删除分组",
+    body: `确定要删除分组「${group.name}」吗？组内设备不会被删除，只会变为未分组。`,
+    confirmLabel: "删除",
+    danger: true,
+  });
+  if (!confirmed) return;
+  const result = await api(`/api/v1/device-groups/${encodeURIComponent(group.id)}`, { method: "DELETE" });
+  if (!result.response.ok) {
+    toast(result.data?.error || "删除分组失败", { tone: "danger" });
+    return;
+  }
+  toast("分组已删除");
+  await loadGroups();
+  await loadDevices({ refresh: true });
+}
+
+async function setDeviceGroupId(device, groupId) {
+  const result = await api(`/api/v1/devices/${encodeURIComponent(device.id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ group_id: groupId }),
+  });
+  if (!result.response.ok) {
+    toast(result.data?.error || "设置分组失败", { tone: "danger" });
+    return;
+  }
+  toast("已更新分组");
+  await loadDevices({ refresh: true });
+}
+
+async function togglePin(device) {
+  const pinning = device.pinned_at == null;
+  const result = await api(`/api/v1/devices/${encodeURIComponent(device.id)}/${pinning ? "pin" : "unpin"}`, {
+    method: "POST",
+  });
+  if (!result.response.ok) {
+    toast(result.data?.error || "操作失败", { tone: "danger" });
+    return;
+  }
+  toast(pinning ? "已置顶到侧边栏" : "已取消置顶");
+  await loadDevices({ refresh: true });
 }
 
 function emptyDevices() {
@@ -413,6 +544,19 @@ function renderDevice(device, entry) {
   badge.textContent = view.platformBadge;
   titleWrap.append(title, badge, presenceDot(presence));
   head.append(titleWrap);
+  const pinned = device.pinned_at != null;
+  const pin = document.createElement("button");
+  pin.type = "button";
+  pin.className = `ghost icon-btn device-pin${pinned ? " is-pinned" : ""}`;
+  pin.innerHTML = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-pin"/></svg>';
+  pin.title = pinned ? "取消置顶" : "置顶到侧边栏";
+  pin.setAttribute("aria-label", pin.title);
+  pin.setAttribute("aria-pressed", pinned ? "true" : "false");
+  pin.addEventListener("click", (event) => {
+    event.stopPropagation();
+    void togglePin(device);
+  });
+  head.append(pin);
   head.addEventListener("click", (event) => {
     if (event.target.closest("button, a, input, select, textarea, summary")) return;
     openDeviceDetail(device, entry);
@@ -438,7 +582,7 @@ function renderDevice(device, entry) {
   more.textContent = "管理设备";
   more.addEventListener("click", (event) => {
     event.stopPropagation();
-    // Menu order is fixed: rename, push actions (rotate/revoke), delete.
+    // Menu order is fixed: rename, group, push actions (rotate/revoke), delete.
     const items = [
       {
         label: "更改名称",
@@ -447,6 +591,23 @@ function renderDevice(device, entry) {
           document
             .querySelector('.ui-drawer [data-device-tab="advanced"]')
             ?.click();
+        },
+      },
+      {
+        label: "设置分组",
+        onSelect: () => {
+          openMenu(more, [
+            {
+              label: "未分组",
+              selected: !device.group_id,
+              onSelect: () => void setDeviceGroupId(device, null),
+            },
+            ...deviceGroups.map((group) => ({
+              label: group.name,
+              selected: device.group_id === group.id,
+              onSelect: () => void setDeviceGroupId(device, group.id),
+            })),
+          ]);
         },
       },
       ...view.actions.map((item) => ({

@@ -162,52 +162,35 @@
   margin: 0 12px 6px;
 }
 
-.sidebar-section-toggle {
-  display: inline-flex;
-  flex: 1 1 auto;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  height: 30px;
-  padding: 2px 12px;
-  background: transparent;
-  border: 0;
-  border-radius: var(--r-sm);
-  color: var(--text-3);
-  font: inherit;
-  font-size: var(--fs-xs);
-  cursor: pointer;
-  text-align: left;
-}
-
-.sidebar-section-toggle:hover {
-  color: var(--sidebar-text-strong);
-  background: var(--sidebar-bg-hover);
-}
-
-.sidebar-section-toggle .chevron {
-  width: 14px;
-  height: 14px;
-  flex: none;
-  transition: transform var(--dur-fast) var(--ease);
-}
-
-.sidebar-devices.is-collapsed .sidebar-section-toggle .chevron {
-  transform: rotate(-90deg);
-}
-
-.sidebar-devices.is-collapsed .device-list {
-  display: none;
-}
-
 .sidebar-label {
   margin: 0;
+  padding: 2px 12px;
   color: var(--text-3);
   font-size: var(--fs-xs);
   letter-spacing: 0.06em;
+  line-height: 26px;
 }
 
 .device-list { display: grid; gap: 2px; }
+
+/* Ellipsis row under the capped sidebar device list: links to the full
+   device list on the devices page. */
+.sidebar .device-more {
+  display: block;
+  padding: 2px 12px 4px;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  font-size: var(--fs-md);
+  line-height: 1.4;
+  letter-spacing: 0.2em;
+  text-align: center;
+  text-decoration: none;
+}
+
+.sidebar .device-more:hover {
+  color: var(--sidebar-text-strong);
+  background: var(--sidebar-bg-hover);
+}
 
 .sidebar .device-link {
   display: grid;

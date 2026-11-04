@@ -29,6 +29,7 @@ const EXPECTED_MIGRATIONS = [
   "0011_session_client_info.sql",
   "0012_device_push_secret.sql",
   "0013_api_token_secret.sql",
+  "0014_device_pins_groups.sql",
 ];
 const TABLES = [
   "api_tokens",
@@ -280,7 +281,7 @@ describe("release migrations", () => {
 
     // The worker under test reads the later additive columns, so finish the
     // schema before exercising login on the legacy rows.
-    await applyFiles(["0006_single_user.sql", "0007_totp.sql", "0008_device_identity.sql", "0009_api_tokens.sql", "0010_message_code_source.sql", "0011_session_client_info.sql", "0012_device_push_secret.sql", "0013_api_token_secret.sql"]);
+    await applyFiles(["0006_single_user.sql", "0007_totp.sql", "0008_device_identity.sql", "0009_api_tokens.sql", "0010_message_code_source.sql", "0011_session_client_info.sql", "0012_device_push_secret.sql", "0013_api_token_secret.sql", "0014_device_pins_groups.sql"]);
     const migrated = await env.DB.prepare("PRAGMA table_info(devices)").all<{ name: string; dflt_value: unknown }>();
     expect(migrated.results.map((column) => column.name)).toEqual([
       "id",
@@ -295,6 +296,8 @@ describe("release migrations", () => {
       "platform",
       "token_version",
       "push_token_enc",
+      "pinned_at",
+      "group_id",
     ]);
     const legacyIdentity = await env.DB.prepare("SELECT platform, token_version FROM devices WHERE id = ?")
       .bind(LEGACY_DEVICE)

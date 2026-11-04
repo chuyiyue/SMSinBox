@@ -38,8 +38,16 @@ import {
   insertNotifyChannel,
   insertUser,
   isUniqueViolation,
+  countPinnedDevices,
+  createDeviceGroup,
+  deleteDeviceGroup,
+  isDevicePinned,
   listApiTokens,
+  listDeviceGroups,
   renameApiToken,
+  renameDeviceGroup,
+  setDeviceGroup,
+  setDevicePinned,
   listDevices,
   listMessages,
   listMessagesSince,
@@ -52,6 +60,7 @@ import {
   loginRateKey,
   loginRetryAfterSeconds,
   MAX_DEVICES,
+  MAX_PINNED_DEVICES,
   mergeIntoAdmin,
   pushState,
   recordAccountPasswordFailure,
@@ -219,6 +228,22 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
   if (devicePush?.[1]) {
     if (method !== "POST") return methodNotAllowed("POST");
     return updateDevicePush(request, env, devicePush[1]);
+  }
+  const devicePin = /^\/api\/v1\/devices\/([^/]+)\/(pin|unpin)$/.exec(path);
+  if (devicePin?.[1]) {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return setDevicePin(request, env, devicePin[1], devicePin[2] === "pin");
+  }
+  if (path === "/api/v1/device-groups") {
+    if (method === "GET") return deviceGroups(request, env);
+    if (method === "POST") return createDeviceGroupEndpoint(request, env);
+    return methodNotAllowed("GET, POST");
+  }
+  const deviceGroupMatch = /^\/api\/v1\/device-groups\/([^/]+)$/.exec(path);
+  if (deviceGroupMatch?.[1]) {
+    if (method === "PATCH") return renameDeviceGroupEndpoint(request, env, deviceGroupMatch[1]);
+    if (method !== "DELETE") return methodNotAllowed("DELETE, PATCH");
+    return removeDeviceGroup(request, env, deviceGroupMatch[1]);
   }
   const deviceMatch = /^\/api\/v1\/devices\/([^/]+)$/.exec(path);
   if (deviceMatch?.[1]) {
@@ -703,6 +728,8 @@ async function createDevice(request: Request, env: Env): Promise<Response> {
       platform: parsed.platform,
       created_at: createdAt,
       last_seen_at: null,
+      pinned_at: null,
+      group_id: null,
       push: "active" as const,
     },
   });
@@ -989,18 +1016,119 @@ async function renameDevice(request: Request, env: Env, rawId: string): Promise<
   if (!id || !UUID_RE.test(id)) return json({ ok: false, error: "设备不存在" }, 404);
   const body = await readJson(request);
   if (!body.ok) return body.response;
-  const rawName =
+  const record =
     body.value && typeof body.value === "object" && !Array.isArray(body.value)
-      ? (body.value as Record<string, unknown>).name
-      : undefined;
-  const name = typeof rawName === "string" ? rawName.trim() : "";
-  if (!name || name.length > 64 || /[\u0000-\u001f\u007f]/.test(name)) {
-    return json({ ok: false, error: "设备名称需要 1 到 64 个字符" }, 400);
+      ? (body.value as Record<string, unknown>)
+      : {};
+  // The same PATCH carries the rename and/or the group assignment; at
+  // least one of the two must be present.
+  const hasName = "name" in record;
+  const hasGroup = "group_id" in record;
+  if (!hasName && !hasGroup) return json({ ok: false, error: "没有要更新的内容" }, 400);
+  let name: string | undefined;
+  if (hasName) {
+    name = typeof record.name === "string" ? record.name.trim() : "";
+    if (!name || name.length > 64 || /[\u0000-\u001f\u007f]/.test(name)) {
+      return json({ ok: false, error: "设备名称需要 1 到 64 个字符" }, 400);
+    }
+    const renamed = await updateDeviceName(env.DB, user.id, id, name);
+    if (!renamed) return json({ ok: false, error: "设备不存在" }, 404);
+    logInfo({ message: "device_renamed", device_id: id, user_id: user.id });
   }
-  const renamed = await updateDeviceName(env.DB, user.id, id, name);
-  if (!renamed) return json({ ok: false, error: "设备不存在" }, 404);
-  logInfo({ message: "device_renamed", device_id: id, user_id: user.id });
-  return json({ ok: true, id, name });
+  let groupId: string | null | undefined;
+  if (hasGroup) {
+    const rawGroup = record.group_id;
+    if (rawGroup !== null && typeof rawGroup !== "string") {
+      return json({ ok: false, error: "分组无效" }, 400);
+    }
+    groupId = rawGroup === null ? null : decodePart(rawGroup);
+    if (groupId !== null && !UUID_RE.test(groupId)) {
+      return json({ ok: false, error: "分组无效" }, 400);
+    }
+    const grouped = await setDeviceGroup(env.DB, user.id, id, groupId);
+    if (!grouped) return json({ ok: false, error: "设备或分组不存在" }, 404);
+    logInfo({ message: "device_group_set", device_id: id, user_id: user.id, group_id: groupId });
+  }
+  return json({ ok: true, id, ...(name !== undefined ? { name } : {}), ...(groupId !== undefined ? { group_id: groupId } : {}) });
+}
+
+async function setDevicePin(request: Request, env: Env, rawId: string, pin: boolean): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const id = decodePart(rawId);
+  if (!id || !UUID_RE.test(id)) return json({ ok: false, error: "设备不存在" }, 404);
+  if (pin) {
+    const already = await isDevicePinned(env.DB, user.id, id);
+    if (!already) {
+      const owned = await findOwnedDevice(env.DB, user.id, id);
+      if (!owned) return json({ ok: false, error: "设备不存在" }, 404);
+      const count = await countPinnedDevices(env.DB, user.id);
+      if (count >= MAX_PINNED_DEVICES) {
+        return json({ ok: false, error: `侧边栏最多置顶 ${MAX_PINNED_DEVICES} 台设备` }, 400);
+      }
+    }
+  }
+  const updated = await setDevicePinned(env.DB, user.id, id, pin ? Date.now() : null);
+  if (!updated) return json({ ok: false, error: "设备不存在" }, 404);
+  logInfo({ message: pin ? "device_pinned" : "device_unpinned", device_id: id, user_id: user.id });
+  return json({ ok: true, id, pinned: pin });
+}
+
+async function deviceGroups(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const groups = await listDeviceGroups(env.DB, user.id);
+  return json({ ok: true, groups });
+}
+
+function readGroupName(value: unknown): string | { error: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { error: "请求体无效" };
+  const raw = (value as Record<string, unknown>).name;
+  const name = typeof raw === "string" ? raw.trim() : "";
+  if (!name || name.length > 32 || /[\u0000-\u001f\u007f]/.test(name)) {
+    return { error: "分组名称需要 1 到 32 个字符" };
+  }
+  return name;
+}
+
+async function createDeviceGroupEndpoint(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const parsed = readGroupName(body.value);
+  if (typeof parsed !== "string") return json({ ok: false, error: parsed.error }, 400);
+  const id = crypto.randomUUID();
+  const createdAt = Date.now();
+  await createDeviceGroup(env.DB, { id, userId: user.id, name: parsed, createdAt });
+  logInfo({ message: "device_group_created", group_id: id, user_id: user.id });
+  return json({ ok: true, group: { id, name: parsed, created_at: createdAt, device_count: 0 } });
+}
+
+async function renameDeviceGroupEndpoint(request: Request, env: Env, rawId: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const id = decodePart(rawId);
+  if (!id || !UUID_RE.test(id)) return json({ ok: false, error: "分组不存在" }, 404);
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const parsed = readGroupName(body.value);
+  if (typeof parsed !== "string") return json({ ok: false, error: parsed.error }, 400);
+  const renamed = await renameDeviceGroup(env.DB, user.id, id, parsed);
+  if (!renamed) return json({ ok: false, error: "分组不存在" }, 404);
+  logInfo({ message: "device_group_renamed", group_id: id, user_id: user.id });
+  return json({ ok: true, id, name: parsed });
+}
+
+async function removeDeviceGroup(request: Request, env: Env, rawId: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const id = decodePart(rawId);
+  if (!id || !UUID_RE.test(id)) return json({ ok: false, error: "分组不存在" }, 404);
+  const removed = await deleteDeviceGroup(env.DB, user.id, id);
+  if (!removed) return json({ ok: false, error: "分组不存在" }, 404);
+  logInfo({ message: "device_group_deleted", group_id: id, user_id: user.id });
+  return json({ ok: true, id });
 }
 
 async function removeDevice(request: Request, env: Env, rawId: string): Promise<Response> {

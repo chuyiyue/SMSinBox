@@ -65,11 +65,22 @@ export interface DeviceView {
   platform: string | null;
   created_at: number;
   last_seen_at: number | null;
+  // Sidebar pin time (null = not pinned; at most 5 pinned per owner) and
+  // the owner-defined group the device is filed under (null = ungrouped).
+  pinned_at: number | null;
+  group_id: string | null;
   push: PushState;
   // Plaintext push URL for the owner's session list (path form until the
   // handler absolutizes it); null when no secret is stored (legacy rows,
   // revoked links) or it cannot be decrypted.
   push_url: string | null;
+}
+
+export interface DeviceGroupView {
+  id: string;
+  name: string;
+  created_at: number;
+  device_count: number;
 }
 
 export interface UserRecord {
