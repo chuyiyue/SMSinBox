@@ -37,6 +37,8 @@ npx wrangler deploy
 
 `secret put` 会读取标准输入，避免密码出现在 shell 历史里。两个密钥都要设置。部署完成后打开 Worker 的 `*.workers.dev` 地址，用这两个值登录。第一次成功登录会在 D1 里创建管理员。
 
+GitHub Actions 自动部署所需的仓库机密和 OAuth 配置见 [部署机密说明](docs/DEPLOY_SECRETS.md)。未配置 Actions 机密不影响本地手动部署。
+
 可选：把短信正文、验证码和原始请求体用 AES-GCM 加密后再写入 D1。不设置时保持明文，已有短信不用迁移。密钥是 32 字节的 base64，用 secret 覆盖空的 `CONTENT_KEY` 变量：
 
 ```bash
