@@ -26,17 +26,31 @@
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-sun"/></svg>
               <span class="btn-label sr-only">主题：自动</span>
             </button>
-            <button id="add-channel" class="primary" type="button">添加渠道</button>
             <button id="refresh" class="ghost icon-btn" type="button" aria-label="刷新">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-refresh"/></svg>
             </button>
           </div>
         </header>
         <div class="page">
-          <p id="notify-error" class="callout danger" hidden></p>
-          <p id="notify-status" class="callout ok" hidden></p>
-          <div id="notify-list" class="channel-grid"></div>
-          <p class="privacy">渠道配置保存在你自己的 D1 数据库中；日志不会记录正文、token 或密码。</p>
+          <div class="notify-toolbar">
+            <div class="tabs api-tabs notify-page-tabs" role="tablist" aria-label="推送页面视图">
+              <button class="tab is-active" id="ntab-system" type="button" role="tab" aria-selected="true" aria-controls="npanel-system">系统推送</button>
+              <button class="tab" id="ntab-external" type="button" role="tab" aria-selected="false" aria-controls="npanel-external">外部推送</button>
+            </div>
+            <div class="notify-actions">
+              <button id="add-channel" class="primary" type="button">添加渠道</button>
+            </div>
+          </div>
+          <section id="npanel-system" role="tabpanel" aria-labelledby="ntab-system">
+            <p id="notify-error" class="callout danger" hidden></p>
+            <p id="notify-status" class="callout ok" hidden></p>
+            <div id="notify-list" class="channel-grid"></div>
+            <p class="privacy">渠道配置保存在你自己的 D1 数据库中；日志不会记录正文、token 或密码。</p>
+          </section>
+          <section id="npanel-external" role="tabpanel" aria-labelledby="ntab-external" hidden>
+            <h2>外部推送</h2>
+            <p class="subtle">开发中。之后会与其他项目打通，把消息推送到外部系统。</p>
+          </section>
         </div>
       </div>
     </div>

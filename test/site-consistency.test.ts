@@ -247,6 +247,36 @@ describe("site consistency", () => {
     expect(toolbar).toContain('id="add-device"');
   });
 
+  it("keeps the notify page actions in the body toolbar beside the tabs", () => {
+    const html = readFileSync("public/notify.html", "utf8");
+    const js = readFileSync("public/notify.js", "utf8");
+    const css = readFileSync("public/css/pages.css", "utf8");
+    const topbar = html.slice(html.indexOf('<header class="topbar">'), html.indexOf("</header>"));
+    expect(topbar).not.toContain('id="add-channel"');
+    expect(html).toContain('class="notify-toolbar"');
+    expect(html).toContain('aria-label="推送页面视图"');
+    const toolbar = html.slice(html.indexOf('class="notify-toolbar"'), html.indexOf('id="npanel-system"'));
+    expect(toolbar).toContain('id="ntab-system"');
+    expect(toolbar).toContain("系统推送");
+    expect(toolbar).toContain('id="ntab-external"');
+    expect(toolbar).toContain("外部推送");
+    expect(toolbar).toContain('id="add-channel"');
+    expect(toolbar).toContain('class="primary"');
+    expect(html).toContain('id="notify-list"');
+    expect(html).toContain('id="notify-error"');
+    expect(html).toContain('id="notify-status"');
+    const external = html.slice(html.indexOf('id="npanel-external"'), html.indexOf("</section>", html.indexOf('id="npanel-external"')));
+    expect(external).toContain("hidden");
+    expect(external).toContain("<h2>外部推送</h2>");
+    expect(external).not.toContain("<button");
+    expect(external).not.toContain("<form");
+    expect(js).toContain('querySelector("#ntab-system")');
+    expect(js).toContain('querySelector("#ntab-external")');
+    expect(js).toContain("addButton.hidden = external");
+    expect(css).toMatch(/\.notify-toolbar \{[^}]*display: flex;[^}]*flex-wrap: wrap;/);
+    expect(css).toContain(".notify-actions { display: flex; gap: 8px; margin-left: auto; }");
+  });
+
   it("shares one aligned top-right cluster and shows no count next to add buttons", () => {
     const shellCss = readFileSync("public/css/shell.css", "utf8");
     expect(shellCss).toMatch(/\.topbar-actions > \* \{ height: 38px; \}/);
