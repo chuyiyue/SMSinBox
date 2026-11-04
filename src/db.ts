@@ -124,6 +124,10 @@ export async function ensureAdmin(db: D1Database, userId: string): Promise<void>
 
 export const SINGLE_USER_MERGED_KEY = "single_user_merged_at";
 export const PROFILE_USERNAME_KEY = "profile_username";
+export const GITHUB_ID_KEY = "github_id";
+export const GITHUB_LOGIN_KEY = "github_login";
+export const GITHUB_AVATAR_URL_KEY = "github_avatar_url";
+export const AVATAR_DATA_KEY = "avatar_data";
 
 // The one admin may set a display-only username (a nickname). It lives in
 // schema_meta, never on the users row: the login stays password-only and the
@@ -143,15 +147,37 @@ export async function getProfileUsername(db: D1Database): Promise<string> {
 
 export async function setProfileUsername(db: D1Database, username: string): Promise<void> {
   if (username.length === 0) {
-    await db.prepare("DELETE FROM schema_meta WHERE key = ?").bind(PROFILE_USERNAME_KEY).run();
+    await deleteSchemaMeta(db, PROFILE_USERNAME_KEY);
     return;
   }
+  await writeSchemaMeta(db, PROFILE_USERNAME_KEY, username);
+}
+
+export async function readSchemaMeta(db: D1Database, key: string): Promise<string | null> {
+  try {
+    const row = await db
+      .prepare("SELECT value FROM schema_meta WHERE key = ?")
+      .bind(key)
+      .first<{ value: string }>();
+    if (!row || row.value.length === 0) return null;
+    return row.value;
+  } catch (error) {
+    if (isMissingSchemaMeta(error)) return null;
+    throw error;
+  }
+}
+
+export async function writeSchemaMeta(db: D1Database, key: string, value: string): Promise<void> {
   await db
     .prepare(
       "INSERT INTO schema_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
     )
-    .bind(PROFILE_USERNAME_KEY, username)
+    .bind(key, value)
     .run();
+}
+
+export async function deleteSchemaMeta(db: D1Database, key: string): Promise<void> {
+  await db.prepare("DELETE FROM schema_meta WHERE key = ?").bind(key).run();
 }
 
 export type SingleUserMergeResult = "merged" | "already" | "skipped" | "aborted";
