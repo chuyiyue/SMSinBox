@@ -44,6 +44,15 @@ describe("site consistency", () => {
     }
   });
 
+  it("keeps tab and segment hovers off the black accent button hover", () => {
+    // .tab/.segment bases are transparent (specificity 0,1,0) and lose to the
+    // generic button:hover accent (0,1,1) unless they declare their own
+    // hover background — that is what turned tabs black on hover.
+    const components = readFileSync("public/css/components.css", "utf8");
+    expect(components).toContain(".tab:hover { background: var(--surface-hover); color: var(--text); }");
+    expect(components).toContain(".segment:hover { background: var(--surface-hover); color: var(--text); }");
+  });
+
   it("keeps shared colors on tokens and failed loads out of the empty state", () => {
     const css = readFileSync("public/style.css", "utf8");
     // Status banner colors live in the theme tokens: light literals in the

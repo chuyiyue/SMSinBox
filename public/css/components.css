@@ -407,6 +407,8 @@ dialog.modal::backdrop { background: var(--overlay); }
   color: var(--text-2);
   border: 0;
 }
+/* Same black-hover trap as .tab: keep the generic accent hover out. */
+.segment:hover { background: var(--surface-hover); color: var(--text); }
 .segment[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-1); }
 
 .kind-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -446,6 +448,9 @@ dialog.modal::backdrop { background: var(--overlay); }
   color: var(--text-2);
   border: 1px solid transparent;
 }
+/* Without this, the generic button:hover (accent black) wins over the
+   transparent tab base and the tab turns black on hover. */
+.tab:hover { background: var(--surface-hover); color: var(--text); }
 .tab.is-active, .tab[aria-selected="true"] {
   background: var(--accent-soft);
   color: var(--accent-text);
