@@ -108,21 +108,32 @@ export function openMenu(anchor, items) {
   menu.setAttribute("role", "menu");
   const buttons = [];
   // Menus that act as a select (one current value) mark it with a check;
-  // the slot is rendered for every item so the labels stay aligned.
-  const hasSelected = items.some((item) => "selected" in item);
+  // the slot is rendered for every item so the labels stay aligned. When
+  // the items carry icons instead, the icon takes that leading slot and
+  // the selected item is marked by weight alone.
+  const hasIcons = items.some((item) => item.icon);
+  const hasSelected = !hasIcons && items.some((item) => "selected" in item);
   for (const item of items) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `menu-item${item.danger ? " is-danger" : ""}${item.selected ? " is-selected" : ""}`;
     button.setAttribute("role", "menuitem");
-    if (hasSelected) {
+    if (item.selected) button.setAttribute("aria-checked", "true");
+    if (hasIcons) {
+      const slot = document.createElement("span");
+      slot.className = "menu-icon";
+      slot.setAttribute("aria-hidden", "true");
+      if (item.icon) {
+        slot.innerHTML = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#${item.icon}"/></svg>`;
+      }
+      button.append(slot);
+    } else if (hasSelected) {
       const slot = document.createElement("span");
       slot.className = "menu-check";
       slot.setAttribute("aria-hidden", "true");
       if (item.selected) {
         slot.innerHTML =
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
-        button.setAttribute("aria-checked", "true");
       }
       button.append(slot);
     }
@@ -196,12 +207,16 @@ export function mountSelect({ name = "", value = "", options = [], onChange = nu
   if (ariaLabel) toggle.setAttribute("aria-label", ariaLabel);
   const label = document.createElement("span");
   label.className = "select-label";
+  const iconSlot = document.createElement("span");
+  iconSlot.className = "select-icon";
+  iconSlot.setAttribute("aria-hidden", "true");
+  iconSlot.hidden = true;
   const chevron = document.createElement("span");
   chevron.className = "select-chevron";
   chevron.setAttribute("aria-hidden", "true");
   chevron.innerHTML =
     '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-chevron-down"/></svg>';
-  toggle.append(label, chevron);
+  toggle.append(iconSlot, label, chevron);
   root.append(toggle, input);
 
   let currentOptions = options.slice();
@@ -209,6 +224,13 @@ export function mountSelect({ name = "", value = "", options = [], onChange = nu
   const paint = () => {
     const found = currentOptions.find((option) => option.value === current) || currentOptions[0];
     label.textContent = found ? found.label : "";
+    if (found?.icon) {
+      iconSlot.innerHTML = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#${found.icon}"/></svg>`;
+      iconSlot.hidden = false;
+    } else {
+      iconSlot.innerHTML = "";
+      iconSlot.hidden = true;
+    }
     input.value = current;
   };
   const choose = (next) => {
@@ -223,6 +245,7 @@ export function mountSelect({ name = "", value = "", options = [], onChange = nu
       toggle,
       currentOptions.map((option) => ({
         label: option.label,
+        icon: option.icon,
         selected: option.value === current,
         onSelect: () => choose(option.value),
       })),

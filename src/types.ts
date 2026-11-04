@@ -80,6 +80,7 @@ export interface DeviceGroupView {
   id: string;
   name: string;
   created_at: number;
+  sort_order: number;
   device_count: number;
 }
 

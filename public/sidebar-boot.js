@@ -34,10 +34,7 @@
     '<span class="brand-name">SMSinBox</span>' +
     "</a>" +
     '<nav class="sidebar-nav" aria-label="主导航"></nav>' +
-    '<div class="sidebar-devices" aria-labelledby="sidebar-devices-title">' +
-    '<div class="sidebar-label-row">' +
-    '<span class="sidebar-label" id="sidebar-devices-title">设备</span>' +
-    "</div>" +
+    '<div class="sidebar-devices" aria-label="设备">' +
     '<div id="sidebar-devices" class="device-list"></div>' +
     "</div>" +
     '<div class="sidebar-footer">' +
@@ -269,18 +266,41 @@
       status.className = "device-state";
       status.textContent = state.text;
 
-      node.append(dot, icon(), title, status);
+      node.append(dot, icon(device), title, status);
     } else {
       node.textContent = name;
     }
     return node;
   }
 
-  function icon() {
+  // Mirrors deviceTypeOf/sidebarDeviceIcon in device-panel.js: the row
+  // icon follows the device's stored (preselected) OS type.
+  var TYPE_ICONS = {
+    android: "/icons.svg#icon-type-android",
+    ios: "/icons.svg#icon-type-ios",
+    macos: "/icons.svg#icon-type-macos",
+    windows: "/icons.svg#icon-type-windows",
+    linux: "/icons.svg#icon-type-linux",
+    openwrt: "/icons.svg#icon-type-openwrt",
+    other: "/icons.svg#icon-type-other",
+    iphone: "/icons.svg#icon-type-ios",
+    ipad: "/icons.svg#icon-type-ios",
+    apple: "/icons.svg#icon-type-ios",
+    mac: "/icons.svg#icon-type-macos",
+    osx: "/icons.svg#icon-type-macos",
+    darwin: "/icons.svg#icon-type-macos",
+    win: "/icons.svg#icon-type-windows",
+    router: "/icons.svg#icon-type-openwrt",
+    phone: "/icons.svg#icon-type-other",
+    computer: "/icons.svg#icon-type-other",
+  };
+
+  function icon(device) {
+    var key = String((device && device.platform) || "").trim().toLowerCase();
     var wrap = document.createElement("span");
     wrap.setAttribute("aria-hidden", "true");
     wrap.innerHTML =
-      '<svg class="icon" viewBox="0 0 24 24"><use href="/icons.svg#icon-smartphone"/></svg>';
+      '<svg class="icon" viewBox="0 0 24 24"><use href="' + (TYPE_ICONS[key] || "/icons.svg#icon-type-other") + '"/></svg>';
     return wrap.firstChild;
   }
 

@@ -317,6 +317,8 @@ dialog.modal::backdrop { background: var(--overlay); }
 .menu-item.is-selected { font-weight: 600; }
 .menu-check { width: 16px; flex: none; display: inline-flex; align-items: center; margin-right: 8px; }
 .menu-check svg { width: 14px; height: 14px; }
+.menu-icon { width: 18px; flex: none; display: inline-flex; align-items: center; margin-right: 8px; color: var(--text-2); }
+.menu-icon .icon { width: 16px; height: 16px; }
 
 /* Custom select (ui.js mountSelect): a form-styled toggle + menu, so no
    picker ever falls back to browser-default chrome. */
@@ -338,6 +340,8 @@ dialog.modal::backdrop { background: var(--overlay); }
 .select-toggle:hover { background: var(--surface); border-color: var(--accent); }
 .select-toggle:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); outline: none; }
 .select-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-icon { flex: none; display: inline-flex; color: var(--text-2); }
+.select-icon .icon { width: 16px; height: 16px; }
 .select-chevron { flex: none; display: inline-flex; color: var(--text-3); }
 .select-chevron .icon { width: 16px; height: 16px; }
 

@@ -419,6 +419,7 @@
 
 @media (min-width: 1024px) {
   .devices.cards { grid-template-columns: 1fr 1fr; }
+  .device-group-grid { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 767px) {
@@ -586,28 +587,50 @@
 .add-device-panel { display: grid; gap: 12px; }
 .add-device-panel .add-device-head { margin-bottom: 0; }
 .add-device-panel .lede { margin: 0; }
-/* Device groups + the card pin toggle. */
-.device-group-head {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 18px 0 4px;
+/* Device groups + the card pin toggle. Each group is one big panel
+   holding its cards (the token-management shape); with no groups the
+   flat .devices grid renders as before. */
+#devices.is-grouped { display: block; }
+.device-group-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
 }
-.device-group-head:first-child { margin-top: 0; }
+.device-group-panel + .device-group-panel { margin-top: 14px; }
+.device-group-head { display: flex; align-items: center; gap: 8px; }
 .device-group-name { font-weight: 600; font-size: var(--fs-md); }
 .device-group-count { color: var(--text-3); font-size: var(--fs-sm); }
 .device-group-more { margin-left: auto; }
+.device-group-grid { display: grid; gap: 12px; align-items: start; }
+.device-group-empty { color: var(--text-3); font-size: var(--fs-sm); margin: 0; }
+
+/* Page actions live in the body beside the view tabs, not the topbar. */
+.devices-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.devices-toolbar .devices-page-tabs { margin-bottom: 0; }
+.devices-actions { display: flex; gap: 8px; margin-left: auto; }
+
+/* The OS-type icon sits before the device name on cards and in the drawer. */
+.device-type-icon { width: 18px; height: 18px; flex: none; color: var(--text-2); }
 .device-pin { flex: none; color: var(--text-3); }
 .device-pin:hover { background: var(--bg-sunken); color: var(--text-1); }
 .device-pin.is-pinned { color: var(--accent); }
 .device-pin.is-pinned:hover { background: var(--bg-sunken); color: var(--accent); }
 .device-pin.is-pinned svg { fill: currentColor; }
 
-.add-device-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.add-device-form input { flex: 1 1 220px; min-width: 0; }
-.add-device-form .select-field { flex: 1 1 150px; min-width: 0; }
-.add-device-form button { flex: none; }
+/* Name and type stack vertically in the add-device form (Roye). */
+.add-device-form { display: grid; gap: 10px; }
+.add-device-form input { width: 100%; min-width: 0; }
+.add-device-form button { justify-self: start; }
 .add-device-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
 .field-error { color: var(--danger-text); font-size: var(--fs-sm); margin: 8px 0 0; }
 
@@ -648,6 +671,8 @@
   min-width: 0;
   flex: 1;
 }
+.device-detail-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.device-detail-title-row .device-type-icon { width: 20px; height: 20px; }
 .device-detail-meta-line {
   margin: 0;
   color: var(--text-3);
@@ -658,8 +683,8 @@
   gap: 16px;
 }
 /* Advanced tab: save-name and delete share one row, half width each. */
-.device-advanced-actions { display: flex; gap: 10px; }
-.device-advanced-actions > button { flex: 1 1 0; min-width: 0; }
+.device-advanced-actions { display: grid; gap: 10px; }
+.device-advanced-actions > button { width: 100%; }
 .device-detail-summary,
 .device-detail-card {
   display: grid;

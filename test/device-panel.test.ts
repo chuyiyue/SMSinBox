@@ -8,6 +8,7 @@ import {
   platformFromPreselect,
   platformFromReport,
   selectSidebarDevices,
+  sidebarDeviceIcon,
   pushActions,
   pushConfirm,
   receiveTime,
@@ -67,26 +68,31 @@ describe("device panel status", () => {
   });
 
   it("reads platform from the latest reported device field", () => {
-    expect(platformFromReport("")).toEqual({ key: "unknown", label: "尚未上报" });
-    expect(platformFromReport("  iOS ")).toEqual({ key: "ios", label: "iOS" });
-    expect(platformFromReport("android")).toEqual({ key: "android", label: "Android" });
-    expect(platformFromReport("Pixel 8")).toEqual({ key: "reported", label: "Pixel 8" });
+    expect(platformFromReport("")).toEqual({ key: "unknown", label: "尚未上报", icon: "icon-type-other" });
+    expect(platformFromReport("  iOS ")).toEqual({ key: "ios", label: "iOS", icon: "icon-type-ios" });
+    expect(platformFromReport("android")).toEqual({ key: "android", label: "Android", icon: "icon-type-android" });
+    expect(platformFromReport("Windows")).toEqual({ key: "windows", label: "Windows", icon: "icon-type-windows" });
+    expect(platformFromReport("Pixel 8")).toEqual({ key: "reported", label: "Pixel 8", icon: "icon-type-other" });
   });
 
-  it("falls back to the creation-time preselected platform until a report arrives", () => {
-    expect(platformFromPreselect("phone")).toEqual({ key: "preset", label: "手机" });
-    expect(platformFromPreselect("computer")).toEqual({ key: "preset", label: "电脑" });
-    expect(platformFromPreselect("router")).toEqual({ key: "preset", label: "路由器" });
-    expect(platformFromPreselect("ios")).toEqual({ key: "ios", label: "iOS" });
-    expect(platformFromPreselect("android")).toEqual({ key: "android", label: "Android" });
-    expect(platformFromPreselect("other")).toBeNull();
+  it("falls back to the chosen device type until a report arrives", () => {
+    // Device types are operating systems with English labels; the retired
+    // phone/computer presets fold into Other, routers into OpenWrt.
+    expect(platformFromPreselect("phone")).toEqual({ key: "other", label: "Other", icon: "icon-type-other" });
+    expect(platformFromPreselect("computer")).toEqual({ key: "other", label: "Other", icon: "icon-type-other" });
+    expect(platformFromPreselect("router")).toEqual({ key: "openwrt", label: "OpenWrt", icon: "icon-type-openwrt" });
+    expect(platformFromPreselect("ios")).toEqual({ key: "ios", label: "iOS", icon: "icon-type-ios" });
+    expect(platformFromPreselect("android")).toEqual({ key: "android", label: "Android", icon: "icon-type-android" });
+    expect(platformFromPreselect("macos")).toEqual({ key: "macos", label: "macOS", icon: "icon-type-macos" });
+    expect(platformFromPreselect("linux")).toEqual({ key: "linux", label: "Linux", icon: "icon-type-linux" });
+    expect(platformFromPreselect("other")).toEqual({ key: "other", label: "Other", icon: "icon-type-other" });
     expect(platformFromPreselect("")).toBeNull();
     expect(platformFromPreselect(undefined)).toBeNull();
 
-    const preset = describeDevice({ ...DEVICE, platform: "phone" }, null);
-    expect(preset.platform).toEqual({ key: "preset", label: "手机" });
-    expect(preset.platformBadge).toBe("手机");
-    expect(preset.platformDetail).toBe("手机");
+    const preset = describeDevice({ ...DEVICE, platform: "macos" }, null);
+    expect(preset.platform).toEqual({ key: "macos", label: "macOS", icon: "icon-type-macos" });
+    expect(preset.platformBadge).toBe("macOS");
+    expect(preset.platformDetail).toBe("macOS");
 
     // A report wins over the preselection; an empty report keeps it.
     const reported = describeDevice(
@@ -98,7 +104,12 @@ describe("device panel status", () => {
       { ...DEVICE, platform: "router" },
       { device_id: DEVICE.id, reported_device: "", received_at: 20 },
     );
-    expect(silent.platform).toEqual({ key: "preset", label: "路由器" });
+    expect(silent.platform).toEqual({ key: "openwrt", label: "OpenWrt", icon: "icon-type-openwrt" });
+
+    expect(sidebarDeviceIcon({ platform: "linux" })).toBe("icon-type-linux");
+    expect(sidebarDeviceIcon({ platform: "router" })).toBe("icon-type-openwrt");
+    expect(sidebarDeviceIcon({ platform: "" })).toBe("icon-type-other");
+    expect(sidebarDeviceIcon(null)).toBe("icon-type-other");
   });
 
   it("caps the sidebar list at five and prefers pinned devices", () => {
@@ -122,7 +133,7 @@ describe("device panel status", () => {
 
   it("shows concise device status values", () => {
     const waiting = describeDevice(DEVICE, null);
-    expect(waiting.platform).toEqual({ key: "unknown", label: "尚未上报" });
+    expect(waiting.platform).toEqual({ key: "unknown", label: "尚未上报", icon: "icon-type-other" });
     expect(waiting.platformBadge).toBe("尚未上报");
     expect(waiting.platformDetail).toBe("尚未上报");
     expect(waiting.received).toEqual({ kind: "none", at: null });
@@ -141,7 +152,7 @@ describe("device panel status", () => {
       reported_device: DEVICE.name,
       received_at: 30,
     });
-    expect(tested.platformBadge).toBe("其他");
+    expect(tested.platformBadge).toBe("Other");
     expect(tested.platformDetail).toContain("我的 iPhone");
   });
 

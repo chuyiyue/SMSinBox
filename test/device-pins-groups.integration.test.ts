@@ -202,4 +202,54 @@ describe("device groups", () => {
     const empty = await call(`/api/v1/devices/${deviceId}`, jsonInit("PATCH", {}));
     expect(empty.status).toBe(400);
   });
+
+  it("reorders groups with move up/down and refuses the ends", async () => {
+    const mk = async (name: string) => {
+      const res = await call("/api/v1/device-groups", jsonInit("POST", { name }));
+      expect(res.status).toBe(200);
+      return (await body(res)).group;
+    };
+    const first = await mk("order-a");
+    const second = await mk("order-b");
+    const third = await mk("order-c");
+    const order = async () =>
+      ((await body(await call("/api/v1/device-groups"))).groups as any[])
+        .filter((g) => ["order-a", "order-b", "order-c"].includes(g.name))
+        .map((g) => g.name);
+    expect(await order()).toEqual(["order-a", "order-b", "order-c"]);
+
+    const down = await call(`/api/v1/device-groups/${first.id}/move`, jsonInit("POST", { direction: "down" }));
+    expect(down.status).toBe(200);
+    expect(await order()).toEqual(["order-b", "order-a", "order-c"]);
+
+    const up = await call(`/api/v1/device-groups/${third.id}/move`, jsonInit("POST", { direction: "up" }));
+    expect(up.status).toBe(200);
+    expect(await order()).toEqual(["order-b", "order-c", "order-a"]);
+
+    const atEnd = await call(`/api/v1/device-groups/${first.id}/move`, jsonInit("POST", { direction: "down" }));
+    expect(atEnd.status).toBe(400);
+    const badDirection = await call(`/api/v1/device-groups/${first.id}/move`, jsonInit("POST", { direction: "left" }));
+    expect(badDirection.status).toBe(400);
+    expect(second.name).toBe("order-b");
+  });
+});
+
+describe("device type changes", () => {
+  it("patches the platform through the OS taxonomy and rejects unknown types", async () => {
+    const deviceId = await createDevice("typed-one");
+    const setType = await call(`/api/v1/devices/${deviceId}`, jsonInit("PATCH", { platform: "macos" }));
+    expect(setType.status).toBe(200);
+    expect((await body(setType)).platform).toBe("macos");
+
+    // Aliases fold into the canonical type.
+    const alias = await call(`/api/v1/devices/${deviceId}`, jsonInit("PATCH", { platform: "router" }));
+    expect(alias.status).toBe(200);
+    expect((await body(alias)).platform).toBe("openwrt");
+
+    const listed = (await body(await call("/api/v1/devices"))).devices as any[];
+    expect(listed.find((d) => d.id === deviceId)?.platform).toBe("openwrt");
+
+    const bogus = await call(`/api/v1/devices/${deviceId}`, jsonInit("PATCH", { platform: "satellite" }));
+    expect(bogus.status).toBe(400);
+  });
 });

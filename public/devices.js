@@ -21,7 +21,7 @@ import {
 } from "./common.js";
 import { deviceStateOf, ensureDevices, getDevices, noteDeviceSeen, refreshDevices } from "./device-store.js";
 import { registerView } from "./shell.js";
-import { addFact, credentialBoxes, describeDevice, isStale, presenceDot, presenceLabel, pushConfirm } from "./device-panel.js";
+import { addFact, credentialBoxes, describeDevice, DEVICE_TYPES, isStale, presenceDot, presenceLabel, pushConfirm } from "./device-panel.js";
 import { closeDeviceDetail, openDeviceDetail, removeDevice, runPush } from "./device-detail.js";
 
 const TEMPLATE = '{"from":"{{FROM}}","content":"{{SMS}}","timestamp":"{{RECEIVE_TIME}}","device":"{{DEVICE_NAME}}","sim":"{{CARD_SLOT}}"}';
@@ -147,14 +147,7 @@ function buildAddBody() {
     name: "platform",
     value: "other",
     ariaLabel: "设备类型",
-    options: [
-      { value: "other", label: "设备类型：其他" },
-      { value: "phone", label: "手机" },
-      { value: "computer", label: "电脑" },
-      { value: "ios", label: "iOS" },
-      { value: "android", label: "安卓" },
-      { value: "router", label: "路由器" },
-    ],
+    options: DEVICE_TYPES.map((type) => ({ value: type.value, label: type.label, icon: type.icon })),
   });
   section.querySelector("#device-platform-mount").replaceWith(platformField.root);
   return section;
@@ -379,6 +372,7 @@ async function loadGroups() {
 
 function renderDeviceList(rows, latest) {
   devices.replaceChildren();
+  devices.classList.remove("is-grouped");
   if (rows.length === 0) {
     devices.append(emptyDevices());
     applyLocationHash();
@@ -389,22 +383,40 @@ function renderDeviceList(rows, latest) {
     applyLocationHash();
     return;
   }
-  // With groups defined, the list is filed under group headers; devices
-  // whose group is gone (or never set) land in 未分组 at the end.
-  for (const group of deviceGroups) {
+  // With groups defined, each group is one panel holding its cards (the
+  // token-management shape); devices whose group is gone (or never set)
+  // land in the 未分组 panel at the end.
+  devices.classList.add("is-grouped");
+  deviceGroups.forEach((group, index) => {
     const members = rows.filter((device) => device.group_id === group.id);
-    devices.append(groupHeader(group, members.length));
-    for (const device of members) devices.append(renderDevice(device, latest.get(device.id) || null));
-  }
+    devices.append(groupPanel(group, members, latest, index));
+  });
   const ungrouped = rows.filter((device) => !deviceGroups.some((group) => group.id === device.group_id));
   if (ungrouped.length) {
-    devices.append(groupHeader(null, ungrouped.length));
-    for (const device of ungrouped) devices.append(renderDevice(device, latest.get(device.id) || null));
+    devices.append(groupPanel(null, ungrouped, latest, -1));
   }
   applyLocationHash();
 }
 
-function groupHeader(group, count) {
+function groupPanel(group, members, latest, index) {
+  const panel = document.createElement("section");
+  panel.className = "device-group-panel";
+  panel.append(groupHeader(group, members.length, index));
+  if (!members.length) {
+    const empty = document.createElement("p");
+    empty.className = "device-group-empty";
+    empty.textContent = "暂无设备，从设备卡片的菜单里设置分组。";
+    panel.append(empty);
+    return panel;
+  }
+  const grid = document.createElement("div");
+  grid.className = "device-group-grid";
+  for (const device of members) grid.append(renderDevice(device, latest.get(device.id) || null));
+  panel.append(grid);
+  return panel;
+}
+
+function groupHeader(group, count, index) {
   const head = document.createElement("div");
   head.className = "device-group-head";
   const name = document.createElement("span");
@@ -423,12 +435,37 @@ function groupHeader(group, count) {
     more.addEventListener("click", () => {
       openMenu(more, [
         { label: "重命名分组", onSelect: () => void editGroup(group) },
+        {
+          label: "上移",
+          disabled: index <= 0,
+          reason: index <= 0 ? "已经在最前面" : "",
+          onSelect: () => void moveGroup(group, "up"),
+        },
+        {
+          label: "下移",
+          disabled: index >= deviceGroups.length - 1,
+          reason: index >= deviceGroups.length - 1 ? "已经在最后面" : "",
+          onSelect: () => void moveGroup(group, "down"),
+        },
         { label: "删除分组", danger: true, onSelect: () => void removeGroup(group) },
       ]);
     });
     head.append(more);
   }
   return head;
+}
+
+async function moveGroup(group, direction) {
+  const result = await api(`/api/v1/device-groups/${encodeURIComponent(group.id)}/move`, {
+    method: "POST",
+    body: JSON.stringify({ direction }),
+  });
+  if (!result.response.ok) {
+    toast(result.data?.error || "调整顺序失败", { tone: "danger" });
+    return;
+  }
+  await loadGroups();
+  await loadDevices({ refresh: true });
 }
 
 async function editGroup(group) {
@@ -535,6 +572,9 @@ function renderDevice(device, entry) {
   head.className = "device-head";
   const titleWrap = document.createElement("div");
   titleWrap.className = "device-title";
+  const typeIcon = document.createElement("span");
+  typeIcon.setAttribute("aria-hidden", "true");
+  typeIcon.innerHTML = `<svg class="device-type-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#${view.platform.icon}"/></svg>`;
   const title = document.createElement("strong");
   title.className = "device-name";
   title.textContent = view.name || "未命名设备";
@@ -542,7 +582,7 @@ function renderDevice(device, entry) {
   badge.className = "badge";
   badge.dataset.platform = view.platform.key;
   badge.textContent = view.platformBadge;
-  titleWrap.append(title, badge, presenceDot(presence));
+  titleWrap.append(typeIcon.firstChild, title, badge, presenceDot(presence));
   head.append(titleWrap);
   const pinned = device.pinned_at != null;
   const pin = document.createElement("button");
