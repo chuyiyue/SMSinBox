@@ -20,6 +20,7 @@
 - `0010_message_code_source.sql`
 - `0011_session_client_info.sql`
 - `0012_device_push_secret.sql`
+- `0013_api_token_secret.sql`
 
 `0005_device_push.sql` 只追加 `push_token_hash`、`push_revoked_at` 和唯一索引。它不改已有 `token_hash`，不改短信，不删行。SQLite 的唯一索引允许多个 NULL，还没签发推送链接的旧设备可以共存。
 
@@ -37,7 +38,9 @@
 
 `0012_device_push_secret.sql` 只给 `devices` 追加 `push_token_enc` 一列：新建/轮换时把推送密钥存一份（配置了 CONTENT_KEY 时密封存储），设备列表据此随时显示明文推送链接，不再只显示一次。旧设备该列为 NULL，界面提示轮换一次后即可随时查看；撤销时清空。还没跑过 `0012` 时不要部署这份 Worker。
 
-新 Worker 会读取推送列和 TOTP 列。数据库还没跑过 `0005` / `0007` / `0008` / `0009` / `0010` / `0011` / `0012` 时不要部署这份 Worker。旧 Worker 不读这些列，所以先迁移再部署是安全的。
+`0013_api_token_secret.sql` 只给 `api_tokens` 追加 `token_enc` 一列：新建时把完整 Token 存一份（同样密封规则），令牌列表据此随时显示完整 Token 并可复制。旧令牌该列为 NULL，列表只显示前缀；撤销时清空。还没跑过 `0013` 时不要部署这份 Worker。
+
+新 Worker 会读取推送列和 TOTP 列。数据库还没跑过 `0005` / `0007` / `0008` / `0009` / `0010` / `0011` / `0012` / `0013` 时不要部署这份 Worker。旧 Worker 不读这些列，所以先迁移再部署是安全的。
 
 ## 已在本地完成
 

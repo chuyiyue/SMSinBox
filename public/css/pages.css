@@ -572,20 +572,6 @@
 .device-title { align-items: center; }
 .ui-status-dot[data-status="idle"] { background: var(--text-3); }
 
-.device-toggle {
-  min-height: 32px;
-  padding: 0 10px;
-  flex: none;
-  background: transparent;
-  color: var(--text-2);
-  border: 1px solid var(--border);
-}
-.device-toggle:hover { background: var(--surface-hover); }
-.device-toggle .icon { transition: transform 160ms var(--ease); }
-.device.is-expanded .device-toggle .icon { transform: rotate(180deg); }
-.device.is-collapsed .device-facts,
-.device.is-collapsed .device-actions { display: none; }
-
 .device-body { display: grid; gap: 12px; }
 .device-id { color: var(--text-3); font-size: var(--fs-xs); }
 .device-id code { color: var(--text-3); background: transparent; border: 0; padding: 0; }

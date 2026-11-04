@@ -146,6 +146,7 @@ export function tokenRecordToView(row: ApiTokenRecord, now = Date.now()): ApiTok
     id: row.id,
     name: row.name,
     token_prefix: row.token_prefix,
+    token: null,
     permissions,
     device_scope,
     expires_at: row.expires_at,

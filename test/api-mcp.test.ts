@@ -250,15 +250,47 @@ describe("Admin API Token Management (/api/v1/api-tokens)", () => {
     expect(record.expires_at).toBeGreaterThan(Date.now());
     const tokenId = record.id as string;
 
-    // 2. List tokens (does NOT contain plaintext or token_hash)
+    // 2. List tokens: the owner's list carries the full plaintext (0013)
+    //    but never the hash.
     const list = await expectStatus(await call("/api/v1/api-tokens", {}, adminCookie), 200);
     expect(list.ok).toBe(true);
     const tokens = list.tokens as Array<Record<string, unknown>>;
     const found = tokens.find((t) => t.id === tokenId);
     expect(found).toBeTruthy();
-    expect(found).not.toHaveProperty("token");
+    expect(found?.token).toBe(plaintext);
     expect(found).not.toHaveProperty("token_hash");
     expect(found?.status).toBe("active");
+
+    // 2b. Rename the token; invalid names and unknown ids are rejected.
+    const renamed = await expectStatus(
+      await call(
+        `/api/v1/api-tokens/${tokenId}`,
+        { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "改名后的令牌" }) },
+        adminCookie,
+      ),
+      200,
+    );
+    expect(renamed.name).toBe("改名后的令牌");
+    await expectStatus(
+      await call(
+        `/api/v1/api-tokens/${tokenId}`,
+        { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "  " }) },
+        adminCookie,
+      ),
+      400,
+    );
+    await expectStatus(
+      await call(
+        "/api/v1/api-tokens/99999999-9999-4999-8999-999999999999",
+        { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "x" }) },
+        adminCookie,
+      ),
+      404,
+    );
+    const listRenamed = await expectStatus(await call("/api/v1/api-tokens", {}, adminCookie), 200);
+    expect(
+      (listRenamed.tokens as Array<Record<string, unknown>>).find((t) => t.id === tokenId)?.name,
+    ).toBe("改名后的令牌");
 
     // 3. Disable token
     const disableRes = await expectStatus(

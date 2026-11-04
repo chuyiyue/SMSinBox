@@ -171,7 +171,6 @@ describe("devices page", () => {
   it("omits low-value device facts and status rows from every detail view", () => {
     expect(js).not.toContain('"创建时间"');
     expect(js).not.toContain('"最近活动"');
-    expect(js).not.toContain('"推送链接",');
     expect(js).not.toContain('"快捷指令状态"');
     expect(js).not.toContain('"快捷指令",');
     expect(js).not.toContain('"推送状态"');

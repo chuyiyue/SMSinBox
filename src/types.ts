@@ -148,6 +148,7 @@ export interface ApiTokenRecord {
   name: string;
   token_hash: string;
   token_prefix: string;
+  token_enc?: string | null;
   permissions: string; // JSON array string
   device_scope: string; // JSON array string; empty array [] means all devices
   expires_at: number | null;
@@ -161,6 +162,9 @@ export interface ApiTokenView {
   id: string;
   name: string;
   token_prefix: string;
+  // Full plaintext for the owner's token list only (0013); null for
+  // legacy tokens and in any non-owner view.
+  token: string | null;
   permissions: string[];
   device_scope: string[]; // empty = all devices
   expires_at: number | null;

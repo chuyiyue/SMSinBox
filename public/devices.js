@@ -47,9 +47,6 @@ const curlSample = [
 ].join("\n");
 let shownDeviceId = "";
 let generation = 0;
-// Expanded cards are kept per device id, so refreshing one card never closes
-// another card and a deep link survives the first cached render.
-const expandedIds = new Set();
 let hashHandled = false;
 let hashListener = null;
 
@@ -618,7 +615,6 @@ async function submitDevice(event) {
       token: result.data.token || "",
       pushUrl: result.data.push_url || "",
     });
-    setStatus("设备已添加。Bearer token 只显示这一次，请立刻保存；推送链接可随时在「推送配置」里查看。");
     form.reset();
     await loadDevices({ refresh: true });
   } catch (error) {
@@ -749,14 +745,12 @@ function renderDevice(device, entry) {
   const latest = entry?.message || null;
   const total = Number.isFinite(entry?.total) ? entry.total : null;
   const view = describeDevice(device, latest);
-  const expanded = Boolean(view.id && expandedIds.has(view.id));
   const row = document.createElement("article");
-  row.className = `device ${expanded ? "is-expanded" : "is-collapsed"}`;
+  row.className = "device";
   if (view.id) row.id = `dev-${view.id}`;
   if (view.id) row.dataset.deviceId = view.id;
   if (view.id && view.id === shownDeviceId) row.classList.add("is-highlighted");
 
-  const bodyId = view.id ? `device-body-${view.id}` : "";
   const presence = deviceStateOf(device);
   const head = document.createElement("div");
   head.className = "device-head";
@@ -770,32 +764,7 @@ function renderDevice(device, entry) {
   badge.dataset.platform = view.platform.key;
   badge.textContent = view.platformBadge;
   titleWrap.append(title, badge, presenceDot(presence));
-
-  const toggle = document.createElement("button");
-  toggle.type = "button";
-  toggle.className = "device-toggle";
-  toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
-  if (bodyId) toggle.setAttribute("aria-controls", bodyId);
-  const toggleLabel = document.createElement("span");
-  toggleLabel.className = "device-toggle-label";
-  toggleLabel.textContent = expanded ? "收起" : "展开";
-  const chevron = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  chevron.setAttribute("class", "icon");
-  chevron.setAttribute("viewBox", "0 0 24 24");
-  chevron.setAttribute("aria-hidden", "true");
-  const chevronUse = document.createElementNS("http://www.w3.org/2000/svg", "use");
-  chevronUse.setAttribute("href", "/icons.svg#icon-chevron-down");
-  chevron.append(chevronUse);
-  toggle.append(toggleLabel, chevron);
-  toggle.addEventListener("click", (event) => {
-    event.stopPropagation();
-    setExpanded(row, !expandedIds.has(view.id), view.id);
-  });
-
-  const trail = document.createElement("div");
-  trail.className = "actions device-head-actions";
-  trail.append(toggle);
-  head.append(titleWrap, trail);
+  head.append(titleWrap);
   head.addEventListener("click", (event) => {
     if (event.target.closest("button, a, input, select, textarea, summary")) return;
     openDeviceDetail(device, entry);
@@ -803,14 +772,12 @@ function renderDevice(device, entry) {
 
   const body = document.createElement("div");
   body.className = "device-body";
-  if (bodyId) body.id = bodyId;
-  body.hidden = !expanded;
 
   const facts = document.createElement("dl");
   facts.className = "device-facts";
   addFact(facts, "平台", view.platformDetail, { wide: true });
   if (total !== null) addFact(facts, "短信数量", `${total} 条`);
-  addFact(facts, "设备 ID", null, { wide: true, node: idLine(view.id) });
+  addFact(facts, "推送链接", null, { wide: true, node: pushLine(device, view) });
 
   const actions = document.createElement("div");
   actions.className = "actions device-actions";
@@ -873,21 +840,34 @@ function presenceLabel(presence) {
   return "尚未上报";
 }
 
-function setExpanded(row, expanded, id) {
-  if (id) {
-    if (expanded) expandedIds.add(id);
-    else expandedIds.delete(id);
+function pushLine(device, view) {
+  const line = document.createElement("div");
+  line.className = "device-id";
+  if (view.pushUrl) {
+    const code = document.createElement("code");
+    code.textContent = view.pushUrl;
+    code.title = view.pushUrl;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = "复制链接";
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      flashLabel(event.currentTarget, view.pushUrl, "复制链接");
+    });
+    line.append(code, button);
+  } else {
+    const span = document.createElement("span");
+    span.className = "subtle";
+    span.textContent =
+      device?.push === "active"
+        ? "旧链接未保存明文，轮换后显示"
+        : device?.push === "revoked"
+          ? "推送链接已撤销"
+          : "尚未生成推送链接";
+    line.append(span);
   }
-  row.classList.toggle("is-expanded", expanded);
-  row.classList.toggle("is-collapsed", !expanded);
-  const body = row.querySelector(".device-body");
-  if (body) body.hidden = !expanded;
-  const toggle = row.querySelector(".device-toggle");
-  if (toggle) {
-    toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
-    const label = toggle.querySelector(".device-toggle-label");
-    if (label) label.textContent = expanded ? "收起" : "展开";
-  }
+  return line;
 }
 
 function addFact(list, label, value, options = {}) {
@@ -991,7 +971,6 @@ async function removeDevice(device, row) {
       return;
     }
     if (shownDeviceId === device.id) shownDeviceId = "";
-    expandedIds.delete(device.id);
     row.classList.add("is-leaving");
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     await new Promise((resolve) => window.setTimeout(resolve, reduce ? 0 : 180));
@@ -1029,10 +1008,9 @@ async function runPush(device, action) {
     }
     if (result.data.push_url) {
       showCredentials({ deviceId: device.id, token: "", pushUrl: result.data.push_url });
-      setStatus("新推送链接已生效，可在「推送配置」里随时查看。");
     } else {
       if (shownDeviceId === device.id) shownDeviceId = "";
-      if (action === "revoke") setStatus("推送链接已撤销。短信仍保留，旧链接不会再显示。");
+      if (action === "revoke") toast("推送链接已撤销");
     }
     await loadDevices({ refresh: true });
   } catch (error) {

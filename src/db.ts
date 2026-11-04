@@ -1107,6 +1107,7 @@ export async function insertApiToken(
     name: string;
     tokenHash: string;
     tokenPrefix: string;
+    tokenEnc?: string | null;
     permissions: string; // JSON
     deviceScope: string; // JSON
     expiresAt: number | null;
@@ -1115,17 +1116,17 @@ export async function insertApiToken(
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO api_tokens (id, user_id, name, token_hash, token_prefix, permissions, device_scope, expires_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO api_tokens (id, user_id, name, token_hash, token_prefix, token_enc, permissions, device_scope, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(token.id, token.userId, token.name, token.tokenHash, token.tokenPrefix, token.permissions, token.deviceScope, token.expiresAt, token.createdAt)
+    .bind(token.id, token.userId, token.name, token.tokenHash, token.tokenPrefix, token.tokenEnc ?? null, token.permissions, token.deviceScope, token.expiresAt, token.createdAt)
     .run();
 }
 
 export async function findApiTokenByHash(db: D1Database, tokenHash: string): Promise<ApiTokenRecord | null> {
   return db
     .prepare(
-      `SELECT id, user_id, name, token_hash, token_prefix, permissions, device_scope, expires_at,
+      `SELECT id, user_id, name, token_hash, token_prefix, token_enc, permissions, device_scope, expires_at,
               disabled_at, revoked_at, created_at, last_used_at
        FROM api_tokens WHERE token_hash = ?`,
     )
@@ -1136,13 +1137,26 @@ export async function findApiTokenByHash(db: D1Database, tokenHash: string): Pro
 export async function listApiTokens(db: D1Database, userId: string): Promise<ApiTokenRecord[]> {
   const result = await db
     .prepare(
-      `SELECT id, user_id, name, token_hash, token_prefix, permissions, device_scope, expires_at,
+      `SELECT id, user_id, name, token_hash, token_prefix, token_enc, permissions, device_scope, expires_at,
               disabled_at, revoked_at, created_at, last_used_at
        FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC`,
     )
     .bind(userId)
     .all<ApiTokenRecord>();
   return result.results;
+}
+
+export async function renameApiToken(
+  db: D1Database,
+  userId: string,
+  tokenId: string,
+  name: string,
+): Promise<boolean> {
+  const result = await db
+    .prepare("UPDATE api_tokens SET name = ? WHERE id = ? AND user_id = ?")
+    .bind(name, tokenId, userId)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
 }
 
 export async function updateApiTokenDisabled(db: D1Database, userId: string, tokenId: string, disabledAt: number | null): Promise<boolean> {
@@ -1155,7 +1169,7 @@ export async function updateApiTokenDisabled(db: D1Database, userId: string, tok
 
 export async function updateApiTokenRevoked(db: D1Database, userId: string, tokenId: string, revokedAt: number): Promise<boolean> {
   const result = await db
-    .prepare("UPDATE api_tokens SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL")
+    .prepare("UPDATE api_tokens SET revoked_at = ?, token_enc = NULL WHERE id = ? AND user_id = ? AND revoked_at IS NULL")
     .bind(revokedAt, tokenId, userId)
     .run();
   return (result.meta.changes ?? 0) > 0;

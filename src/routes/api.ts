@@ -8,7 +8,7 @@ import {
   sha256Hex,
   verifyPassword,
 } from "../auth";
-import { resolveContentKey, revealCode, sealMessage, sealString } from "../crypto";
+import { decryptString, ENCRYPTED_PREFIX, resolveContentKey, revealCode, sealMessage, sealString } from "../crypto";
 import {
   accountPasswordLimited,
   clearAccountPasswordFailures,
@@ -39,6 +39,7 @@ import {
   insertUser,
   isUniqueViolation,
   listApiTokens,
+  renameApiToken,
   listDevices,
   listMessages,
   listMessagesSince,
@@ -246,7 +247,8 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
   }
   const tokenDeleteMatch = /^\/api\/v1\/api-tokens\/([^/]+)$/.exec(path);
   if (tokenDeleteMatch?.[1]) {
-    if (method !== "DELETE") return methodNotAllowed("DELETE");
+    if (method === "PATCH") return renameApiTokenEndpoint(request, env, tokenDeleteMatch[1]);
+    if (method !== "DELETE") return methodNotAllowed("DELETE, PATCH");
     return deleteApiTokenEndpoint(request, env, tokenDeleteMatch[1]);
   }
   if (path === "/api/v1/system/info") {
@@ -607,13 +609,22 @@ async function detail(request: Request, env: Env, rawId: string): Promise<Respon
   return json({ ok: true, message });
 }
 
-// The push secret is stored so the owner can view the URL at any time:
-// sealed with CONTENT_KEY when one is configured, as-is otherwise (the
-// database is the owner's own; the hash remains the auth source).
-async function sealPushSecret(env: Env, token: string): Promise<string> {
+// Stored secrets (device push tokens, API tokens) are kept so the owner
+// can view them at any time: sealed with CONTENT_KEY when one is
+// configured, as-is otherwise (the database is the owner's own; the hash
+// remains the auth source).
+async function sealSecret(env: Env, token: string): Promise<string> {
   const key = resolveContentKey(env.CONTENT_KEY);
   if (key.state === "on") return (await sealString(key, token)) ?? token;
   return token;
+}
+
+async function revealSecret(env: Env, stored: string | null | undefined): Promise<string | null> {
+  if (!stored) return null;
+  if (!stored.startsWith(ENCRYPTED_PREFIX)) return stored;
+  const key = resolveContentKey(env.CONTENT_KEY);
+  if (key.state !== "on") return null;
+  return decryptString(key.raw, stored);
 }
 
 async function devices(request: Request, env: Env): Promise<Response> {
@@ -668,7 +679,7 @@ async function createDevice(request: Request, env: Env): Promise<Response> {
     tokenHash: issued.tokenHash,
     tokenVersion: version,
     pushTokenHash: await sha256Hex(pushToken),
-    pushSecretStored: await sealPushSecret(env, pushToken),
+    pushSecretStored: await sealSecret(env, pushToken),
     createdAt,
   });
   logInfo({ message: "device_created", device_id: id, user_id: user.id, platform: parsed.platform, auth: "jwt" });
@@ -728,7 +739,7 @@ async function updateDevicePush(request: Request, env: Env, rawId: string): Prom
     id,
     await sha256Hex(pushToken),
     action,
-    await sealPushSecret(env, pushToken),
+    await sealSecret(env, pushToken),
   );
   if (!updated) return json({ ok: false, error: "推送链接状态已变化" }, 409);
   logInfo({ message: "device_push_issued", device_id: id, user_id: user.id, action });
@@ -1155,7 +1166,16 @@ async function apiTokens(request: Request, env: Env): Promise<Response> {
   const auth = await requireUser(request, env);
   if (auth instanceof Response) return auth;
   const rows = await listApiTokens(env.DB, auth.id);
-  return json({ ok: true, tokens: rows.map((row) => tokenRecordToView(row)) });
+  const tokens = await Promise.all(
+    rows.map(async (row) => {
+      const view = tokenRecordToView(row);
+      // The owner's list shows the full token (0013); revoked tokens had
+      // their stored copy cleared at revoke time.
+      if (row.revoked_at == null) view.token = await revealSecret(env, row.token_enc);
+      return view;
+    }),
+  );
+  return json({ ok: true, tokens });
 }
 
 async function createApiToken(request: Request, env: Env): Promise<Response> {
@@ -1208,6 +1228,7 @@ async function createApiToken(request: Request, env: Env): Promise<Response> {
     name,
     tokenHash,
     tokenPrefix,
+    tokenEnc: await sealSecret(env, plaintext),
     permissions: JSON.stringify(permissions),
     deviceScope: JSON.stringify(deviceScope),
     expiresAt,
@@ -1225,6 +1246,7 @@ async function createApiToken(request: Request, env: Env): Promise<Response> {
     id,
     name,
     token_prefix: tokenPrefix,
+    token: plaintext,
     permissions,
     device_scope: deviceScope,
     expires_at: expiresAt,
@@ -1276,5 +1298,24 @@ async function deleteApiTokenEndpoint(request: Request, env: Env, id: string): P
   if (!deleted) return json({ ok: false, error: "未找到 Token" }, 404);
   logInfo({ message: "api_token_deleted", token_id: id, user_id: auth.id });
   return json({ ok: true });
+}
+
+async function renameApiTokenEndpoint(request: Request, env: Env, rawId: string): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
+  const auth = await requireUser(request, env);
+  if (auth instanceof Response) return auth;
+  const id = decodePart(rawId);
+  if (!id || !UUID_RE.test(id)) return json({ ok: false, error: "未找到 Token" }, 404);
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const raw = (body.value as { name?: unknown } | null)?.name;
+  const name = typeof raw === "string" ? raw.trim() : "";
+  if (!name || name.length > 64 || /[\u0000-\u001f\u007f]/.test(name)) {
+    return json({ ok: false, error: "Token 名称需要 1 到 64 个字符" }, 400);
+  }
+  const updated = await renameApiToken(env.DB, auth.id, id, name);
+  if (!updated) return json({ ok: false, error: "未找到 Token" }, 404);
+  logInfo({ message: "api_token_renamed", token_id: id, user_id: auth.id });
+  return json({ ok: true, id, name });
 }
 
