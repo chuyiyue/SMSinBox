@@ -166,6 +166,7 @@ function wirePageTabs() {
   const guideTab = document.querySelector("#dtab-guide");
   const listPanel = document.querySelector("#dpanel-list");
   const guidePanel = document.querySelector("#dpanel-guide");
+  const actions = document.querySelector(".devices-actions");
   if (!listTab || !guideTab || !listPanel || !guidePanel) return;
   const activate = (name) => {
     const guide = name === "guide";
@@ -175,6 +176,8 @@ function wirePageTabs() {
     guideTab.setAttribute("aria-selected", guide ? "true" : "false");
     listPanel.hidden = guide;
     guidePanel.hidden = !guide;
+    // Adding devices and groups belongs to the list tab only.
+    if (actions) actions.hidden = guide;
   };
   listTab.addEventListener("click", () => activate("list"));
   guideTab.addEventListener("click", () => activate("guide"));
