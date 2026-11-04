@@ -66,6 +66,10 @@ export interface DeviceView {
   created_at: number;
   last_seen_at: number | null;
   push: PushState;
+  // Plaintext push URL for the owner's session list (path form until the
+  // handler absolutizes it); null when no secret is stored (legacy rows,
+  // revoked links) or it cannot be decrypted.
+  push_url: string | null;
 }
 
 export interface UserRecord {

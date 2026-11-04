@@ -307,17 +307,28 @@ describe("admin account", () => {
 
   it("rejects invalid profile usernames and requires a session to set one", async () => {
     const script = makeDb();
-    for (const username of ["-octocat", "octocat-", "octo cat", "octo_cat", "a".repeat(40), "用户名"]) {
+    // Any display name goes (the avatar falls back to a generated one);
+    // only overlong names and control characters are refused.
+    for (const username of ["a".repeat(40), "octo\u0007cat"]) {
       const response = await handleApi(
         authed("/api/v1/auth/profile", "POST", { username }),
         envFor(script.db),
       );
       expect(response.status).toBe(400);
       expect(await response.json()).toMatchObject({
-        error: "用户名需为 1 到 39 位字母、数字或连字符，且不能以连字符开头或结尾",
+        error: "用户名需为 1 到 39 个字符",
       });
     }
     expect(script.meta.has("profile_username")).toBe(false);
+    for (const username of ["-octocat", "octo cat", "octo_cat", "用户名"]) {
+      const response = await handleApi(
+        authed("/api/v1/auth/profile", "POST", { username }),
+        envFor(script.db),
+      );
+      expect(response.status).toBe(200);
+      expect(script.meta.get("profile_username")).toBe(username);
+    }
+    script.meta.delete("profile_username");
 
     const anonymous = await handleApi(
       new Request("https://sms.example/api/v1/auth/profile", {

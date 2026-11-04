@@ -34,6 +34,7 @@ type DeviceRow = {
   created_at: number;
   push_token_hash: string | null;
   push_revoked_at: number | null;
+  push_token_enc: string | null;
 };
 
 type MessageRow = {
@@ -181,6 +182,7 @@ function createDb() {
                   secret: device.secret,
                   push_token_hash: device.push_token_hash,
                   push_revoked_at: device.push_revoked_at,
+                  push_token_enc: device.push_token_enc,
                 })),
             };
           }
@@ -217,6 +219,7 @@ function createDb() {
               created_at: Number(args[6]),
               push_token_hash: args[7] == null ? null : String(args[7]),
               push_revoked_at: null,
+              push_token_enc: args[8] == null ? null : String(args[8]),
             });
             return { meta: { changes: 1 } };
           }
@@ -226,7 +229,7 @@ function createDb() {
             return { meta: { changes: device ? 1 : 0 } };
           }
           if (sql.includes("SET push_token_hash = ?")) {
-            const device = state.devices.find((row) => row.id === args[1] && row.user_id === args[2]);
+            const device = state.devices.find((row) => row.id === args[2] && row.user_id === args[3]);
             const issue = sql.includes("push_token_hash IS NULL OR push_revoked_at IS NOT NULL");
             const allowed =
               device != null &&
@@ -235,6 +238,7 @@ function createDb() {
                 : device.push_token_hash != null);
             if (!device || !allowed) return { meta: { changes: 0 } };
             device.push_token_hash = String(args[0]);
+            device.push_token_enc = args[1] == null ? null : String(args[1]);
             device.push_revoked_at = null;
             return { meta: { changes: 1 } };
           }
@@ -244,6 +248,7 @@ function createDb() {
               return { meta: { changes: 0 } };
             }
             device.push_revoked_at = Number(args[0]);
+            device.push_token_enc = null;
             return { meta: { changes: 1 } };
           }
           if (sql.includes("DELETE FROM messages") && sql.includes("device_id = ?")) {
@@ -383,6 +388,7 @@ async function seedDevice(state: State, token: string, secret: string | null = n
     created_at: NOW,
     push_token_hash: null,
     push_revoked_at: null,
+    push_token_enc: null,
   });
 }
 
@@ -847,7 +853,7 @@ describe("push ingest", () => {
     }>;
   }
 
-  it("returns a one-time push URL and keeps it out of later reads", async () => {
+  it("returns the push URL and keeps it visible to the owner, while the bearer token stays one-time", async () => {
     const logs = captureLogs();
     const harness = createDb();
     const created = await createDevice(harness);
@@ -862,16 +868,17 @@ describe("push ingest", () => {
     expect(harness.state.devices[0]?.token_hash).toMatch(/^[0-9a-f]{64}$/);
     expect(harness.state.devices[0]?.token_hash).not.toBe(await sha256Hex(created.token));
     expect(harness.state.devices[0]?.token_version).toBe(0);
-    expect(JSON.stringify(harness.state.devices[0])).not.toContain(secret);
+    // The secret is stored (sealed when a content key is configured) so the
+    // owner can view the URL again; the bearer token is never stored.
+    expect(harness.state.devices[0]?.push_token_enc).toBe(secret);
     expect(JSON.stringify(harness.state.devices[0])).not.toContain(created.token);
 
     const listed = await handleApi(authed("/api/v1/devices"), envFor(harness.db));
-    const body = await listed.json() as { devices: Array<{ push: string }> };
+    const body = await listed.json() as { devices: Array<{ push: string; push_url?: string | null }> };
     expect(body.devices[0]?.push).toBe("active");
+    expect(body.devices[0]?.push_url).toBe(created.push_url);
     const serialized = JSON.stringify(body);
-    expect(serialized).not.toContain(secret);
     expect(serialized).not.toContain(created.token);
-    expect(serialized).not.toContain(created.push_url);
     expect(logs.info.join("")).not.toContain(secret);
     expect(logs.info.join("")).not.toContain(created.token);
   });

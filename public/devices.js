@@ -466,19 +466,119 @@ function buildPushPanel(device, view) {
   }
   summary.append(title, actions);
   panel.append(summary);
+  if (view.pushUrl) {
+    const wrap = document.createElement("div");
+    wrap.className = "stack";
+    const label = document.createElement("strong");
+    label.textContent = "推送链接";
+    const code = document.createElement("code");
+    code.className = "code-block";
+    code.textContent = view.pushUrl;
+    code.addEventListener("click", () => selectContents(code));
+    const copyRow = document.createElement("div");
+    copyRow.className = "actions";
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "secondary";
+    copy.textContent = "复制推送链接";
+    copy.addEventListener("click", async (event) => {
+      const copied = await flashLabel(event.currentTarget, view.pushUrl, "复制推送链接");
+      if (copied) toast("已复制");
+    });
+    copyRow.append(copy);
+    wrap.append(label, code, copyRow);
+    panel.append(wrap);
+  } else if (device?.push === "active") {
+    const note = document.createElement("p");
+    note.className = "subtle";
+    note.textContent = "这条链接是旧版生成的，没有保存明文。点「轮换接口」换一条新链接后，就能随时在这里查看和复制。";
+    panel.append(note);
+  }
   return panel;
 }
 
 function buildAdvancedPanel(device) {
   const panel = document.createElement("div");
   panel.className = "stack device-detail-stack";
+
+  const renameSection = document.createElement("section");
+  renameSection.className = "stack";
+  const renameTitle = document.createElement("h3");
+  renameTitle.textContent = "设备名称";
+  const renameForm = document.createElement("form");
+  renameForm.className = "stack";
+  renameForm.noValidate = true;
+  const nameLabel = document.createElement("label");
+  nameLabel.textContent = "显示名称";
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.maxLength = 64;
+  nameInput.required = true;
+  nameInput.autocomplete = "off";
+  nameInput.value = String(device?.name || "");
+  nameLabel.append(nameInput);
+  const renameError = document.createElement("p");
+  renameError.className = "field-error";
+  renameError.hidden = true;
+  const renameActions = document.createElement("div");
+  renameActions.className = "actions";
+  const save = document.createElement("button");
+  save.type = "submit";
+  save.textContent = "保存名称";
+  renameActions.append(save);
+  renameForm.append(nameLabel, renameError, renameActions);
+  renameForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void submitDeviceRename(device, nameInput, save, renameError);
+  });
+  renameSection.append(renameTitle, renameForm);
+
   const remove = document.createElement("button");
   remove.type = "button";
   remove.className = "danger";
   remove.textContent = "删除设备";
   remove.addEventListener("click", () => removeDevice(device, findDeviceRow(device.id)));
-  panel.append(remove);
+  panel.append(renameSection, remove);
   return panel;
+}
+
+async function submitDeviceRename(device, input, save, errorBox) {
+  const name = input.value.trim();
+  errorBox.hidden = true;
+  if (!name || name.length > 64) {
+    errorBox.textContent = "设备名称需要 1 到 64 个字符";
+    errorBox.hidden = false;
+    return;
+  }
+  if (name === String(device?.name || "")) {
+    toast("设备名称未改变");
+    return;
+  }
+  save.disabled = true;
+  try {
+    const result = await api(`/api/v1/devices/${encodeURIComponent(device.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    });
+    if (!result.response.ok) {
+      errorBox.textContent = result.data.error || "保存名称失败";
+      errorBox.hidden = false;
+      return;
+    }
+    device.name = name;
+    input.value = name;
+    const title = document.querySelector(".ui-drawer .ui-drawer-title");
+    if (title) title.textContent = name;
+    // Refresh the store so the list cards and the sidebar follow the rename.
+    await refreshDevices().catch(() => {});
+    toast("设备名称已更新");
+  } catch (error) {
+    if (isUnauthorized(error)) return;
+    errorBox.textContent = "保存名称失败";
+    errorBox.hidden = false;
+  } finally {
+    save.disabled = false;
+  }
 }
 
 function findDeviceRow(id) {
@@ -518,7 +618,7 @@ async function submitDevice(event) {
       token: result.data.token || "",
       pushUrl: result.data.push_url || "",
     });
-    setStatus("请立刻复制黄框里的内容。刷新后不能再查看。");
+    setStatus("设备已添加。Bearer token 只显示这一次，请立刻保存；推送链接可随时在「推送配置」里查看。");
     form.reset();
     await loadDevices({ refresh: true });
   } catch (error) {
@@ -554,8 +654,8 @@ function showCredentials({ deviceId, token, pushUrl }) {
   const warn = tokenBox.querySelector(".callout");
   if (warn) {
     warn.textContent = boxes.showBearer
-      ? "这些凭证只显示这一次，关闭后无法再次查看。"
-      : "这条推送链接只显示这一次，关闭后无法再次查看。";
+      ? "Bearer token 只显示这一次，关闭后无法再次查看。推送链接已保存，可随时查看。"
+      : "推送链接已保存，可随时在「推送配置」里查看和复制。";
   }
   if (!boxes.showBox) return;
   form.hidden = true;
@@ -719,8 +819,8 @@ function renderDevice(device, entry) {
   const more = document.createElement("button");
   more.type = "button";
   more.className = "secondary device-more";
-  more.setAttribute("aria-label", "更多操作");
-  more.textContent = "管理 ⋯";
+  more.setAttribute("aria-label", "管理设备");
+  more.textContent = "管理设备";
   more.addEventListener("click", (event) => {
     event.stopPropagation();
     const items = view.actions.map((item) => ({
@@ -728,6 +828,15 @@ function renderDevice(device, entry) {
       danger: item.action === "revoke",
       onSelect: () => runPush(device, item.action),
     }));
+    items.push({
+      label: "更改名称",
+      onSelect: () => {
+        openDeviceDetail(device, entry);
+        document
+          .querySelector('.ui-drawer [data-device-tab="advanced"]')
+          ?.click();
+      },
+    });
     items.push({ label: "删除设备", danger: true, onSelect: () => removeDevice(device, row) });
     openMenu(more, items);
   });
@@ -897,7 +1006,15 @@ async function removeDevice(device, row) {
 
 async function runPush(device, action) {
   const message = pushConfirm(action, device.name);
-  if (!message || !window.confirm(message)) return;
+  if (!message) return;
+  const titles = { issue: "生成推送链接", rotate: "轮换接口", revoke: "撤销推送链接" };
+  const confirmed = await openModal({
+    title: titles[action] || "确认操作",
+    text: message,
+    confirmLabel: "确定",
+    danger: action === "revoke",
+  });
+  if (!confirmed) return;
   setError("");
   try {
     const result = await api(`/api/v1/devices/${device.id}/push`, {
@@ -912,7 +1029,7 @@ async function runPush(device, action) {
     }
     if (result.data.push_url) {
       showCredentials({ deviceId: device.id, token: "", pushUrl: result.data.push_url });
-      setStatus("请立刻复制黄框里的推送链接。刷新后不能再查看。");
+      setStatus("新推送链接已生效，可在「推送配置」里随时查看。");
     } else {
       if (shownDeviceId === device.id) shownDeviceId = "";
       if (action === "revoke") setStatus("推送链接已撤销。短信仍保留，旧链接不会再显示。");

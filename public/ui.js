@@ -99,12 +99,26 @@ export function openMenu(anchor, items) {
   menu.className = "menu";
   menu.setAttribute("role", "menu");
   const buttons = [];
+  // Menus that act as a select (one current value) mark it with a check;
+  // the slot is rendered for every item so the labels stay aligned.
+  const hasSelected = items.some((item) => "selected" in item);
   for (const item of items) {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = `menu-item${item.danger ? " is-danger" : ""}`;
+    button.className = `menu-item${item.danger ? " is-danger" : ""}${item.selected ? " is-selected" : ""}`;
     button.setAttribute("role", "menuitem");
-    button.textContent = item.label;
+    if (hasSelected) {
+      const slot = document.createElement("span");
+      slot.className = "menu-check";
+      slot.setAttribute("aria-hidden", "true");
+      if (item.selected) {
+        slot.innerHTML =
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+        button.setAttribute("aria-checked", "true");
+      }
+      button.append(slot);
+    }
+    button.append(document.createTextNode(item.label));
     if (item.disabled) {
       button.classList.add("is-disabled");
       button.setAttribute("aria-disabled", "true");
@@ -155,6 +169,80 @@ export function openMenu(anchor, items) {
   };
   menuNode = menu;
   buttons[0]?.focus();
+}
+
+// A select replacement built from the project's own parts (a form-styled
+// toggle + openMenu), so no picker ever renders with browser-default UI.
+// The value travels in a hidden input, so FormData and form submits keep
+// working exactly as they did with a native <select>.
+export function mountSelect({ name = "", value = "", options = [], onChange = null, ariaLabel = "" } = {}) {
+  const root = document.createElement("div");
+  root.className = "select-field";
+  const input = document.createElement("input");
+  input.type = "hidden";
+  if (name) input.name = name;
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "select-toggle";
+  toggle.setAttribute("aria-haspopup", "true");
+  if (ariaLabel) toggle.setAttribute("aria-label", ariaLabel);
+  const label = document.createElement("span");
+  label.className = "select-label";
+  const chevron = document.createElement("span");
+  chevron.className = "select-chevron";
+  chevron.setAttribute("aria-hidden", "true");
+  chevron.innerHTML =
+    '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-chevron-down"/></svg>';
+  toggle.append(label, chevron);
+  root.append(toggle, input);
+
+  let currentOptions = options.slice();
+  let current = value;
+  const paint = () => {
+    const found = currentOptions.find((option) => option.value === current) || currentOptions[0];
+    label.textContent = found ? found.label : "";
+    input.value = current;
+  };
+  const choose = (next) => {
+    if (next === current) return;
+    current = next;
+    paint();
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    onChange?.(current);
+  };
+  toggle.addEventListener("click", () => {
+    openMenu(
+      toggle,
+      currentOptions.map((option) => ({
+        label: option.label,
+        selected: option.value === current,
+        onSelect: () => choose(option.value),
+      })),
+    );
+  });
+  paint();
+  return {
+    root,
+    input,
+    get value() {
+      return current;
+    },
+    set value(next) {
+      current = String(next ?? "");
+      paint();
+    },
+    get label() {
+      return currentOptions.find((option) => option.value === current)?.label || "";
+    },
+    setOptions(next, preferred) {
+      currentOptions = next.slice();
+      const wanted = preferred !== undefined ? preferred : current;
+      current = currentOptions.some((option) => option.value === wanted)
+        ? wanted
+        : currentOptions[0]?.value ?? "";
+      paint();
+    },
+  };
 }
 
 export function openModal(options) {

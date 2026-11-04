@@ -21,10 +21,13 @@ const DEVICE = {
 };
 
 describe("device panel secrets", () => {
-  it("never offers to reveal a stored push secret", () => {
-    expect(canRevealPushSecret()).toBe(false);
-    const view = describeDevice({ ...DEVICE, push: "active" }, null);
-    expect(view).not.toHaveProperty("push_url");
+  it("reveals the stored push URL to the owner and keeps raw secrets out of the model", () => {
+    expect(canRevealPushSecret()).toBe(true);
+    const view = describeDevice(
+      { ...DEVICE, push: "active", push_url: "https://sms.example/api/v1/ingest/psh_abc" },
+      null,
+    );
+    expect(view.pushUrl).toBe("https://sms.example/api/v1/ingest/psh_abc");
     expect(view).not.toHaveProperty("token");
     expect(view).not.toHaveProperty("pushLabel");
     expect(view).not.toHaveProperty("shortcut");
@@ -54,7 +57,7 @@ describe("device panel status", () => {
 
   it("asks before generate, rotate, and revoke", () => {
     expect(pushConfirm("issue", "客厅")).toContain("客厅");
-    expect(pushConfirm("issue", "客厅")).toContain("只显示一次");
+    expect(pushConfirm("issue", "客厅")).toContain("随时查看");
     expect(pushConfirm("rotate", "客厅")).toContain("旧链接会立刻失效");
     expect(pushConfirm("revoke", "客厅")).toContain("短信仍会保留");
     expect(pushConfirm("revoke", "  ")).toContain("该设备");
@@ -135,9 +138,9 @@ describe("devices page", () => {
     expect(html).toContain('class="app-layout"');
     expect(html).toContain('class="sidebar"');
     expect(html).toContain('class="topbar"');
-    expect(html).toContain('id="token-box" class="token-box"');
+    expect(html).toContain('id="token-box" class="token-box stack"');
     expect(html).toContain("只显示这一次");
-    expect(html).toContain("不能再显示明文");
+    expect(html).toContain("可随时在设备详情「推送配置」里查看");
     expect(html).toContain("版本与配置状态");
     expect(html).toContain('id="shortcut-status"');
     expect(html).toContain('href="/api/v1/ios/shortcut?variant=all"');
@@ -148,7 +151,8 @@ describe("devices page", () => {
 
   it("confirms generate, rotate, and revoke, and does not read a secret back", () => {
     expect(js).toContain("describeDevice");
-    expect(js).toContain("if (!message || !window.confirm(message)) return;");
+    expect(js).toContain("await openModal({");
+    expect(js).not.toContain("window.confirm");
     expect(js).toContain('api("/api/v1/devices"');
     expect(js).toContain("/api/v1/devices/${device.id}/push");
     expect(js).toContain("/api/v1/devices/${device.id}/test");

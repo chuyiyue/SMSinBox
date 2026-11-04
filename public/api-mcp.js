@@ -3,6 +3,7 @@ import {
   flashLabel,
   formatTime,
   initShell,
+  mountSelect,
   openModal,
   showNotice,
   toast,
@@ -195,6 +196,21 @@ let deviceCheckboxListEl;
 export function start() {
   initShell();
 
+  const expiresSlot = document.querySelector("#token-expires");
+  if (expiresSlot) {
+    const field = mountSelect({
+      name: "expires_in_days",
+      value: "0",
+      options: [
+        { value: "0", label: "永不过期" },
+        { value: "30", label: "30 天" },
+        { value: "90", label: "90 天" },
+        { value: "365", label: "365 天" },
+      ],
+      ariaLabel: "有效期",
+    });
+    expiresSlot.replaceWith(field.root);
+  }
   tokenListEl = document.querySelector("#token-list");
   pageErrorEl = document.querySelector("#page-error");
   pageStatusEl = document.querySelector("#page-status");

@@ -54,6 +54,7 @@ export interface DeviceCardModel {
   platformDetail: string;
   received: ReceiveTime;
   actions: PushAction[];
+  pushUrl: string;
 }
 
 export function describeDevice(
@@ -62,6 +63,7 @@ export function describeDevice(
         id?: string | null;
         name?: string | null;
         push?: string | null;
+        push_url?: string | null;
         last_seen_at?: number | null;
       }
     | null
