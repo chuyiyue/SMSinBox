@@ -1,5 +1,5 @@
 import { sha256Hex } from "./auth";
-import { revealCode, revealRaw, revealText, type ContentKey } from "./crypto";
+import { decryptString, ENCRYPTED_PREFIX, revealCode, revealRaw, revealText, type ContentKey } from "./crypto";
 import { logInfo } from "./log";
 import { readRawMeta } from "./parse";
 import { messageMatchesQuery } from "./search";
@@ -617,10 +617,24 @@ export async function countDevices(db: D1Database, userId: string): Promise<numb
   return row?.total ?? 0;
 }
 
-export async function listDevices(db: D1Database, userId: string): Promise<DeviceView[]> {
+// The stored push secret is sealed with CONTENT_KEY when one is
+// configured and kept as-is otherwise; an enc1: value that cannot be
+// decrypted (key rotated away) simply yields no URL, like legacy rows
+// that predate the column.
+async function revealPushSecret(contentKey: ContentKey | undefined, stored: string): Promise<string | null> {
+  if (!stored.startsWith(ENCRYPTED_PREFIX)) return stored;
+  if (!contentKey || contentKey.state !== "on") return null;
+  return decryptString(contentKey.raw, stored);
+}
+
+export async function listDevices(
+  db: D1Database,
+  userId: string,
+  contentKey?: ContentKey,
+): Promise<DeviceView[]> {
   const result = await db
     .prepare(
-      `SELECT id, name, platform, created_at, last_seen_at, push_token_hash, push_revoked_at
+      `SELECT id, name, platform, created_at, last_seen_at, push_token_hash, push_revoked_at, push_token_enc
        FROM devices WHERE user_id = ?
        ORDER BY created_at DESC`,
     )
@@ -633,15 +647,27 @@ export async function listDevices(db: D1Database, userId: string): Promise<Devic
       last_seen_at: number | null;
       push_token_hash: string | null;
       push_revoked_at: number | null;
+      push_token_enc: string | null;
     }>();
-  return result.results.map((row) => ({
-    id: row.id,
-    name: row.name,
-    platform: row.platform,
-    created_at: row.created_at,
-    last_seen_at: row.last_seen_at,
-    push: pushState(row.push_token_hash, row.push_revoked_at),
-  }));
+  return Promise.all(
+    result.results.map(async (row) => {
+      const push = pushState(row.push_token_hash, row.push_revoked_at);
+      let pushUrl: string | null = null;
+      if (push === "active" && row.push_token_enc) {
+        const token = await revealPushSecret(contentKey, row.push_token_enc);
+        if (token) pushUrl = `/api/v1/ingest/${token}`;
+      }
+      return {
+        id: row.id,
+        name: row.name,
+        platform: row.platform,
+        created_at: row.created_at,
+        last_seen_at: row.last_seen_at,
+        push,
+        push_url: pushUrl,
+      };
+    }),
+  );
 }
 
 export async function insertDevice(
@@ -655,6 +681,7 @@ export async function insertDevice(
     tokenVersion?: number;
     createdAt: number;
     pushTokenHash?: string | null;
+    pushSecretStored?: string | null;
   },
 ): Promise<void> {
   // `devices.secret` is intentionally not written any more: per-device HMAC
@@ -663,8 +690,8 @@ export async function insertDevice(
     .prepare(
       `INSERT INTO devices (
          id, user_id, name, platform, token_hash, token_version, last_seen_at, created_at,
-         push_token_hash, push_revoked_at
-       ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)`,
+         push_token_hash, push_revoked_at, push_token_enc
+       ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?)`,
     )
     .bind(
       device.id,
@@ -675,6 +702,7 @@ export async function insertDevice(
       device.tokenVersion ?? 0,
       device.createdAt,
       device.pushTokenHash ?? null,
+      device.pushSecretStored ?? null,
     )
     .run();
 }
@@ -709,6 +737,7 @@ export async function replaceDevicePushToken(
   deviceId: string,
   pushTokenHash: string,
   action: "issue" | "rotate",
+  pushSecretStored?: string | null,
 ): Promise<boolean> {
   const guard =
     action === "issue"
@@ -717,11 +746,11 @@ export async function replaceDevicePushToken(
   const result = await db
     .prepare(
       `UPDATE devices
-       SET push_token_hash = ?, push_revoked_at = NULL
+       SET push_token_hash = ?, push_revoked_at = NULL, push_token_enc = ?
        WHERE id = ? AND user_id = ?
        ${guard}`,
     )
-    .bind(pushTokenHash, deviceId, userId)
+    .bind(pushTokenHash, pushSecretStored ?? null, deviceId, userId)
     .run();
   return (result.meta.changes ?? 0) > 0;
 }
@@ -734,7 +763,7 @@ export async function revokeDevicePush(
 ): Promise<boolean> {
   const result = await db
     .prepare(
-      `UPDATE devices SET push_revoked_at = ?
+      `UPDATE devices SET push_revoked_at = ?, push_token_enc = NULL
        WHERE id = ? AND user_id = ? AND push_token_hash IS NOT NULL AND push_revoked_at IS NULL`,
     )
     .bind(revokedAt, deviceId, userId)
@@ -751,6 +780,21 @@ export async function findDeviceForUser(
     .prepare("SELECT id, name FROM devices WHERE id = ? AND user_id = ?")
     .bind(deviceId, userId)
     .first<{ id: string; name: string }>();
+}
+
+export async function updateDeviceName(
+  db: D1Database,
+  userId: string,
+  deviceId: string,
+  name: string,
+): Promise<boolean> {
+  const owned = await findDeviceForUser(db, userId, deviceId);
+  if (!owned) return false;
+  await db
+    .prepare("UPDATE devices SET name = ? WHERE id = ? AND user_id = ?")
+    .bind(name, deviceId, userId)
+    .run();
+  return true;
 }
 
 export async function deleteDevice(db: D1Database, userId: string, deviceId: string): Promise<boolean> {
@@ -1063,6 +1107,7 @@ export async function insertApiToken(
     name: string;
     tokenHash: string;
     tokenPrefix: string;
+    tokenEnc?: string | null;
     permissions: string; // JSON
     deviceScope: string; // JSON
     expiresAt: number | null;
@@ -1071,17 +1116,17 @@ export async function insertApiToken(
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO api_tokens (id, user_id, name, token_hash, token_prefix, permissions, device_scope, expires_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO api_tokens (id, user_id, name, token_hash, token_prefix, token_enc, permissions, device_scope, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(token.id, token.userId, token.name, token.tokenHash, token.tokenPrefix, token.permissions, token.deviceScope, token.expiresAt, token.createdAt)
+    .bind(token.id, token.userId, token.name, token.tokenHash, token.tokenPrefix, token.tokenEnc ?? null, token.permissions, token.deviceScope, token.expiresAt, token.createdAt)
     .run();
 }
 
 export async function findApiTokenByHash(db: D1Database, tokenHash: string): Promise<ApiTokenRecord | null> {
   return db
     .prepare(
-      `SELECT id, user_id, name, token_hash, token_prefix, permissions, device_scope, expires_at,
+      `SELECT id, user_id, name, token_hash, token_prefix, token_enc, permissions, device_scope, expires_at,
               disabled_at, revoked_at, created_at, last_used_at
        FROM api_tokens WHERE token_hash = ?`,
     )
@@ -1092,13 +1137,26 @@ export async function findApiTokenByHash(db: D1Database, tokenHash: string): Pro
 export async function listApiTokens(db: D1Database, userId: string): Promise<ApiTokenRecord[]> {
   const result = await db
     .prepare(
-      `SELECT id, user_id, name, token_hash, token_prefix, permissions, device_scope, expires_at,
+      `SELECT id, user_id, name, token_hash, token_prefix, token_enc, permissions, device_scope, expires_at,
               disabled_at, revoked_at, created_at, last_used_at
        FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC`,
     )
     .bind(userId)
     .all<ApiTokenRecord>();
   return result.results;
+}
+
+export async function renameApiToken(
+  db: D1Database,
+  userId: string,
+  tokenId: string,
+  name: string,
+): Promise<boolean> {
+  const result = await db
+    .prepare("UPDATE api_tokens SET name = ? WHERE id = ? AND user_id = ?")
+    .bind(name, tokenId, userId)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
 }
 
 export async function updateApiTokenDisabled(db: D1Database, userId: string, tokenId: string, disabledAt: number | null): Promise<boolean> {
@@ -1111,7 +1169,7 @@ export async function updateApiTokenDisabled(db: D1Database, userId: string, tok
 
 export async function updateApiTokenRevoked(db: D1Database, userId: string, tokenId: string, revokedAt: number): Promise<boolean> {
   const result = await db
-    .prepare("UPDATE api_tokens SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL")
+    .prepare("UPDATE api_tokens SET revoked_at = ?, token_enc = NULL WHERE id = ? AND user_id = ? AND revoked_at IS NULL")
     .bind(revokedAt, tokenId, userId)
     .run();
   return (result.meta.changes ?? 0) > 0;

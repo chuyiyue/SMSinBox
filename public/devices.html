@@ -53,19 +53,23 @@
                 <input id="device-name" name="name" required maxlength="64" placeholder="设备名称，例如：我的 Pixel" autocomplete="off" />
                 <button type="submit">添加设备</button>
               </form>
-              <div id="token-box" class="token-box" hidden role="status">
-                <p class="callout warn">这些凭证只显示这一次，关闭后无法再次查看。</p>
+              <div id="token-box" class="token-box stack" hidden role="status">
+                <p class="callout warn">Bearer token 只显示这一次，关闭后无法再次查看。</p>
                 <div id="bearer-wrap" class="stack" hidden>
-                  <strong>Bearer token，只显示这一次</strong>
-                  <code id="token-value"></code>
-                  <p>请立刻保存。关闭或刷新页面后无法再查看。请求头使用 <code>Authorization: Bearer &lt;token&gt;</code>。Android 和已经装好的旧快捷指令继续用它。丢失后要删除设备并新建。</p>
-                  <button id="copy-token" class="secondary" type="button">复制 token</button>
+                  <strong>Bearer token</strong>
+                  <code id="token-value" class="code-block"></code>
+                  <p class="subtle">用于请求头 <code>Authorization: Bearer &lt;token&gt;</code>，只显示这一次；丢失后删除设备并新建。</p>
+                  <div class="actions">
+                    <button id="copy-token" class="secondary" type="button">复制 token</button>
+                  </div>
                 </div>
                 <div id="push-wrap" class="stack" hidden>
-                  <strong>推送链接，只显示这一次</strong>
-                  <code id="push-url-value"></code>
-                  <p>贴进已经装好的那一条快捷指令。它等同设备密钥，不要发到聊天或工单。数据库只保存哈希，刷新后不能再显示明文。丢掉请在这台设备上点「轮换」。</p>
-                  <button id="copy-push-url" class="secondary" type="button">复制推送链接</button>
+                  <strong>推送链接</strong>
+                  <code id="push-url-value" class="code-block"></code>
+                  <p class="subtle">贴进快捷指令使用。它等同设备密钥，不要外传；已保存，可随时在设备详情「推送配置」里查看。</p>
+                  <div class="actions">
+                    <button id="copy-push-url" class="secondary" type="button">复制推送链接</button>
+                  </div>
                 </div>
                 <label><input id="token-saved" type="checkbox" /> 我已保存好</label>
                 <div class="add-device-actions">
@@ -155,7 +159,7 @@
                 <details class="fold">
                   <summary>导入快捷指令</summary>
                   <ol>
-                    <li>先在上方添加设备，复制黄框里的推送链接。刷新后无法再看，丢掉就在设备卡片里轮换。</li>
+                    <li>先在上方添加设备，再到设备详情「推送配置」里复制推送链接。链接会一直保存，丢掉或泄露时在卡片菜单里点「轮换接口」换一条。</li>
                     <li>推荐打开 <a href="https://www.icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494" target="_blank" rel="noopener">iCloud 分享链接</a>安装 SMSinBox Next（已签名）。系统拒绝时可下载 <a class="button secondary" href="/api/v1/ios/shortcut?variant=all" download="SMSinBox-iOS.shortcut">备用未签名文件</a>。</li>
                     <li>导入时只填写推送链接，不要把链接发给别人。备用文件未签名，iOS 15 及更高版本经常拒绝导入。</li>
                     <li>打开「快捷指令」→「自动化」，选择这条快捷指令的触发器，打开自动化开关，关闭「运行前询问」（或「运行前确认」）。有「锁定时允许运行」就打开它。</li>
@@ -169,7 +173,7 @@
                     <li>用另一台手机发送一条「验证码 123456」，确认收件箱出现短信。</li>
                     <li>也可以点设备卡片的「发送测试消息」。它只把测试短信写进服务器收件箱，不会让运营商发短信，也不会让设备平台变成 iOS。</li>
                     <li>收到后设备卡片的「最近活动」会更新。自动化里 <code>content</code> 必须用「信息 › 内容」，不要用「快捷指令输入」。</li>
-                    <li>返回「请求过于频繁」是 429，「推送链接无效 / 已撤销」是 401，需要轮换链接；网络失败或停在「获取 URL 内容」通常是链接为空或网络问题。</li>
+                    <li>返回「请求过于频繁」是 429，「推送链接无效 / 已撤销」是 401，需要点「轮换接口」换一条新链接；网络失败或停在「获取 URL 内容」通常是链接为空或网络问题。</li>
                   </ol>
                 </details>
                 <details class="fold">

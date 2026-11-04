@@ -27,6 +27,8 @@ const EXPECTED_MIGRATIONS = [
   "0009_api_tokens.sql",
   "0010_message_code_source.sql",
   "0011_session_client_info.sql",
+  "0012_device_push_secret.sql",
+  "0013_api_token_secret.sql",
 ];
 const TABLES = [
   "api_tokens",
@@ -277,7 +279,7 @@ describe("release migrations", () => {
 
     // The worker under test reads the later additive columns, so finish the
     // schema before exercising login on the legacy rows.
-    await applyFiles(["0006_single_user.sql", "0007_totp.sql", "0008_device_identity.sql", "0009_api_tokens.sql", "0010_message_code_source.sql", "0011_session_client_info.sql"]);
+    await applyFiles(["0006_single_user.sql", "0007_totp.sql", "0008_device_identity.sql", "0009_api_tokens.sql", "0010_message_code_source.sql", "0011_session_client_info.sql", "0012_device_push_secret.sql", "0013_api_token_secret.sql"]);
     const migrated = await env.DB.prepare("PRAGMA table_info(devices)").all<{ name: string; dflt_value: unknown }>();
     expect(migrated.results.map((column) => column.name)).toEqual([
       "id",
@@ -291,6 +293,7 @@ describe("release migrations", () => {
       "push_revoked_at",
       "platform",
       "token_version",
+      "push_token_enc",
     ]);
     const legacyIdentity = await env.DB.prepare("SELECT platform, token_version FROM devices WHERE id = ?")
       .bind(LEGACY_DEVICE)
@@ -557,8 +560,8 @@ describe("release journey", () => {
     const initial = await expectStatus(await call("/api/v1/auth/me", {}, state.cookie), 200);
     expect(initial.user).toMatchObject({ profile_username: "" });
 
-    const bad = await call("/api/v1/auth/profile", jsonInit({ username: "-octocat" }), state.cookie);
-    expect((await expectStatus(bad, 400)).error).toContain("连字符");
+    const bad = await call("/api/v1/auth/profile", jsonInit({ username: "x".repeat(40) }), state.cookie);
+    expect((await expectStatus(bad, 400)).error).toContain("39");
 
     const saved = await expectStatus(
       await call("/api/v1/auth/profile", jsonInit({ username: "octocat" }), state.cookie),
@@ -584,7 +587,7 @@ describe("release journey", () => {
     expect(gone).toBeNull();
   });
 
-  it("returns a bearer and a push link once, then hides both", async () => {
+  it("returns a bearer and a push link, then keeps the push link visible to the owner", async () => {
     const created = await expectStatus(
       await call("/api/v1/devices", jsonInit({ name: "iPhone" }), state.cookie),
       200,
@@ -602,10 +605,35 @@ describe("release journey", () => {
 
     const listed = await expectStatus(await call("/api/v1/devices", {}, state.cookie), 200);
     const text = JSON.stringify(listed);
+    // The bearer token stays one-time; the push link is stored (0012) and
+    // stays visible in the owner's list so it can be copied any time.
     expect(text).not.toContain(state.token);
-    expect(text).not.toContain(state.secret);
-    expect(text).not.toContain("push_url");
-    expect(listed.devices).toContainEqual(expect.objectContaining({ id: state.deviceId, push: "active" }));
+    expect(listed.devices).toContainEqual(
+      expect.objectContaining({ id: state.deviceId, push: "active", push_url: state.pushUrl }),
+    );
+  });
+
+  it("renames a device through PATCH and validates the new name", async () => {
+    const patch = (id: string, name: unknown) =>
+      call(
+        `/api/v1/devices/${id}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name }),
+        },
+        state.cookie,
+      );
+    const renamed = await expectStatus(await patch(state.deviceId, "床头手机"), 200);
+    expect(renamed).toMatchObject({ ok: true, id: state.deviceId, name: "床头手机" });
+    const listed = await expectStatus(await call("/api/v1/devices", {}, state.cookie), 200);
+    expect(listed.devices).toContainEqual(expect.objectContaining({ id: state.deviceId, name: "床头手机" }));
+
+    expect((await patch(state.deviceId, "   ")).status).toBe(400);
+    expect((await patch(state.deviceId, "x".repeat(65))).status).toBe(400);
+    expect((await patch("123e4567-e89b-12d3-a456-426614174000", "没这台")).status).toBe(404);
+    // Restore the shared fixture name for the later steps in this journey.
+    await expectStatus(await patch(state.deviceId, "iPhone"), 200);
   });
 
   it("stores bearer and push messages, redacts the ingest path, and ignores a foreign bearer", async () => {
@@ -848,7 +876,10 @@ describe("release journey", () => {
     state.secret = pushSecret(String(reissued.push_url));
     state.pushUrl = String(reissued.push_url);
     const listed = await expectStatus(await call("/api/v1/devices", {}, state.cookie), 200);
-    expect(JSON.stringify(listed)).not.toContain(state.secret);
+    // The re-issued link is stored, so the owner's list shows it in full.
+    expect(listed.devices).toContainEqual(
+      expect.objectContaining({ id: state.deviceId, push: "active", push_url: state.pushUrl }),
+    );
   });
 
   it("sends a test message and downloads a shortcut without the device secret", async () => {

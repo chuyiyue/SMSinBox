@@ -11,6 +11,7 @@ import {
   loadNav,
   loadingState,
   logout,
+  mountSelect,
   openDrawer,
   openEventStream,
   receivedStamp,
@@ -78,7 +79,13 @@ function startView() {
   list = document.querySelector("#list");
   summary = document.querySelector("#summary");
   errorBox = document.querySelector("#inbox-error");
-  deviceSelect = document.querySelector("#device");
+  deviceSelect = mountSelect({
+    name: "device_id",
+    options: [{ value: "", label: "全部设备" }],
+    ariaLabel: "设备",
+  });
+  deviceSelect.root.id = "device";
+  document.querySelector("#device")?.replaceWith(deviceSelect.root);
   banner = document.querySelector("#live-banner");
   qInput = document.querySelector("input[name=q]");
   qCount = document.querySelector("#q-count");
@@ -140,7 +147,7 @@ function startView() {
     loadMessages().catch(showError);
     if (media.matches) closeDrawer();
   });
-  deviceSelect.addEventListener("change", () => {
+  deviceSelect.input.addEventListener("change", () => {
     state.page = 1;
     setActiveId(deviceSelect.value);
     loadMessages().catch(showError);
@@ -297,9 +304,10 @@ async function loadDevices(preferred = "") {
   if (token !== viewToken || result?.stale) return;
   state.devices = getDevices();
   const current = preferred || deviceSelect.value;
-  deviceSelect.replaceChildren(new Option("全部设备", ""));
-  for (const device of state.devices) deviceSelect.append(new Option(device.name, device.id));
-  if ([...deviceSelect.options].some((option) => option.value === current)) deviceSelect.value = current;
+  deviceSelect.setOptions(
+    [{ value: "", label: "全部设备" }, ...state.devices.map((device) => ({ value: device.id, label: device.name }))],
+    current,
+  );
   setActiveId(deviceSelect.value);
   if (!result.ok && state.devices.length === 0) showError(result.error || "加载设备失败");
 }
@@ -718,7 +726,7 @@ function paintRangeButtons() {
 function paintChips() {
   chips.replaceChildren();
   if (deviceSelect.value) {
-    chips.append(filterChip("设备", deviceSelect.selectedOptions[0]?.textContent || "设备", () => {
+    chips.append(filterChip("设备", deviceSelect.label || "设备", () => {
       deviceSelect.value = "";
       state.page = 1;
       loadMessages().catch(showError);

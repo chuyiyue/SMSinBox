@@ -2,20 +2,22 @@
 // the database stores only hashes, and nothing here can ask for plaintext again.
 
 export function canRevealPushSecret() {
-  return false;
+  // The push secret is stored server-side (0012), so the owner can view
+  // the URL at any time; only legacy links predate the stored copy.
+  return true;
 }
 
 export function pushActions(push) {
   if (push === "active") {
     return [
-      { action: "rotate", label: "轮换" },
+      { action: "rotate", label: "轮换接口" },
       { action: "revoke", label: "撤销" },
     ];
   }
   if (push === "revoked") {
     return [
       { action: "issue", label: "生成推送链接" },
-      { action: "rotate", label: "轮换" },
+      { action: "rotate", label: "轮换接口" },
     ];
   }
   return [{ action: "issue", label: "生成推送链接" }];
@@ -24,10 +26,10 @@ export function pushActions(push) {
 export function pushConfirm(action, name) {
   const safe = String(name || "").trim() || "该设备";
   if (action === "issue") {
-    return `为「${safe}」生成推送链接？链接只显示一次，请立刻从黄框复制。刷新后不能再查看。`;
+    return `为「${safe}」生成推送链接？生成后可在「推送配置」里随时查看和复制。`;
   }
   if (action === "rotate") {
-    return `轮换「${safe}」的推送链接？手机上的旧链接会立刻失效。新链接只显示一次。`;
+    return `轮换「${safe}」的推送链接？手机上的旧链接会立刻失效，新链接可在「推送配置」里随时查看。`;
   }
   if (action === "revoke") {
     return `撤销「${safe}」的推送链接？短信仍会保留。旧链接不会再显示。`;
@@ -99,6 +101,7 @@ export function describeDevice(device, latest) {
     platformDetail: platformDetail(platform),
     received,
     actions: pushActions(push),
+    pushUrl: push === "active" ? String(device?.push_url || "") : "",
   };
 }
 

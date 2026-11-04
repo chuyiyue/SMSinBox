@@ -314,6 +314,32 @@ dialog.modal::backdrop { background: var(--overlay); }
 .menu-item:hover, .menu-item:focus-visible { background: var(--surface-hover); }
 .menu-item.is-danger { color: var(--danger-text); }
 .menu-item.is-disabled { opacity: 0.5; cursor: not-allowed; }
+.menu-item.is-selected { font-weight: 600; }
+.menu-check { width: 16px; flex: none; display: inline-flex; align-items: center; margin-right: 8px; }
+.menu-check svg { width: 14px; height: 14px; }
+
+/* Custom select (ui.js mountSelect): a form-styled toggle + menu, so no
+   picker ever falls back to browser-default chrome. */
+.select-field { width: 100%; }
+.select-toggle {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  justify-content: space-between;
+  text-align: left;
+}
+.select-toggle:hover { background: var(--surface); border-color: var(--accent); }
+.select-toggle:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); outline: none; }
+.select-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-chevron { flex: none; display: inline-flex; color: var(--text-3); }
+.select-chevron .icon { width: 16px; height: 16px; }
 
 .toasts {
   position: fixed;
@@ -656,6 +682,12 @@ kbd {
   background: var(--overlay);
   cursor: pointer;
 }
+
+/* The overlay is a <button>, so the generic button:hover accent would
+   paint it solid black; the scrim must stay the translucent overlay in
+   every state (this is the black-mask bug on the device drawer). */
+.ui-drawer-overlay:hover { background: var(--overlay); }
+.ui-drawer-overlay:active { background: var(--overlay); transform: none; }
 
 .ui-drawer-panel {
   position: relative;

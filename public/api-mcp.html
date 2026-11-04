@@ -53,11 +53,12 @@
           <section id="token-panel" class="panel stack tab-panel" role="tabpanel" aria-labelledby="tab-token" data-panel="tokens">
             <h2>令牌管理</h2>
             <div id="token-list" class="devices"></div>
-            <details class="fold">
-              <summary>如何禁用或撤销凭证</summary>
-              <p>在上方 Token 列表中点击「禁用」可临时冻结凭证；点击「撤销」将永久废除凭证，废除后所有请求将立即被系统拒绝。</p>
-            </details>
           </section>
+
+          <details class="fold" data-panel="tokens">
+            <summary>如何禁用或撤销凭证</summary>
+            <p>在上方 Token 列表中点击「禁用」可临时冻结凭证；点击「撤销」将永久废除凭证，废除后所有请求将立即被系统拒绝。</p>
+          </details>
 
           <!-- MCP access -->
           <section id="mcp-panel" class="panel stack tab-panel" role="tabpanel" aria-labelledby="tab-mcp" data-panel="mcp" hidden>
@@ -245,12 +246,7 @@
           </fieldset>
 
           <label>有效期
-            <select name="expires_in_days">
-              <option value="0">永不过期</option>
-              <option value="30">30 天</option>
-              <option value="90">90 天</option>
-              <option value="365">365 天</option>
-            </select>
+            <span id="token-expires"></span>
           </label>
 
           <p id="token-form-error" class="field-error" hidden></p>
@@ -264,7 +260,7 @@
         <div id="token-result-box" class="stack" hidden>
           <div class="callout warn">
             <p><strong>请立即复制并妥善保管您的 Token！</strong></p>
-            <p class="subtle">出于安全考虑，完整 Token 只在此处显示一次。离开此页面后将无法再次找回。</p>
+            <p class="subtle">完整 Token 也可在下方令牌列表中随时查看和复制。</p>
           </div>
           <div class="code-block" style="position: relative;">
             <code id="new-token-plaintext" style="display: block; word-break: break-all; padding: 12px; font-size: var(--fs-sm);"></code>

@@ -3,6 +3,7 @@ import {
   flashLabel,
   formatTime,
   initShell,
+  mountSelect,
   openModal,
   showNotice,
   toast,
@@ -195,6 +196,21 @@ let deviceCheckboxListEl;
 export function start() {
   initShell();
 
+  const expiresSlot = document.querySelector("#token-expires");
+  if (expiresSlot) {
+    const field = mountSelect({
+      name: "expires_in_days",
+      value: "0",
+      options: [
+        { value: "0", label: "永不过期" },
+        { value: "30", label: "30 天" },
+        { value: "90", label: "90 天" },
+        { value: "365", label: "365 天" },
+      ],
+      ariaLabel: "有效期",
+    });
+    expiresSlot.replaceWith(field.root);
+  }
   tokenListEl = document.querySelector("#token-list");
   pageErrorEl = document.querySelector("#page-error");
   pageStatusEl = document.querySelector("#page-status");
@@ -377,7 +393,7 @@ function renderPermissionSummary(tokens) {
 
     const hint = document.createElement("span");
     hint.className = "subtle";
-    hint.textContent = `${Math.round(((counts[perm.key] || 0) / total) * 100)}% 已分配`;
+    hint.textContent = `已分配给 ${counts[perm.key] || 0} 个 Token`;
     head.append(titleArea, hint);
 
     const meta = document.createElement("dl");
@@ -551,6 +567,13 @@ function renderTokenList(tokens) {
     const actions = document.createElement("div");
     actions.className = "actions";
 
+    const renameBtn = document.createElement("button");
+    renameBtn.className = "ghost";
+    renameBtn.type = "button";
+    renameBtn.textContent = "改名";
+    renameBtn.addEventListener("click", () => startTokenRename(token, titleArea));
+    actions.append(renameBtn);
+
     if (token.status === "active") {
       const disableBtn = document.createElement("button");
       disableBtn.className = "ghost";
@@ -589,7 +612,26 @@ function renderTokenList(tokens) {
     facts.className = "device-facts";
 
     const prefixGroup = document.createElement("div");
-    prefixGroup.innerHTML = `<dt>Token 前缀</dt><dd><code>${escapeHtml(token.token_prefix)}</code></dd>`;
+    if (token.token) {
+      const dt = document.createElement("dt");
+      dt.textContent = "Token";
+      const dd = document.createElement("dd");
+      dd.className = "device-id";
+      const code = document.createElement("code");
+      code.textContent = token.token;
+      const copyBtn = document.createElement("button");
+      copyBtn.type = "button";
+      copyBtn.className = "secondary";
+      copyBtn.textContent = "复制";
+      copyBtn.addEventListener("click", async (event) => {
+        const copied = await flashLabel(event.currentTarget, token.token, "复制");
+        if (copied) toast("已复制 Token");
+      });
+      dd.append(code, copyBtn);
+      prefixGroup.append(dt, dd);
+    } else {
+      prefixGroup.innerHTML = `<dt>Token 前缀</dt><dd><code>${escapeHtml(token.token_prefix)}</code> <span class="subtle">旧令牌未保存明文，重新创建后可查看完整 Token。</span></dd>`;
+    }
 
     const scopeDesc = !token.device_scope || token.device_scope.length === 0 ? "全部设备" : `${token.device_scope.length} 台指定设备`;
     const scopeGroup = document.createElement("div");
@@ -717,6 +759,56 @@ async function setTokenDisabled(tokenId, disabled) {
   }
   toast(disabled ? "Token 已禁用" : "Token 已启用");
   await loadTokens();
+}
+
+function startTokenRename(token, titleArea) {
+  const input = document.createElement("input");
+  input.type = "text";
+  input.maxLength = 64;
+  input.value = token.name;
+  input.setAttribute("aria-label", "Token 名称");
+  const save = document.createElement("button");
+  save.type = "button";
+  save.textContent = "保存";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "ghost";
+  cancel.textContent = "取消";
+  cancel.addEventListener("click", () => loadTokens());
+  save.addEventListener("click", async () => {
+    const next = input.value.trim();
+    if (!next) {
+      showError("Token 名称不能为空");
+      input.focus();
+      return;
+    }
+    if (next === token.name) {
+      await loadTokens();
+      return;
+    }
+    save.disabled = true;
+    const result = await api(`/api/v1/api-tokens/${encodeURIComponent(token.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: next }),
+    });
+    if (!result.response.ok) {
+      showError(result.data?.error || "改名失败");
+      save.disabled = false;
+      return;
+    }
+    toast("Token 已改名");
+    await loadTokens();
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      save.click();
+    }
+    if (event.key === "Escape") loadTokens();
+  });
+  titleArea.replaceChildren(input, save, cancel);
+  input.focus();
+  input.select();
 }
 
 async function revokeToken(token) {

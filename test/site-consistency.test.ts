@@ -134,7 +134,8 @@ describe("site consistency", () => {
     // sits in the FilterBar beside the icon-only filter toggle and stays
     // bound to that form, so it remains visible when the form is sheeted.
     expect(html).toContain('class="filterbar"');
-    expect(html).toMatch(/<form id="filters" class="filters"[\s\S]*name="device_id"[\s\S]*name="from"[\s\S]*<\/form>/);
+    expect(html).toMatch(/<form id="filters" class="filters"[\s\S]*id="device"[\s\S]*name="from"[\s\S]*<\/form>/);
+    expect(inbox).toContain('name: "device_id"');
     expect(html).toMatch(/id="open-filters"[^>]*aria-label="筛选"[\s\S]*?icons\.svg#icon-filter[\s\S]*?name="q" form="filters"/);
 
     // First-run and filtered-empty views use the shared EmptyState helper.
@@ -269,9 +270,19 @@ describe("site consistency", () => {
     const common = readFileSync("public/common.js", "utf8");
     expect(common).toContain("profile_username");
     expect(common).toContain("https://github.com/${encodeURIComponent(profileUsername)}.png?s=96");
+    // Layered fallback: a name that is not a GitHub handle still gets an
+    // avatar, generated from the name by DiceBear's initials style.
+    expect(common).toContain("https://api.dicebear.com/10.x/initials/svg?seed=${encodeURIComponent(profileUsername)}");
     const css = readFileSync("public/css/shell.css", "utf8");
     expect(css).toContain(".account-avatar img");
     expect(css).toContain("object-fit: cover");
+  });
+
+  it("keeps the drawer scrim translucent instead of the black button hover", () => {
+    // .ui-drawer-overlay is a <button>; without its own hover rule the
+    // generic button:hover accent paints the whole scrim solid black.
+    const css = readFileSync("public/css/components.css", "utf8");
+    expect(css).toMatch(/\.ui-drawer-overlay:hover \{ background: var\(--overlay\); \}/);
   });
 
   it("renders the primary nav from a single registry", () => {
@@ -364,7 +375,7 @@ describe("site consistency", () => {
     expect(html).not.toContain('id="username-form"');
     expect(html).toContain('id="profile-form"');
     expect(html).toContain('id="profile-username"');
-    expect(html).toContain("仅用于显示与 GitHub 头像，不用于登录");
+    expect(html).toContain("仅用于显示与头像：与 GitHub 账号同名时显示其头像，其它名字按名生成头像。不用于登录。");
     expect(html).toContain('id="password-form"');
     expect(html).toContain('name="current_password"');
     expect(html).toContain('id="session-list"');

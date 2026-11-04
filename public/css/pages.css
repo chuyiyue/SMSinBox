@@ -10,7 +10,7 @@
 
 .filters {
   display: flex;
-  flex: 1 1 520px;
+  flex: 1 1 640px;
   flex-wrap: wrap;
   gap: var(--space-2) var(--space-3);
   align-items: end;
@@ -18,13 +18,16 @@
 }
 
 .filters .filter-field {
-  flex: 0 1 160px;
+  flex: 0 1 170px;
   min-width: 140px;
 }
 
+/* The segmented range sizes to its labels and must never be squeezed
+   below content width — squeezing is what pushed the last segment out
+   of the pill and over the summary. The form wraps instead. */
 .filters .filter-range {
-  flex: 1 1 220px;
-  min-width: 0;
+  flex: 0 0 auto;
+  min-width: min-content;
 }
 
 .filter-label {
@@ -58,7 +61,16 @@
 
 .filter-search .q-count { right: 10px; }
 .filter-clear { flex: none; }
-.filter-summary { margin: 0 0 9px auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.filter-summary { margin: 0 0 9px auto; white-space: nowrap; font-variant-numeric: tabular-nums; align-self: flex-end; }
+
+/* Mid widths: stack the bar in full rows — search, then the fields, the
+   range on its own line — instead of half-squeezed rows that overlap. */
+@media (max-width: 1100px) {
+  .filter-search { flex: 1 1 100%; }
+  .filters { flex: 1 1 100%; }
+  .filters .filter-field { flex: 1 1 150px; }
+  .filters .filter-range { flex: 1 1 100%; }
+}
 .mobile-filter-toggle {
   display: none;
   flex: none;
@@ -559,20 +571,6 @@
 .device-head-actions { align-items: center; }
 .device-title { align-items: center; }
 .ui-status-dot[data-status="idle"] { background: var(--text-3); }
-
-.device-toggle {
-  min-height: 32px;
-  padding: 0 10px;
-  flex: none;
-  background: transparent;
-  color: var(--text-2);
-  border: 1px solid var(--border);
-}
-.device-toggle:hover { background: var(--surface-hover); }
-.device-toggle .icon { transition: transform 160ms var(--ease); }
-.device.is-expanded .device-toggle .icon { transform: rotate(180deg); }
-.device.is-collapsed .device-facts,
-.device.is-collapsed .device-actions { display: none; }
 
 .device-body { display: grid; gap: 12px; }
 .device-id { color: var(--text-3); font-size: var(--fs-xs); }

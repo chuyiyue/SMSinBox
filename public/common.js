@@ -20,7 +20,7 @@ import {
 } from "./ui.js";
 
 export { api, isUnauthorized, openEventStream } from "./api-client.js";
-export { openHelp, openMenu, openModal, passwordScore, generatePassword, toast } from "./ui.js";
+export { mountSelect, openHelp, openMenu, openModal, passwordScore, generatePassword, toast } from "./ui.js";
 
 const URL_RE = /https?:\/\/[^\s<>"']+/gi;
 
@@ -337,17 +337,26 @@ function paintSidebarAvatar(avatar, name, profileUsername) {
     avatar.textContent = initial;
     return;
   }
-  // The profile username is a GitHub handle; its avatar lives at a fixed URL.
+  // Layered by design — no single URL is trusted to resolve for every
+  // name: a GitHub photo when the name is a real GitHub handle, then a
+  // DiceBear initials avatar generated from the name (any string works,
+  // same name always renders the same image), then the local initial.
+  const sources = [
+    `https://github.com/${encodeURIComponent(profileUsername)}.png?s=96`,
+    `https://api.dicebear.com/10.x/initials/svg?seed=${encodeURIComponent(profileUsername)}`,
+  ];
   const img = document.createElement("img");
   img.alt = "";
-  img.src = `https://github.com/${encodeURIComponent(profileUsername)}.png?s=96`;
-  img.addEventListener(
-    "error",
-    () => {
-      avatar.textContent = initial;
-    },
-    { once: true },
-  );
+  let step = 0;
+  img.addEventListener("error", () => {
+    step += 1;
+    if (step < sources.length) {
+      img.src = sources[step];
+      return;
+    }
+    avatar.textContent = initial;
+  });
+  img.src = sources[0];
   avatar.replaceChildren(img);
 }
 

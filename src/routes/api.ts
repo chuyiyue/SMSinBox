@@ -8,7 +8,7 @@ import {
   sha256Hex,
   verifyPassword,
 } from "../auth";
-import { resolveContentKey, revealCode, sealMessage } from "../crypto";
+import { decryptString, ENCRYPTED_PREFIX, resolveContentKey, revealCode, sealMessage, sealString } from "../crypto";
 import {
   accountPasswordLimited,
   clearAccountPasswordFailures,
@@ -39,6 +39,7 @@ import {
   insertUser,
   isUniqueViolation,
   listApiTokens,
+  renameApiToken,
   listDevices,
   listMessages,
   listMessagesSince,
@@ -60,6 +61,7 @@ import {
   setNotifyChannelEnabled,
   setProfileUsername,
   touchDevice,
+  updateDeviceName,
   updateApiTokenDisabled,
   updateApiTokenRevoked,
   updatePasswordHash,
@@ -219,7 +221,8 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
   }
   const deviceMatch = /^\/api\/v1\/devices\/([^/]+)$/.exec(path);
   if (deviceMatch?.[1]) {
-    if (method !== "DELETE") return methodNotAllowed("DELETE");
+    if (method === "PATCH") return renameDevice(request, env, deviceMatch[1]);
+    if (method !== "DELETE") return methodNotAllowed("DELETE, PATCH");
     return removeDevice(request, env, deviceMatch[1]);
   }
   if (path === "/api/v1/api-tokens") {
@@ -244,7 +247,8 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
   }
   const tokenDeleteMatch = /^\/api\/v1\/api-tokens\/([^/]+)$/.exec(path);
   if (tokenDeleteMatch?.[1]) {
-    if (method !== "DELETE") return methodNotAllowed("DELETE");
+    if (method === "PATCH") return renameApiTokenEndpoint(request, env, tokenDeleteMatch[1]);
+    if (method !== "DELETE") return methodNotAllowed("DELETE, PATCH");
     return deleteApiTokenEndpoint(request, env, tokenDeleteMatch[1]);
   }
   if (path === "/api/v1/system/info") {
@@ -605,10 +609,33 @@ async function detail(request: Request, env: Env, rawId: string): Promise<Respon
   return json({ ok: true, message });
 }
 
+// Stored secrets (device push tokens, API tokens) are kept so the owner
+// can view them at any time: sealed with CONTENT_KEY when one is
+// configured, as-is otherwise (the database is the owner's own; the hash
+// remains the auth source).
+async function sealSecret(env: Env, token: string): Promise<string> {
+  const key = resolveContentKey(env.CONTENT_KEY);
+  if (key.state === "on") return (await sealString(key, token)) ?? token;
+  return token;
+}
+
+async function revealSecret(env: Env, stored: string | null | undefined): Promise<string | null> {
+  if (!stored) return null;
+  if (!stored.startsWith(ENCRYPTED_PREFIX)) return stored;
+  const key = resolveContentKey(env.CONTENT_KEY);
+  if (key.state !== "on") return null;
+  return decryptString(key.raw, stored);
+}
+
 async function devices(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
-  return json({ ok: true, devices: await listDevices(env.DB, user.id) });
+  const origin = new URL(request.url).origin;
+  const list = await listDevices(env.DB, user.id, resolveContentKey(env.CONTENT_KEY));
+  for (const device of list) {
+    if (device.push_url) device.push_url = `${origin}${device.push_url}`;
+  }
+  return json({ ok: true, devices: list });
 }
 
 async function createDevice(request: Request, env: Env): Promise<Response> {
@@ -652,6 +679,7 @@ async function createDevice(request: Request, env: Env): Promise<Response> {
     tokenHash: issued.tokenHash,
     tokenVersion: version,
     pushTokenHash: await sha256Hex(pushToken),
+    pushSecretStored: await sealSecret(env, pushToken),
     createdAt,
   });
   logInfo({ message: "device_created", device_id: id, user_id: user.id, platform: parsed.platform, auth: "jwt" });
@@ -705,7 +733,14 @@ async function updateDevicePush(request: Request, env: Env, rawId: string): Prom
   }
 
   const pushToken = newPushToken();
-  const updated = await replaceDevicePushToken(env.DB, user.id, id, await sha256Hex(pushToken), action);
+  const updated = await replaceDevicePushToken(
+    env.DB,
+    user.id,
+    id,
+    await sha256Hex(pushToken),
+    action,
+    await sealSecret(env, pushToken),
+  );
   if (!updated) return json({ ok: false, error: "推送链接状态已变化" }, 409);
   logInfo({ message: "device_push_issued", device_id: id, user_id: user.id, action });
   return json({
@@ -937,6 +972,27 @@ async function testDevice(request: Request, env: Env, ctx: WaitCtx, rawId: strin
   return json({ ok: true, id: messageId, code });
 }
 
+async function renameDevice(request: Request, env: Env, rawId: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const id = decodePart(rawId);
+  if (!id || !UUID_RE.test(id)) return json({ ok: false, error: "设备不存在" }, 404);
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const rawName =
+    body.value && typeof body.value === "object" && !Array.isArray(body.value)
+      ? (body.value as Record<string, unknown>).name
+      : undefined;
+  const name = typeof rawName === "string" ? rawName.trim() : "";
+  if (!name || name.length > 64 || /[\u0000-\u001f\u007f]/.test(name)) {
+    return json({ ok: false, error: "设备名称需要 1 到 64 个字符" }, 400);
+  }
+  const renamed = await updateDeviceName(env.DB, user.id, id, name);
+  if (!renamed) return json({ ok: false, error: "设备不存在" }, 404);
+  logInfo({ message: "device_renamed", device_id: id, user_id: user.id });
+  return json({ ok: true, id, name });
+}
+
 async function removeDevice(request: Request, env: Env, rawId: string): Promise<Response> {
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
@@ -1037,19 +1093,18 @@ function readPasswordChange(value: unknown): { currentPassword: string; password
   return { currentPassword, password: record.password };
 }
 
-// The profile username doubles as the GitHub handle behind the sidebar
-// avatar, so it must follow GitHub's username syntax. It is a display
-// nickname only; it never takes part in login.
-const GITHUB_USERNAME_RE = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/;
-
+// The profile username is a display nickname only; it never takes part
+// in login. The sidebar avatar resolves it in layers — a GitHub photo
+// when the name happens to be a GitHub handle, a generated avatar for
+// any other name — so no GitHub syntax is imposed here.
 function readProfileUsername(value: unknown): { username: string } | { error: string } {
   if (!value || typeof value !== "object" || Array.isArray(value)) return { error: "请求体无效" };
   const raw = (value as Record<string, unknown>).username;
   if (typeof raw !== "string") return { error: "请填写用户名" };
   const username = raw.trim();
   if (username === "") return { username: "" };
-  if (!GITHUB_USERNAME_RE.test(username)) {
-    return { error: "用户名需为 1 到 39 位字母、数字或连字符，且不能以连字符开头或结尾" };
+  if (username.length > 39 || /[\u0000-\u001f\u007f]/.test(username)) {
+    return { error: "用户名需为 1 到 39 个字符" };
   }
   return { username };
 }
@@ -1111,7 +1166,16 @@ async function apiTokens(request: Request, env: Env): Promise<Response> {
   const auth = await requireUser(request, env);
   if (auth instanceof Response) return auth;
   const rows = await listApiTokens(env.DB, auth.id);
-  return json({ ok: true, tokens: rows.map((row) => tokenRecordToView(row)) });
+  const tokens = await Promise.all(
+    rows.map(async (row) => {
+      const view = tokenRecordToView(row);
+      // The owner's list shows the full token (0013); revoked tokens had
+      // their stored copy cleared at revoke time.
+      if (row.revoked_at == null) view.token = await revealSecret(env, row.token_enc);
+      return view;
+    }),
+  );
+  return json({ ok: true, tokens });
 }
 
 async function createApiToken(request: Request, env: Env): Promise<Response> {
@@ -1164,6 +1228,7 @@ async function createApiToken(request: Request, env: Env): Promise<Response> {
     name,
     tokenHash,
     tokenPrefix,
+    tokenEnc: await sealSecret(env, plaintext),
     permissions: JSON.stringify(permissions),
     deviceScope: JSON.stringify(deviceScope),
     expiresAt,
@@ -1181,6 +1246,7 @@ async function createApiToken(request: Request, env: Env): Promise<Response> {
     id,
     name,
     token_prefix: tokenPrefix,
+    token: plaintext,
     permissions,
     device_scope: deviceScope,
     expires_at: expiresAt,
@@ -1232,5 +1298,24 @@ async function deleteApiTokenEndpoint(request: Request, env: Env, id: string): P
   if (!deleted) return json({ ok: false, error: "未找到 Token" }, 404);
   logInfo({ message: "api_token_deleted", token_id: id, user_id: auth.id });
   return json({ ok: true });
+}
+
+async function renameApiTokenEndpoint(request: Request, env: Env, rawId: string): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
+  const auth = await requireUser(request, env);
+  if (auth instanceof Response) return auth;
+  const id = decodePart(rawId);
+  if (!id || !UUID_RE.test(id)) return json({ ok: false, error: "未找到 Token" }, 404);
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const raw = (body.value as { name?: unknown } | null)?.name;
+  const name = typeof raw === "string" ? raw.trim() : "";
+  if (!name || name.length > 64 || /[\u0000-\u001f\u007f]/.test(name)) {
+    return json({ ok: false, error: "Token 名称需要 1 到 64 个字符" }, 400);
+  }
+  const updated = await renameApiToken(env.DB, auth.id, id, name);
+  if (!updated) return json({ ok: false, error: "未找到 Token" }, 404);
+  logInfo({ message: "api_token_renamed", token_id: id, user_id: auth.id });
+  return json({ ok: true, id, name });
 }
 

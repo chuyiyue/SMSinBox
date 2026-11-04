@@ -2,7 +2,6 @@ import {
   absoluteTime,
   api,
   formatTime,
-  generatePassword,
   initShell,
   isUnauthorized,
   loadNav,
@@ -83,12 +82,6 @@ function startView() {
   profileForm.addEventListener("submit", submitProfile);
   passwordForm.addEventListener("submit", submitPassword);
   passwordInput.addEventListener("input", () => paintPassword(true));
-  document.querySelector("#generate-password").addEventListener("click", () => {
-    passwordInput.value = generatePassword();
-    passwordInput.type = "text";
-    paintPassword(true);
-    passwordInput.focus();
-  });
   document.querySelector("#sessions-refresh").addEventListener("click", () => {
     Promise.resolve(loadSessions()).catch((error) => {
       if (isUnauthorized(error)) return;

@@ -54,10 +54,10 @@
 
                 <form id="profile-form" class="stack" novalidate>
                   <h3>用户名</h3>
-                  <label>GitHub 用户名
+                  <label>用户名
                     <input id="profile-username" name="username" type="text" maxlength="39" autocomplete="off" autocapitalize="none" spellcheck="false" />
                   </label>
-                  <p class="subtle">仅用于显示与 GitHub 头像，不用于登录。</p>
+                  <p class="subtle">仅用于显示与头像：与 GitHub 账号同名时显示其头像，其它名字按名生成头像。不用于登录。</p>
                   <p id="profile-error" class="field-error" hidden></p>
                   <div class="actions">
                     <button id="profile-submit" type="submit">保存用户名</button>
@@ -73,9 +73,6 @@
                     <input id="password" name="password" type="password" required maxlength="256" autocomplete="new-password" />
                   </label>
                   <div id="password-strength" class="strength" data-score="0" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-                  <div class="actions">
-                    <button id="generate-password" class="ghost" type="button">生成强密码</button>
-                  </div>
                   <p class="subtle">8–256 位；保存后需重新登录。</p>
                   <p id="password-error" class="field-error" hidden></p>
                   <div class="actions">
