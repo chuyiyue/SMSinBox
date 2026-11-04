@@ -49,14 +49,14 @@
                 <div class="account-pair">
                 <form id="profile-form" class="stack" novalidate>
                   <h3>用户名</h3>
-                  <label>用户名
-                    <input id="profile-username" name="username" type="text" maxlength="39" autocomplete="off" autocapitalize="none" spellcheck="false" />
-                  </label>
-                  <p class="subtle">仅用于显示与头像：与 GitHub 账号同名时显示其头像，其它名字按名生成头像。不用于登录。</p>
-                  <p id="profile-error" class="field-error" hidden></p>
-                  <div class="actions">
+                  <div class="profile-row">
+                    <label>用户名
+                      <input id="profile-username" name="username" type="text" maxlength="39" autocomplete="off" autocapitalize="none" spellcheck="false" />
+                    </label>
                     <button id="profile-submit" type="submit">保存用户名</button>
                   </div>
+                  <p class="subtle">仅用于显示与头像：与 GitHub 账号同名时显示其头像，其它名字按名生成头像。不用于登录。</p>
+                  <p id="profile-error" class="field-error" hidden></p>
                 </form>
 
                 <div class="stack" id="avatar-block">
