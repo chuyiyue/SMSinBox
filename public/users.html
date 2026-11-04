@@ -75,22 +75,14 @@
                 </div>
 
                 <div class="account-pair">
-                <form id="password-form" class="stack" novalidate>
-                  <h3>改密码</h3>
-                  <label>当前密码
-                    <input id="password-current" name="current_password" type="password" required maxlength="256" autocomplete="current-password" />
-                  </label>
-                  <label>新密码
-                    <input id="password" name="password" type="password" required maxlength="256" autocomplete="new-password" />
-                  </label>
-                  <div id="password-strength" class="strength" data-score="0" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-                  <p class="subtle">8–256 位；保存后需重新登录。</p>
-                  <p id="password-error" class="field-error" hidden></p>
-                  <div class="actions">
-                    <button id="password-submit" type="submit">保存密码</button>
-                    <button id="logout" class="secondary" type="button" data-logout>退出登录</button>
-                  </div>
-                </form>
+                <div id="totp-panel" class="stack" aria-labelledby="totp-title">
+                  <h3 id="totp-title">两步验证</h3>
+                  <p id="totp-state" class="subtle">正在读取两步验证状态…</p>
+                  <p id="totp-extra" class="subtle"></p>
+                  <p id="totp-error" class="callout danger" hidden></p>
+                  <p id="totp-ok" class="callout ok" hidden></p>
+                  <div id="totp-actions" class="actions"></div>
+                </div>
 
                 <div id="github-panel" class="stack" aria-labelledby="github-title" hidden>
                   <h3 id="github-title">GitHub 登录</h3>
@@ -110,6 +102,23 @@
                   </div>
                 </div>
                 </div>
+
+                <form id="password-form" class="stack" novalidate>
+                  <h3>改密码</h3>
+                  <label>当前密码
+                    <input id="password-current" name="current_password" type="password" required maxlength="256" autocomplete="current-password" />
+                  </label>
+                  <label>新密码
+                    <input id="password" name="password" type="password" required maxlength="256" autocomplete="new-password" />
+                  </label>
+                  <div id="password-strength" class="strength" data-score="0" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+                  <p class="subtle">8–256 位；保存后需重新登录。</p>
+                  <p id="password-error" class="field-error" hidden></p>
+                  <div class="actions">
+                    <button id="password-submit" type="submit">保存密码</button>
+                    <button id="logout" class="secondary" type="button" data-logout>退出登录</button>
+                  </div>
+                </form>
               </section>
 
               <section id="sessions-panel" class="settings-section panel stack" aria-labelledby="sessions-title">
@@ -121,15 +130,6 @@
                   <button id="revoke-others" class="secondary" type="button" disabled>撤销其它会话</button>
                   <button id="sessions-refresh" class="ghost" type="button">刷新列表</button>
                 </div>
-              </section>
-
-              <section id="totp-panel" class="settings-section panel stack" aria-labelledby="totp-title">
-                <h2 id="totp-title">两步验证</h2>
-                <p id="totp-state" class="subtle">正在读取两步验证状态…</p>
-                <p id="totp-extra" class="subtle"></p>
-                <p id="totp-error" class="callout danger" hidden></p>
-                <p id="totp-ok" class="callout ok" hidden></p>
-                <div id="totp-actions" class="actions"></div>
               </section>
 
               <section id="features-panel" class="settings-section panel stack" aria-labelledby="features-title">
