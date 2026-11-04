@@ -275,6 +275,20 @@ describe("site consistency", () => {
     expect(js).toContain('addToken.hidden = name !== "tokens"');
   });
 
+  it("keeps every notify kind label and hint a locale function", () => {
+    // Regression: the notifyx entry shipped with plain-string label/hint
+    // while every render path calls them as functions; startView died in
+    // renderKindGrid and the whole channels page went inert.
+    const js = readFileSync("public/notify.js", "utf8");
+    const block = js.slice(js.indexOf("const KINDS = ["), js.indexOf("];", js.indexOf("const KINDS = [")));
+    const entries = block.match(/kind: "/g) || [];
+    const labels = block.match(/label: \(\) =>/g) || [];
+    const hints = block.match(/hint: \(\) =>/g) || [];
+    expect(entries.length).toBeGreaterThan(0);
+    expect(labels.length).toBe(entries.length);
+    expect(hints.length).toBe(entries.length);
+  });
+
   it("keeps the notify page actions in the body toolbar beside the tabs", () => {
     const html = readFileSync("public/notify.html", "utf8");
     const js = readFileSync("public/notify.js", "utf8");

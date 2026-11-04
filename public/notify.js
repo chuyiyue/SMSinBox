@@ -36,8 +36,8 @@ const KINDS = [
   },
   {
     kind: "notifyx",
-    label: "NotifyX",
-    hint: "多通道推送",
+    label: () => t("notify.kindNotifyx"),
+    hint: () => t("notify.kindNotifyxHint"),
     icon: '<use href="/icons.svg#icon-bell"/>',
   },
   {
