@@ -550,6 +550,7 @@
 .add-device-panel .lede { margin: 0; }
 .add-device-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .add-device-form input { flex: 1 1 220px; min-width: 0; }
+.add-device-form .select-field { flex: 1 1 150px; min-width: 0; }
 .add-device-form button { flex: none; }
 .add-device-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
 .field-error { color: var(--danger-text); font-size: var(--fs-sm); margin: 8px 0 0; }

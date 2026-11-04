@@ -5,6 +5,7 @@ import {
   credentialBoxes,
   describeDevice,
   latestByDevice,
+  platformFromPreselect,
   platformFromReport,
   pushActions,
   pushConfirm,
@@ -69,6 +70,34 @@ describe("device panel status", () => {
     expect(platformFromReport("  iOS ")).toEqual({ key: "ios", label: "iOS" });
     expect(platformFromReport("android")).toEqual({ key: "android", label: "Android" });
     expect(platformFromReport("Pixel 8")).toEqual({ key: "reported", label: "Pixel 8" });
+  });
+
+  it("falls back to the creation-time preselected platform until a report arrives", () => {
+    expect(platformFromPreselect("phone")).toEqual({ key: "preset", label: "手机" });
+    expect(platformFromPreselect("computer")).toEqual({ key: "preset", label: "电脑" });
+    expect(platformFromPreselect("router")).toEqual({ key: "preset", label: "路由器" });
+    expect(platformFromPreselect("ios")).toEqual({ key: "ios", label: "iOS" });
+    expect(platformFromPreselect("android")).toEqual({ key: "android", label: "Android" });
+    expect(platformFromPreselect("other")).toBeNull();
+    expect(platformFromPreselect("")).toBeNull();
+    expect(platformFromPreselect(undefined)).toBeNull();
+
+    const preset = describeDevice({ ...DEVICE, platform: "phone" }, null);
+    expect(preset.platform).toEqual({ key: "preset", label: "手机" });
+    expect(preset.platformBadge).toBe("手机");
+    expect(preset.platformDetail).toBe("手机");
+
+    // A report wins over the preselection; an empty report keeps it.
+    const reported = describeDevice(
+      { ...DEVICE, platform: "phone" },
+      { device_id: DEVICE.id, reported_device: "iOS", received_at: 20 },
+    );
+    expect(reported.platform.key).toBe("ios");
+    const silent = describeDevice(
+      { ...DEVICE, platform: "router" },
+      { device_id: DEVICE.id, reported_device: "", received_at: 20 },
+    );
+    expect(silent.platform).toEqual({ key: "preset", label: "路由器" });
   });
 
   it("shows concise device status values", () => {

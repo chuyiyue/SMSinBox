@@ -48,6 +48,7 @@ export function platformFromReport(value) {
 export function platformBadge(platform) {
   if (platform?.key === "ios") return "iOS";
   if (platform?.key === "android") return "Android";
+  if (platform?.key === "preset") return platform.label;
   if (platform?.key === "reported") return "其他";
   return "尚未上报";
 }
@@ -55,8 +56,26 @@ export function platformBadge(platform) {
 export function platformDetail(platform) {
   if (platform?.key === "ios") return "iOS";
   if (platform?.key === "android") return "Android";
+  if (platform?.key === "preset") return platform.label;
   if (platform?.key === "reported") return platform.label;
   return "尚未上报";
+}
+
+// The platform chosen when the device was created. It is only a starting
+// point: once a message reports a device type, the report wins (see
+// describeDevice). "other"/empty means no preselection was made.
+const PRESET_PLATFORM_LABELS = {
+  phone: "手机",
+  computer: "电脑",
+  router: "路由器",
+};
+
+export function platformFromPreselect(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (text === "ios") return { key: "ios", label: "iOS" };
+  if (text === "android") return { key: "android", label: "Android" };
+  if (PRESET_PLATFORM_LABELS[text]) return { key: "preset", label: PRESET_PLATFORM_LABELS[text] };
+  return null;
 }
 
 export function receiveTime(device, latest) {
@@ -91,7 +110,10 @@ export function latestByDevice(messages) {
 
 export function describeDevice(device, latest) {
   const push = device?.push === "active" || device?.push === "revoked" ? device.push : "none";
-  const platform = platformFromReport(latest?.reported_device);
+  // A reported device type (from the latest message) wins; until one
+  // arrives, fall back to the type preselected at creation time.
+  const reported = platformFromReport(latest?.reported_device);
+  const platform = reported.key !== "unknown" ? reported : (platformFromPreselect(device?.platform) ?? reported);
   const received = receiveTime(device, latest);
   return {
     name: String(device?.name || ""),

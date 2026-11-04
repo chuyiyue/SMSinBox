@@ -475,6 +475,22 @@ describe("handleSms bearer", () => {
     expect(logs.join("")).not.toContain("123456");
   });
 
+  it("accepts a payload without the optional device field", async () => {
+    // The reported device type is optional: devices that cannot send it
+    // still deliver, and the card falls back to the type preselected at
+    // creation time.
+    const harness = createDb();
+    await seedDevice(harness.state, TOKEN);
+    const pending = waitCtx();
+    const body = JSON.stringify({ from: "10086", content: "您的验证码 123456，请勿泄露", timestamp: NOW });
+    const response = await handleSms(smsRequest(TOKEN, body), envFor(harness.db), pending.ctx);
+    await Promise.all(pending.jobs);
+    expect(response.status).toBe(200);
+    expect(harness.state.messages).toHaveLength(1);
+    const raw = JSON.parse(harness.state.messages[0]?.raw_payload ?? "{}") as { device?: string };
+    expect(raw.device ?? "").toBe("");
+  });
+
   it("authenticates legacy bearer rows by token alone and ignores signature headers", async () => {
     // A row created before the JWT migration may still hold a `secret` value in
     // D1. That column is no longer read, so the bearer token is the only
