@@ -102,7 +102,7 @@
       button.setAttribute("title", label);
       button.setAttribute("aria-expanded", collapsed ? "false" : "true");
     }
-    var brandEl = document.querySelector(".sidebar > .brand");
+    var brandEl = document.querySelector(".sidebar .brand");
     if (brandEl) {
       if (collapsed) brandEl.setAttribute("title", "展开侧栏");
       else brandEl.removeAttribute("title");
