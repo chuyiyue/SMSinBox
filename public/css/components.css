@@ -250,21 +250,21 @@ mark.code {
   position: relative;
   z-index: 1;
   width: min(480px, 100%);
-  max-height: min(88dvh, 760px);
   margin: 0;
   padding: 0;
   border: 0;
   background: transparent;
   color: inherit;
-  overflow: auto;
+  overflow: visible;
 }
 
 dialog.modal.wide { width: min(560px, 100%); }
 
-/* Popup surfaces (modal dialogs, the detail drawer) keep scrolling but
-   never show a scrollbar. */
-dialog.modal, .modal, .ui-drawer-body { scrollbar-width: none; }
-dialog.modal::-webkit-scrollbar, .modal::-webkit-scrollbar,
+/* Popup surfaces (the modal card, the detail drawer body) keep scrolling
+   but never show a scrollbar. The card itself is the scroller, so its
+   rounded corners clip the content at every scroll position. */
+.modal-card, .ui-drawer-body { scrollbar-width: none; }
+.modal-card::-webkit-scrollbar,
 .ui-drawer-body::-webkit-scrollbar { display: none; }
 
 /* TOTP setup QR: white quiet-zone box so authenticator apps scan it
@@ -294,6 +294,8 @@ dialog.modal::backdrop { background: var(--overlay); }
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-3);
   padding: 24px;
+  max-height: min(88dvh, 760px);
+  overflow-y: auto;
 }
 
 .modal-card h2, .modal h2 { font-family: var(--font-sans); }

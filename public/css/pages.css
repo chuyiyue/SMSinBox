@@ -621,6 +621,17 @@
   .account-pair { grid-template-columns: 1fr; }
 }
 
+/* Username row: a shorter input with the save button at its right,
+   bottom-aligned with the input. */
+.profile-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: end;
+  flex-wrap: wrap;
+}
+.profile-row label { flex: 1 1 auto; min-width: 0; max-width: 320px; }
+.profile-row label input { width: 100%; }
+
 /* Profile avatar upload preview: same circle treatment as the sidebar. */
 .avatar-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .avatar-preview {
