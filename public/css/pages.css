@@ -848,9 +848,7 @@
   flex-wrap: wrap;
   gap: 8px;
 }
-.device-detail-tabs {
-  margin: 0;
-}
+
 .device-message-list {
   display: grid;
   gap: 10px;
@@ -881,6 +879,7 @@
 }
 .device-detail-back {
   flex: none;
+  margin-left: auto;
 }
 
 .api-config { margin-top: 0; }
@@ -949,8 +948,11 @@
 /* API & MCP page: top tabs, endpoint list, token dialog scopes. */
 .tab-panel[hidden] { display: none; }
 
-.api-tabs {
+/* One segmented tab strip everywhere: page tops and the device detail
+   tabs share this exact shape. */
+.api-tabs, .device-detail-tabs {
   display: inline-flex;
+  flex-wrap: nowrap;
   gap: 4px;
   padding: 4px;
   margin: 0 0 16px;
@@ -963,9 +965,9 @@
   overflow-x: auto;
   scrollbar-width: none;
 }
-.api-tabs::-webkit-scrollbar { display: none; }
+.api-tabs::-webkit-scrollbar, .device-detail-tabs::-webkit-scrollbar { display: none; }
 
-.api-tabs .tab {
+.api-tabs .tab, .device-detail-tabs .tab {
   flex: none;
   white-space: nowrap;
   min-height: 36px;
@@ -974,14 +976,19 @@
   font-weight: 600;
 }
 
-.api-tabs .tab:hover { color: var(--text); }
+.api-tabs .tab:hover, .device-detail-tabs .tab:hover { color: var(--text); }
 
 .api-tabs .tab.is-active,
-.api-tabs .tab[aria-selected="true"] {
+.api-tabs .tab[aria-selected="true"],
+.device-detail-tabs .tab.is-active,
+.device-detail-tabs .tab[aria-selected="true"] {
   background: var(--surface);
   color: var(--text);
   box-shadow: var(--shadow-1);
 }
+
+/* The detail drawer lays out its own spacing; the strip adds none. */
+.device-detail-tabs { margin: 0; }
 
 .config-sample { display: grid; gap: 12px; }
 .config-sample .subtle { margin: 0; }
