@@ -23,6 +23,7 @@ import { deviceStateOf, ensureDevices, getDevices, noteDeviceSeen, refreshDevice
 import { registerView } from "./shell.js";
 import { addFact, credentialBoxes, describeDevice, DEVICE_TYPES, isStale, presenceDot, presenceLabel, pushConfirm } from "./device-panel.js";
 import { closeDeviceDetail, openDeviceDetail, removeDevice, runPush } from "./device-detail.js";
+import { applyI18n, t } from "./i18n.js";
 
 const TEMPLATE = '{"from":"{{FROM}}","content":"{{SMS}}","timestamp":"{{RECEIVE_TIME}}","device":"{{DEVICE_NAME}}","sim":"{{CARD_SLOT}}"}';
 let form;
@@ -42,22 +43,56 @@ let formError;
 let addBody;
 let viewToken = 0;
 const webhookUrl = `${location.origin}/api/v1/sms`;
-const authHeader = "Authorization: Bearer <设备 token>";
-const curlSample = [
-  `curl -X POST '${webhookUrl}' \\`,
-  "  -H 'Authorization: Bearer <token>' \\",
-  "  -H 'Content-Type: application/json' \\",
-  `  -d '{"from":"10086","content":"验证码 123456","device":"Android"}'`,
-].join("\n");
+let authHeader = "";
 let shownDeviceId = "";
 let generation = 0;
 let hashHandled = false;
 let hashListener = null;
+let listReady = false;
+let renderedRows = [];
+let renderedLatest = new Map();
+let listErrorKey = "";
+
+function curlSampleText() {
+  const content = t("guide.api.sampleContent");
+  return [
+    `curl -X POST '${webhookUrl}' \\`,
+    "  -H 'Authorization: Bearer <token>' \\",
+    "  -H 'Content-Type: application/json' \\",
+    `  -d '{"from":"10086","content":"${content}","device":"Android"}'`,
+  ].join("\n");
+}
 
 // The shared detail drawer (device-detail.js) mutates devices from any
 // page; when it does so while THIS page is showing, refresh the list.
 function onSharedDevicesChanged() {
   loadDevices({ refresh: true }).catch(() => {});
+}
+
+function onDevicesLocale() {
+  refreshGuideLabels();
+  if (addBody) applyI18n(addBody);
+  const toggle = platformField?.root?.querySelector(".select-toggle");
+  if (toggle) toggle.setAttribute("aria-label", t("devices.deviceType"));
+  if (tokenBox && !tokenBox.hidden) {
+    const warn = tokenBox.querySelector(".callout");
+    if (warn) {
+      warn.textContent = bearerWrap && !bearerWrap.hidden
+        ? t("devices.credentialWarnBoth")
+        : t("devices.credentialWarnPush");
+    }
+  }
+  if (addBody?.isConnected) {
+    const addTitle = document.querySelector(".ui-drawer:not(.device-detail-drawer) .ui-drawer-title");
+    if (addTitle) addTitle.textContent = t("devices.addDevice");
+    const addClose = document.querySelector(".ui-drawer:not(.device-detail-drawer) .ui-drawer-close");
+    if (addClose) addClose.textContent = t("common.close");
+  }
+  if (listErrorKey) {
+    showLoadError(t(listErrorKey), listErrorKey);
+    return;
+  }
+  if (listReady && devices) renderDeviceList(renderedRows, renderedLatest);
 }
 
 function startView() {
@@ -68,13 +103,14 @@ function startView() {
   statusBox = document.querySelector("#device-status");
   addBody = buildAddBody();
   initShell({
-    onLogout: () => logout().catch(() => setError("退出失败")),
+    onLogout: () => logout().catch(() => setError(t("devices.logoutFailed"))),
     onRefresh: () => loadDevices({ refresh: true }).catch((error) => {
       if (isUnauthorized(error)) return;
-      setError("加载设备失败");
+      setError(t("devices.loadFailed"));
     }),
   });
   document.addEventListener("smsinbox:devices-changed", onSharedDevicesChanged);
+  document.addEventListener("smsinbox:locale", onDevicesLocale);
   document.querySelector("#add-device").addEventListener("click", openCreate);
   document.querySelector("#add-group")?.addEventListener("click", () => void editGroup(null));
   buildPageGuide();
@@ -86,7 +122,7 @@ function startView() {
   window.addEventListener("hashchange", hashListener);
   loadDevices().catch((error) => {
     if (token !== viewToken || isUnauthorized(error)) return;
-    setError("加载设备失败");
+    setError(t("devices.loadFailed"));
   });
   loadNav().catch((error) => {
     if (isUnauthorized(error)) return;
@@ -97,6 +133,7 @@ function startView() {
     if (hashListener) window.removeEventListener("hashchange", hashListener);
     hashListener = null;
     document.removeEventListener("smsinbox:devices-changed", onSharedDevicesChanged);
+    document.removeEventListener("smsinbox:locale", onDevicesLocale);
     closeDeviceDetail();
     closeDrawer();
   };
@@ -123,12 +160,12 @@ function buildAddBody() {
   form.after(formError);
 
   section.querySelector("#copy-token").addEventListener("click", async (event) => {
-    const copied = await flashLabel(event.currentTarget, tokenValue.textContent || "", "复制 token");
-    if (copied) toast("已复制");
+    const copied = await flashLabel(event.currentTarget, tokenValue.textContent || "", t("devices.copyToken"));
+    if (copied) toast(t("devices.copied"));
   });
   section.querySelector("#copy-push-url").addEventListener("click", async (event) => {
-    const copied = await flashLabel(event.currentTarget, pushUrlValue.textContent || "", "复制推送链接");
-    if (copied) toast("已复制");
+    const copied = await flashLabel(event.currentTarget, pushUrlValue.textContent || "", t("devices.copyPushUrl"));
+    if (copied) toast(t("devices.copied"));
   });
   tokenValue.addEventListener("click", () => selectContents(tokenValue));
   pushUrlValue.addEventListener("click", () => selectContents(pushUrlValue));
@@ -146,7 +183,7 @@ function buildAddBody() {
   platformField = mountSelect({
     name: "platform",
     value: "other",
-    ariaLabel: "设备类型",
+    ariaLabel: t("devices.deviceType"),
     options: DEVICE_TYPES.map((type) => ({ value: type.value, label: type.label, icon: type.icon })),
   });
   section.querySelector("#device-platform-mount").replaceWith(platformField.root);
@@ -188,12 +225,22 @@ function buildApiConfig() {
   const node = cloneTemplate("#api-config-template");
   node.querySelector("#sms-url").textContent = webhookUrl;
   node.querySelector("#android-template").textContent = TEMPLATE;
-  node.querySelector("#curl-sample").textContent = curlSample;
-  bindCopy(node, "#copy-sms-url", webhookUrl, "复制地址");
-  bindCopy(node, "#copy-auth", authHeader, "复制");
-  bindCopy(node, "#copy-template", TEMPLATE, "复制模板");
-  bindCopy(node, "#copy-curl", curlSample, "复制");
+  node.querySelector("#curl-sample").textContent = curlSampleText();
+  bindCopy(node, "#copy-sms-url", webhookUrl, () => t("devices.copyAddress"));
+  bindCopy(node, "#copy-auth", () => authHeader, () => t("common.copy"));
+  bindCopy(node, "#copy-template", TEMPLATE, () => t("devices.copyTemplate"));
+  bindCopy(node, "#copy-curl", () => curlSampleText(), () => t("common.copy"));
   return node;
+}
+
+function refreshGuideLabels() {
+  authHeader = t("guide.api.authHeader");
+  const curl = document.querySelector("#curl-sample");
+  if (curl) curl.textContent = curlSampleText();
+  for (const chip of document.querySelectorAll("#device-guide .guide-auth")) {
+    chip.textContent = authHeader;
+    chip.dataset.copy = authHeader;
+  }
 }
 
 function buildSetupFold() {
@@ -204,6 +251,7 @@ function buildSetupFold() {
     chip.textContent = webhookUrl;
     chip.dataset.copy = webhookUrl;
   }
+  authHeader = t("guide.api.authHeader");
   for (const chip of node.querySelectorAll(".guide-auth")) {
     chip.textContent = authHeader;
     chip.dataset.copy = authHeader;
@@ -225,7 +273,9 @@ function bindCopy(scope, selector, value, label) {
   if (!button) return;
   button.addEventListener("click", (event) => {
     event.stopPropagation();
-    flashLabel(event.currentTarget, value, label);
+    const text = typeof value === "function" ? value() : value;
+    const name = typeof label === "function" ? label() : label;
+    flashLabel(event.currentTarget, text, name);
   });
 }
 
@@ -254,19 +304,19 @@ async function submitDevice(event) {
   const payload = new FormData(form);
   const name = String(payload.get("name") || "").trim();
   if (!name || name.length > 64) {
-    showFormError("设备名称需要 1 到 64 个字符");
+    showFormError(t("devices.nameLength"));
     return;
   }
   const body = { name, platform: String(payload.get("platform") || "other") };
   const button = form.querySelector("button[type=submit]");
   button.disabled = true;
   const previous = button.textContent;
-  button.textContent = "添加中…";
+  button.textContent = t("devices.adding");
   try {
     const result = await api("/api/v1/devices", { method: "POST", body: JSON.stringify(body) });
     if (token !== viewToken) return;
     if (!result.response.ok) {
-      const message = result.data.error || "创建失败";
+      const message = result.data.error || t("devices.createFailed");
       showFormError(message);
       toast(message, { tone: "danger" });
       return;
@@ -283,8 +333,8 @@ async function submitDevice(event) {
     await loadDevices({ refresh: true });
   } catch (error) {
     if (token !== viewToken || isUnauthorized(error)) return;
-    showFormError("创建失败");
-    toast("创建失败", { tone: "danger" });
+    showFormError(t("devices.createFailed"));
+    toast(t("devices.createFailed"), { tone: "danger" });
   } finally {
     if (button.isConnected) {
       button.disabled = false;
@@ -296,7 +346,7 @@ async function submitDevice(event) {
 function openCreate() {
   clearSecrets();
   showFormError("");
-  openDrawer({ title: "添加设备", bodyHTML: addBody });
+  openDrawer({ title: t("devices.addDevice"), bodyHTML: addBody });
   const input = addBody.querySelector("input[name=name]");
   input?.focus({ preventScroll: true });
 }
@@ -314,8 +364,8 @@ function showCredentials({ deviceId, token, pushUrl }) {
   const warn = tokenBox.querySelector(".callout");
   if (warn) {
     warn.textContent = boxes.showBearer
-      ? "Bearer token 只显示这一次，关闭后无法再次查看。推送链接已保存，可随时查看"
-      : "推送链接已保存，可随时在「推送配置」里查看和复制";
+      ? t("devices.credentialWarnBoth")
+      : t("devices.credentialWarnPush");
   }
   if (!boxes.showBox) return;
   form.hidden = true;
@@ -346,10 +396,10 @@ async function loadDevices(options = {}) {
     if (ticket !== generation || token !== viewToken || listResult.stale) return;
     const rows = getDevices();
     if (!listResult.ok && rows.length === 0) {
-      showLoadError(listResult.error || "加载设备失败");
+      showLoadError(listResult.error || t("devices.loadFailed"), listResult.error ? "" : "devices.loadFailed");
       return;
     }
-    if (!listResult.ok) setError(listResult.error || "加载设备失败");
+    if (!listResult.ok) setError(listResult.error || t("devices.loadFailed"));
     else setError("");
     if (rows.length === 0) {
       renderDeviceList(rows, new Map());
@@ -362,7 +412,7 @@ async function loadDevices(options = {}) {
   } catch (error) {
     if (ticket !== generation || token !== viewToken) return;
     if (isUnauthorized(error)) throw error;
-    showLoadError("加载设备失败");
+    showLoadError(t("devices.loadFailed"), "devices.loadFailed");
   }
 }
 
@@ -392,6 +442,10 @@ async function loadGroups() {
 }
 
 function renderDeviceList(rows, latest) {
+  listReady = true;
+  listErrorKey = "";
+  renderedRows = rows;
+  renderedLatest = latest;
   devices.replaceChildren();
   devices.classList.remove("is-grouped");
   if (rows.length === 0) {
@@ -406,7 +460,7 @@ function renderDeviceList(rows, latest) {
   }
   // With groups defined, each group is one panel holding its cards (the
   // token-management shape); devices whose group is gone (or never set)
-  // land in the 未分组 panel at the end.
+  // land in the ungrouped panel at the end.
   devices.classList.add("is-grouped");
   deviceGroups.forEach((group, index) => {
     const members = rows.filter((device) => device.group_id === group.id);
@@ -426,7 +480,7 @@ function groupPanel(group, members, latest, index) {
   if (!members.length) {
     const empty = document.createElement("p");
     empty.className = "device-group-empty";
-    empty.textContent = "暂无设备，从设备卡片的菜单里设置分组。";
+    empty.textContent = t("devices.groupEmpty");
     panel.append(empty);
     return panel;
   }
@@ -442,33 +496,33 @@ function groupHeader(group, count, index) {
   head.className = "device-group-head";
   const name = document.createElement("span");
   name.className = "device-group-name";
-  name.textContent = group ? group.name : "未分组";
+  name.textContent = group ? group.name : t("devices.ungrouped");
   const meta = document.createElement("span");
   meta.className = "device-group-count";
-  meta.textContent = `${count} 台`;
+  meta.textContent = t("devices.deviceCount", { count });
   head.append(name, meta);
   if (group) {
     const more = document.createElement("button");
     more.type = "button";
     more.className = "ghost icon-btn device-group-more";
-    more.setAttribute("aria-label", `管理分组 ${group.name}`);
+    more.setAttribute("aria-label", t("devices.manageGroup", { name: group.name }));
     more.textContent = "⋯";
     more.addEventListener("click", () => {
       openMenu(more, [
-        { label: "重命名分组", onSelect: () => void editGroup(group) },
+        { label: t("devices.renameGroup"), onSelect: () => void editGroup(group) },
         {
-          label: "上移",
+          label: t("devices.moveUp"),
           disabled: index <= 0,
-          reason: index <= 0 ? "已经在最前面" : "",
+          reason: index <= 0 ? t("devices.alreadyFirst") : "",
           onSelect: () => void moveGroup(group, "up"),
         },
         {
-          label: "下移",
+          label: t("devices.moveDown"),
           disabled: index >= deviceGroups.length - 1,
-          reason: index >= deviceGroups.length - 1 ? "已经在最后面" : "",
+          reason: index >= deviceGroups.length - 1 ? t("devices.alreadyLast") : "",
           onSelect: () => void moveGroup(group, "down"),
         },
-        { label: "删除分组", danger: true, onSelect: () => void removeGroup(group) },
+        { label: t("devices.deleteGroup"), danger: true, onSelect: () => void removeGroup(group) },
       ]);
     });
     head.append(more);
@@ -482,7 +536,7 @@ async function moveGroup(group, direction) {
     body: JSON.stringify({ direction }),
   });
   if (!result.response.ok) {
-    toast(result.data?.error || "调整顺序失败", { tone: "danger" });
+    toast(result.data?.error || t("devices.reorderFailed"), { tone: "danger" });
     return;
   }
   await loadGroups();
@@ -493,45 +547,45 @@ async function editGroup(group) {
   const input = document.createElement("input");
   input.maxLength = 32;
   input.value = group?.name || "";
-  input.placeholder = "分组名称";
-  input.setAttribute("aria-label", "分组名称");
+  input.placeholder = t("devices.groupName");
+  input.setAttribute("aria-label", t("devices.groupName"));
   const confirmed = await openModal({
-    title: group ? "重命名分组" : "新建分组",
+    title: group ? t("devices.renameGroup") : t("devices.newGroup"),
     body: input,
-    confirmLabel: group ? "保存" : "创建",
+    confirmLabel: group ? t("common.save") : t("devices.create"),
   });
   if (!confirmed) return;
   const name = input.value.trim();
   if (!name || name.length > 32) {
-    toast("分组名称需要 1 到 32 个字符", { tone: "danger" });
+    toast(t("devices.groupNameLength"), { tone: "danger" });
     return;
   }
   const result = group
     ? await api(`/api/v1/device-groups/${encodeURIComponent(group.id)}`, { method: "PATCH", body: JSON.stringify({ name }) })
     : await api("/api/v1/device-groups", { method: "POST", body: JSON.stringify({ name }) });
   if (!result.response.ok) {
-    toast(result.data?.error || "保存分组失败", { tone: "danger" });
+    toast(result.data?.error || t("devices.saveGroupFailed"), { tone: "danger" });
     return;
   }
-  toast(group ? "分组已重命名" : "分组已创建");
+  toast(group ? t("devices.groupRenamed") : t("devices.groupCreated"));
   await loadGroups();
   await loadDevices({ refresh: true });
 }
 
 async function removeGroup(group) {
   const confirmed = await openModal({
-    title: "删除分组",
-    body: `确定要删除分组「${group.name}」吗？组内设备不会被删除，只会变为未分组。`,
-    confirmLabel: "删除",
+    title: t("devices.deleteGroup"),
+    body: t("devices.deleteGroupConfirm", { name: group.name }),
+    confirmLabel: t("common.delete"),
     danger: true,
   });
   if (!confirmed) return;
   const result = await api(`/api/v1/device-groups/${encodeURIComponent(group.id)}`, { method: "DELETE" });
   if (!result.response.ok) {
-    toast(result.data?.error || "删除分组失败", { tone: "danger" });
+    toast(result.data?.error || t("devices.deleteGroupFailed"), { tone: "danger" });
     return;
   }
-  toast("分组已删除");
+  toast(t("devices.groupDeleted"));
   await loadGroups();
   await loadDevices({ refresh: true });
 }
@@ -542,10 +596,10 @@ async function setDeviceGroupId(device, groupId) {
     body: JSON.stringify({ group_id: groupId }),
   });
   if (!result.response.ok) {
-    toast(result.data?.error || "设置分组失败", { tone: "danger" });
+    toast(result.data?.error || t("devices.setGroupFailed"), { tone: "danger" });
     return;
   }
-  toast("已更新分组");
+  toast(t("devices.groupUpdated"));
   await loadDevices({ refresh: true });
 }
 
@@ -555,10 +609,10 @@ async function togglePin(device) {
     method: "POST",
   });
   if (!result.response.ok) {
-    toast(result.data?.error || "操作失败", { tone: "danger" });
+    toast(result.data?.error || t("devices.actionFailed"), { tone: "danger" });
     return;
   }
-  toast(pinning ? "已置顶到侧边栏" : "已取消置顶");
+  toast(pinning ? t("devices.pinned") : t("devices.unpinned"));
   await loadDevices({ refresh: true });
 }
 
@@ -567,12 +621,12 @@ function emptyDevices() {
   wrap.className = "empty-state";
   const title = document.createElement("h2");
   title.className = "empty-title";
-  title.textContent = "还没有设备";
+  title.textContent = t("devices.emptyTitle");
   const text = document.createElement("p");
-  text.textContent = "设备代表一部转发短信的手机。";
+  text.textContent = t("devices.emptyText");
   const button = document.createElement("button");
   button.type = "button";
-  button.textContent = "添加第一台设备";
+  button.textContent = t("devices.addFirst");
   button.addEventListener("click", openCreate);
   wrap.append(title, text, button);
   return wrap;
@@ -586,7 +640,8 @@ function renderDevice(device, entry) {
   row.className = "device";
   if (view.id) row.id = `dev-${view.id}`;
   if (view.id) row.dataset.deviceId = view.id;
-  if (view.id && view.id === shownDeviceId) row.classList.add("is-highlighted");
+  const openId = document.querySelector(".device-detail-drawer")?.getAttribute("data-device-id") || "";
+  if (view.id && (view.id === shownDeviceId || view.id === openId)) row.classList.add("is-highlighted");
 
   const presence = deviceStateOf(device);
   const head = document.createElement("div");
@@ -598,7 +653,7 @@ function renderDevice(device, entry) {
   typeIcon.innerHTML = `<svg class="device-type-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#${view.platform.icon}"/></svg>`;
   const title = document.createElement("strong");
   title.className = "device-name";
-  title.textContent = view.name || "未命名设备";
+  title.textContent = view.name || t("common.unnamedDevice");
   const badge = document.createElement("span");
   badge.className = "badge";
   badge.dataset.platform = view.platform.key;
@@ -610,7 +665,7 @@ function renderDevice(device, entry) {
   pin.type = "button";
   pin.className = `ghost icon-btn device-pin${pinned ? " is-pinned" : ""}`;
   pin.innerHTML = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-pin"/></svg>';
-  pin.title = pinned ? "取消置顶" : "置顶到侧边栏";
+  pin.title = pinned ? t("devices.unpin") : t("devices.pin");
   pin.setAttribute("aria-label", pin.title);
   pin.setAttribute("aria-pressed", pinned ? "true" : "false");
   pin.addEventListener("click", (event) => {
@@ -628,9 +683,9 @@ function renderDevice(device, entry) {
 
   const facts = document.createElement("dl");
   facts.className = "device-facts";
-  addFact(facts, "平台", view.platformDetail, { wide: true });
-  if (total !== null) addFact(facts, "短信数量", `${total} 条`);
-  addFact(facts, "推送链接", null, { wide: true, node: pushLine(device, view) });
+  addFact(facts, t("devices.platform"), view.platformDetail, { wide: true });
+  if (total !== null) addFact(facts, t("devices.messageCountLabel"), t("devices.messageCount", { count: total }));
+  addFact(facts, t("devices.pushLink"), null, { wide: true, node: pushLine(device, view) });
 
   const actions = document.createElement("div");
   actions.className = "actions device-actions";
@@ -639,14 +694,14 @@ function renderDevice(device, entry) {
   const more = document.createElement("button");
   more.type = "button";
   more.className = "secondary device-more";
-  more.setAttribute("aria-label", "管理设备");
-  more.textContent = "管理设备";
+  more.setAttribute("aria-label", t("devices.manageDevice"));
+  more.textContent = t("devices.manageDevice");
   more.addEventListener("click", (event) => {
     event.stopPropagation();
     // Menu order is fixed: rename, group, push actions (rotate/revoke), delete.
     const items = [
       {
-        label: "更改名称",
+        label: t("devices.rename"),
         onSelect: () => {
           openDeviceDetail(device, entry);
           document
@@ -655,11 +710,11 @@ function renderDevice(device, entry) {
         },
       },
       {
-        label: "设置分组",
+        label: t("devices.setGroup"),
         onSelect: () => {
           openMenu(more, [
             {
-              label: "未分组",
+              label: t("devices.ungrouped"),
               selected: !device.group_id,
               onSelect: () => void setDeviceGroupId(device, null),
             },
@@ -676,7 +731,7 @@ function renderDevice(device, entry) {
         danger: item.action === "revoke",
         onSelect: () => runPush(device, item.action),
       })),
-      { label: "删除设备", danger: true, onSelect: () => removeDevice(device) },
+      { label: t("devices.deleteDevice"), danger: true, onSelect: () => removeDevice(device) },
     ];
     openMenu(more, items);
   });
@@ -685,7 +740,7 @@ function renderDevice(device, entry) {
   if (isStale(view.received)) {
     const note = document.createElement("p");
     note.className = "stale-note";
-    note.textContent = "很久没有收到短信";
+    note.textContent = t("devices.staleNote");
     body.append(note);
   }
   body.append(facts, actions);
@@ -703,10 +758,10 @@ function pushLine(device, view) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "secondary";
-    button.textContent = "复制链接";
+    button.textContent = t("devices.copyLink");
     button.addEventListener("click", (event) => {
       event.stopPropagation();
-      flashLabel(event.currentTarget, view.pushUrl, "复制链接");
+      flashLabel(event.currentTarget, view.pushUrl, t("devices.copyLink"));
     });
     line.append(code, button);
   } else {
@@ -714,10 +769,10 @@ function pushLine(device, view) {
     span.className = "subtle";
     span.textContent =
       device?.push === "active"
-        ? "旧链接未保存明文，轮换后显示"
+        ? t("devices.legacyPushHidden")
         : device?.push === "revoked"
-          ? "推送链接已撤销"
-          : "尚未生成推送链接";
+          ? t("devices.pushRevoked")
+          : t("devices.pushNotIssued");
     line.append(span);
   }
   return line;
@@ -727,39 +782,39 @@ function testButton(device) {
   const test = document.createElement("button");
   test.type = "button";
   test.className = "secondary";
-  test.textContent = "发送测试消息";
+  test.textContent = t("devices.sendTest");
   test.addEventListener("click", async (event) => {
     event.stopPropagation();
     test.disabled = true;
     const previous = test.textContent;
-    test.textContent = "发送中…";
+    test.textContent = t("devices.sending");
     setError("");
     try {
       const sent = await api(`/api/v1/devices/${device.id}/test`, { method: "POST", body: "{}" });
       if (!sent.response.ok) {
-        const message = sent.data.error || "测试失败";
+        const message = sent.data.error || t("devices.testFailed");
         setStatus("");
         setError(message);
         toast(message, { tone: "danger" });
         return;
       }
       const code = sent.data.code || "";
-      const message = code ? `测试短信已写入收件箱（验证码 ${code}）` : "测试短信已写入收件箱";
+      const message = code ? t("devices.testSentWithCode", { code }) : t("devices.testSent");
       setError("");
       setStatus(message);
-      toast(message, { href: "/", linkLabel: "去收件箱查看" });
+      toast(message, { href: "/", linkLabel: t("devices.viewInbox") });
       noteDeviceSeen(device.id, Date.now());
       try {
         await loadDevices();
       } catch (error) {
         if (isUnauthorized(error)) return;
-        setError("加载设备失败");
+        setError(t("devices.loadFailed"));
       }
     } catch (error) {
       if (isUnauthorized(error)) return;
       setStatus("");
-      setError("测试失败");
-      toast("测试失败", { tone: "danger" });
+      setError(t("devices.testFailed"));
+      toast(t("devices.testFailed"), { tone: "danger" });
     } finally {
       test.disabled = false;
       test.textContent = previous;
@@ -772,17 +827,19 @@ function showSkeletons() {
   devices.replaceChildren(loadingState({ count: 3, className: "device skeleton", ariaHidden: true }));
 }
 
-function showLoadError(message) {
+function showLoadError(message, key = "") {
   const keep = Boolean(devices.querySelector(".device:not(.skeleton)"));
   setError(keep ? message : "");
   if (keep) return;
+  listReady = false;
+  listErrorKey = key;
   devices.replaceChildren(
     errorState({
       message,
       onRetry: () => {
         loadDevices().catch((error) => {
           if (isUnauthorized(error)) return;
-          setError("加载设备失败");
+          setError(t("devices.loadFailed"));
         });
       },
     }),

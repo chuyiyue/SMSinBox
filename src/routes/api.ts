@@ -76,6 +76,7 @@ import {
   rotateApiToken,
   setNotifyChannelEnabled,
   setProfileUsername,
+  setUserLocale,
   setUserTranslateEnabled,
   touchDevice,
   updateDeviceName,
@@ -541,6 +542,7 @@ async function me(request: Request, env: Env): Promise<Response> {
       profile_username: profileUsername,
       ...extras,
       translate_enabled: user.translate_enabled === 1,
+      locale: user.locale === "en" ? "en" : "zh-CN",
     },
   });
 }
@@ -550,18 +552,40 @@ async function updatePreferences(request: Request, env: Env): Promise<Response> 
   if (user instanceof Response) return user;
   const body = await readJson(request);
   if (!body.ok) return body.response;
-  const parsed = readTranslatePreference(body.value);
+  const parsed = readPreferences(body.value);
   if ("error" in parsed) return json({ ok: false, error: parsed.error }, 400);
-  await setUserTranslateEnabled(env.DB, user.id, parsed.translateEnabled);
-  logInfo({ message: "translate_pref_updated", user_id: user.id, translate_enabled: parsed.translateEnabled });
-  return json({ ok: true, translate_enabled: parsed.translateEnabled });
+  const response: { ok: true; translate_enabled?: boolean; locale?: "zh-CN" | "en" } = { ok: true };
+  if (parsed.translateEnabled !== undefined) {
+    await setUserTranslateEnabled(env.DB, user.id, parsed.translateEnabled);
+    response.translate_enabled = parsed.translateEnabled;
+    logInfo({ message: "translate_pref_updated", user_id: user.id, translate_enabled: parsed.translateEnabled });
+  }
+  if (parsed.locale !== undefined) {
+    await setUserLocale(env.DB, user.id, parsed.locale);
+    response.locale = parsed.locale;
+    logInfo({ message: "locale_pref_updated", user_id: user.id, locale: parsed.locale });
+  }
+  return json(response);
 }
 
-function readTranslatePreference(value: unknown): { translateEnabled: boolean } | { error: string } {
+function readPreferences(
+  value: unknown,
+): { translateEnabled?: boolean; locale?: "zh-CN" | "en" } | { error: string } {
   if (!value || typeof value !== "object" || Array.isArray(value)) return { error: "参数无效" };
-  const flag = (value as Record<string, unknown>).translate_enabled;
-  if (typeof flag !== "boolean") return { error: "参数无效" };
-  return { translateEnabled: flag };
+  const body = value as Record<string, unknown>;
+  const hasTranslate = Object.prototype.hasOwnProperty.call(body, "translate_enabled");
+  const hasLocale = Object.prototype.hasOwnProperty.call(body, "locale");
+  if (!hasTranslate && !hasLocale) return { error: "参数无效" };
+  const parsed: { translateEnabled?: boolean; locale?: "zh-CN" | "en" } = {};
+  if (hasTranslate) {
+    if (typeof body.translate_enabled !== "boolean") return { error: "参数无效" };
+    parsed.translateEnabled = body.translate_enabled;
+  }
+  if (hasLocale) {
+    if (body.locale !== "zh-CN" && body.locale !== "en") return { error: "参数无效" };
+    parsed.locale = body.locale;
+  }
+  return parsed;
 }
 
 async function updateProfile(request: Request, env: Env): Promise<Response> {

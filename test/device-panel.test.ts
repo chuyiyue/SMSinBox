@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { MESSAGES } from "../public/i18n.js";
 import {
   canRevealPushSecret,
   credentialBoxes,
@@ -238,9 +239,12 @@ describe("devices page", () => {
     expect(js).toContain("/api/v1/devices/${device.id}/push");
     expect(js).toContain("/api/v1/devices/${device.id}/test");
     expect(js).toContain("/api/v1/messages?device_id=");
-    expect(js).toContain("复制推送链接");
-    expect(js).toContain("复制 ID");
-    expect(js).toContain("发送测试消息");
+    expect(js).toContain('t("devices.copyPushUrl")');
+    expect(MESSAGES["zh-CN"]["devices.copyPushUrl"]).toBe("复制推送链接");
+    expect(js).toContain('t("devices.copyId")');
+    expect(MESSAGES["zh-CN"]["devices.copyId"]).toBe("复制 ID");
+    expect(js).toContain('t("devices.sendTest")');
+    expect(MESSAGES["zh-CN"]["devices.sendTest"]).toBe("发送测试消息");
     // The setup guide no longer lives inside device cards; it has its own
     // tab on the devices page.
     expect(js).not.toContain("安装说明");

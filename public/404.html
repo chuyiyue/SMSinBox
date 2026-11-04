@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="robots" content="noindex, nofollow" />
-    <title>找不到页面 · SMSinBox</title>
+    <title data-i18n="notfound.documentTitle">找不到页面 · SMSinBox</title>
     <link rel="icon" href="/logo.png" type="image/png" />
     <script src="/theme-boot.js"></script>
     <link rel="stylesheet" href="/style.css" />
@@ -17,9 +17,13 @@
         </span>
         <span class="brand-name">SMSinBox</span>
       </a>
-      <h1 class="auth-title">找不到这个页面</h1>
-      <p class="lede">地址可能写错了。</p>
-      <a class="button" href="/">回收件箱</a>
+      <h1 class="auth-title" data-i18n="notfound.heading">找不到这个页面</h1>
+      <p class="lede" data-i18n="notfound.lede">地址可能写错了</p>
+      <a class="button" href="/" data-i18n="notfound.back">回收件箱</a>
     </main>
+    <script type="module">
+      import { applyI18n } from "/i18n.js";
+      applyI18n(document);
+    </script>
   </body>
 </html>

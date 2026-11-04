@@ -6,6 +6,7 @@ import {
   isUnauthorized,
   loadNav,
   logout,
+  mountSelect,
   openModal,
   paintSidebarAvatar,
   paintSidebarProfile,
@@ -14,6 +15,7 @@ import {
   toast,
 } from "./common.js";
 import { ensureDevices, ensureMe, getDevices, getMe, noteMe, refreshDevices } from "./device-store.js";
+import { t, currentLocale, setLocale } from "./i18n.js";
 import { go, registerView } from "./shell.js";
 import { initTotpSettings } from "./totp-settings.js";
 import { rememberFlash } from "./ui.js";
@@ -23,6 +25,11 @@ let me = null;
 let sessions = [];
 let systemInfo = null;
 let translateEnabled = false;
+let versionState = "loading";
+let devicesState = "loading";
+let sessionsReady = false;
+let localeSelect = null;
+let localeError = null;
 
 let accountError;
 let accountStatus;
@@ -63,12 +70,27 @@ let pageError;
 let pageRetry;
 let pageRetryButton;
 
+function showKeyed(element, key) {
+  if (!element) return;
+  element.setAttribute("data-i18n", key);
+  showNotice(element, t(key));
+}
+
+function showRaw(element, message) {
+  if (!element) return;
+  element.removeAttribute("data-i18n");
+  showNotice(element, message);
+}
+
 function startView() {
   viewToken += 1;
   const token = viewToken;
   me = null;
   sessions = [];
   systemInfo = null;
+  versionState = "loading";
+  devicesState = "loading";
+  sessionsReady = false;
 
   accountError = document.querySelector("#account-error");
   accountStatus = document.querySelector("#account-status");
@@ -110,7 +132,7 @@ function startView() {
   pageRetryButton = document.querySelector("#page-retry-button");
 
   initShell({
-    onLogout: () => logout().catch(() => setAccountError("退出失败")),
+    onLogout: () => logout().catch(() => setAccountError("", "users.logoutFailed")),
     onRefresh: () => refreshPage(),
   });
   const cleanupTotp = initTotpSettings();
@@ -121,7 +143,7 @@ function startView() {
   document.querySelector("#sessions-refresh").addEventListener("click", () => {
     Promise.resolve(loadSessions()).catch((error) => {
       if (isUnauthorized(error)) return;
-      setSessionsError("加载会话失败");
+      setSessionsError("", "users.sessionsLoadFailed");
     });
   });
   revokeOthers.addEventListener("click", revokeOtherSessions);
@@ -138,7 +160,7 @@ function startView() {
   pageRetryButton.addEventListener("click", () => {
     Promise.resolve(boot(viewToken)).catch((error) => {
       if (isUnauthorized(error)) return;
-      showRetry("加载系统管理信息失败");
+      showRetry("", "users.pageLoadFailed");
     });
   });
   avatarFile.addEventListener("change", () => {
@@ -154,31 +176,97 @@ function startView() {
   });
   reportGithubReturn();
 
+  const localeSlot = document.querySelector("#locale-select");
+  localeError = document.querySelector("#locale-error");
+  localeSelect = mountSelect({
+    name: "locale",
+    value: currentLocale(),
+    ariaLabel: t("users.language"),
+    options: [
+      { value: "zh-CN", label: "简体中文" },
+      { value: "en", label: "English" },
+    ],
+    onChange: (value) => {
+      void saveLocale(value);
+    },
+  });
+  if (localeSlot) localeSlot.append(localeSelect.root);
+  paintFacts();
+
+  const onLocale = () => {
+    if (localeSelect) {
+      localeSelect.value = currentLocale();
+      localeSelect.root.querySelector(".select-toggle")?.setAttribute("aria-label", t("users.language"));
+    }
+    paintFacts();
+    if (me) {
+      paintTranslate();
+      paintAccount();
+      if (sessionsReady) renderSessions();
+      paintGithub();
+      if (passwordInput && passwordError) paintPassword(passwordError.hidden);
+    }
+    if (profileSubmit?.dataset.busy) profileSubmit.textContent = t("users.saving");
+    if (passwordSubmit?.dataset.busy) passwordSubmit.textContent = t("users.saving");
+  };
+  document.addEventListener("smsinbox:locale", onLocale);
+
   boot(token).catch((error) => {
     if (token !== viewToken || isUnauthorized(error)) return;
-    showRetry("加载系统管理信息失败");
+    showRetry("", "users.pageLoadFailed");
   });
 
   return () => {
     if (viewToken === token) viewToken += 1;
+    document.removeEventListener("smsinbox:locale", onLocale);
     cleanupTotp();
   };
 }
 
+async function saveLocale(next) {
+  showRaw(localeError, "");
+  try {
+    const result = await api("/api/v1/me/preferences", {
+      method: "PATCH",
+      body: JSON.stringify({ locale: next }),
+    });
+    if (!result.response.ok) {
+      if (localeSelect) localeSelect.value = currentLocale();
+      const message = result.data.error || t("users.localeSaveFailed");
+      if (result.data.error) showRaw(localeError, result.data.error);
+      else showKeyed(localeError, "users.localeSaveFailed");
+      toast(message, { tone: "danger" });
+      return;
+    }
+    const saved = result.data.locale === "en" ? "en" : "zh-CN";
+    me = { ...(me || { role: "admin" }), locale: saved };
+    noteMe({ locale: saved });
+    setLocale(saved);
+    if (localeSelect) localeSelect.value = currentLocale();
+    toast(t("users.localeSaved"));
+  } catch (error) {
+    if (isUnauthorized(error)) return;
+    if (localeSelect) localeSelect.value = currentLocale();
+    showKeyed(localeError, "users.localeSaveFailed");
+    toast(t("users.localeSaveFailed"), { tone: "danger" });
+  }
+}
+
 async function boot(token) {
   showNotice(pageError, "");
-  showNotice(pageRetry, "");
+  hideRetry();
   const meResult = await ensureMe();
   if (token !== viewToken || meResult?.stale) return;
   const user = meResult.user || null;
   const denied = meResult.status === 403 || (meResult.ok && user?.role !== "admin");
   if (denied) {
-    rememberFlash("需要管理员权限");
+    rememberFlash(t("users.adminRequired"));
     go("/", { replace: true });
     return;
   }
   if (!meResult.ok) {
-    showRetry(meResult.error || "加载账号失败");
+    if (meResult.error) showRetry(meResult.error);
+    else showRetry("", "users.accountLoadFailed");
     return;
   }
   me = await loadNav();
@@ -188,13 +276,31 @@ async function boot(token) {
   await Promise.all([loadSessions(), loadDeviceCount(), loadSystemInfo()]);
 }
 
+function hideRetry() {
+  if (pageRetry) pageRetry.hidden = true;
+}
+
+function showRetry(message, key) {
+  showRaw(pageError, "");
+  if (pageRetry) pageRetry.hidden = false;
+  const span = pageRetry?.querySelector("span");
+  if (!span) return;
+  if (key) {
+    span.setAttribute("data-i18n", key);
+    span.textContent = t(key);
+  } else {
+    span.removeAttribute("data-i18n");
+    span.textContent = message || "";
+  }
+}
+
 async function refreshPage() {
   const token = viewToken;
   showNotice(pageError, "");
   await Promise.all([
     loadSessions().catch((error) => {
       if (isUnauthorized(error)) return;
-      setSessionsError("加载会话失败");
+      setSessionsError("", "users.sessionsLoadFailed");
     }),
     refreshDeviceCount(token),
     loadSystemInfo(),
@@ -209,17 +315,53 @@ function paintAccount() {
   paintAvatarPreview();
 }
 
+function paintFacts() {
+  paintVersion();
+  paintDevicesFact();
+  if (!sessionsReady && factSessions) factSessions.textContent = t("common.loading");
+}
+
+function paintVersion() {
+  if (!factVersion) return;
+  if (versionState === "error") {
+    factVersion.textContent = t("users.readFailed");
+    return;
+  }
+  if (versionState !== "ready") {
+    factVersion.textContent = t("common.loading");
+    return;
+  }
+  const version = systemInfo && typeof systemInfo.version === "string" ? systemInfo.version.trim() : "";
+  factVersion.textContent = version || t("users.unknown");
+}
+
+function paintDevicesFact() {
+  if (!factDevices) return;
+  if (devicesState === "error") {
+    factDevices.textContent = t("users.readFailed");
+    return;
+  }
+  if (devicesState !== "ready") {
+    factDevices.textContent = t("common.loading");
+    return;
+  }
+  factDevices.textContent = String(getDevices().length);
+}
+
 async function loadDeviceCount() {
   try {
     const result = await ensureDevices();
     if (!result?.ok) {
-      factDevices.textContent = "读取失败";
+      devicesState = "error";
+      paintDevicesFact();
       return;
     }
-    factDevices.textContent = String(getDevices().length);
+    devicesState = "ready";
+    paintDevicesFact();
   } catch (error) {
     if (isUnauthorized(error)) return;
-    factDevices.textContent = "读取失败";
+    devicesState = "error";
+    paintDevicesFact();
   }
 }
 
@@ -228,13 +370,17 @@ async function refreshDeviceCount(token) {
     const result = await refreshDevices();
     if (token !== viewToken) return;
     if (!result?.ok) {
-      factDevices.textContent = "读取失败";
+      devicesState = "error";
+      paintDevicesFact();
       return;
     }
-    factDevices.textContent = String(getDevices().length);
+    devicesState = "ready";
+    paintDevicesFact();
   } catch (error) {
     if (isUnauthorized(error)) return;
-    factDevices.textContent = "读取失败";
+    if (token !== viewToken) return;
+    devicesState = "error";
+    paintDevicesFact();
   }
 }
 
@@ -242,17 +388,19 @@ async function loadSystemInfo() {
   try {
     const result = await api("/api/v1/system/info");
     if (!result.response.ok) {
-      factVersion.textContent = "读取失败";
+      versionState = "error";
+      paintVersion();
       paintGithub();
       return;
     }
     systemInfo = result.data;
-    const version = typeof result.data.version === "string" ? result.data.version.trim() : "";
-    factVersion.textContent = version || "未知";
+    versionState = "ready";
+    paintVersion();
     paintGithub();
   } catch (error) {
     if (isUnauthorized(error)) return;
-    factVersion.textContent = "读取失败";
+    versionState = "error";
+    paintVersion();
     paintGithub();
   }
 }
@@ -262,7 +410,7 @@ function paintPassword(silent) {
   const ok = value.length >= 8 && value.length <= 256;
   passwordStrength.dataset.score = String(passwordScore(value));
   passwordError.hidden = Boolean(silent) || ok;
-  passwordError.textContent = ok ? "" : "密码长度需在 8 到 256 之间";
+  passwordError.textContent = ok ? "" : t("users.passwordLength");
   passwordInput.setAttribute("aria-invalid", !silent && !ok ? "true" : "false");
   return ok;
 }
@@ -274,15 +422,16 @@ async function submitProfile(event) {
   setProfileError("");
   const username = profileUsername.value.trim();
   profileSubmit.disabled = true;
-  const previous = profileSubmit.textContent;
-  profileSubmit.textContent = "保存中…";
+  profileSubmit.dataset.busy = "1";
+  profileSubmit.textContent = t("users.saving");
   try {
     const result = await api("/api/v1/auth/profile", {
       method: "POST",
       body: JSON.stringify({ username }),
     });
     if (!result.response.ok) {
-      setProfileError(result.data.error || "保存用户名失败");
+      if (result.data.error) setProfileError(result.data.error);
+      else setProfileError("", "users.saveUsernameFailed");
       return;
     }
     const saved = typeof result.data.profile_username === "string" ? result.data.profile_username : username;
@@ -291,42 +440,49 @@ async function submitProfile(event) {
     noteMe({ profile_username: saved });
     paintSidebarProfile(getMe());
     paintAvatarPreview();
-    const message = saved ? "用户名已保存" : "用户名已清除";
-    setAccountStatus(message);
-    toast(message);
+    const messageKey = saved ? "users.usernameSaved" : "users.usernameCleared";
+    setAccountStatus("", messageKey);
+    toast(t(messageKey));
   } catch (error) {
     if (isUnauthorized(error)) return;
-    setProfileError("保存用户名失败，请重试");
+    setProfileError("", "users.saveUsernameRetry");
   } finally {
     profileSubmit.disabled = false;
-    profileSubmit.textContent = previous;
+    delete profileSubmit.dataset.busy;
+    profileSubmit.textContent = t("users.saveUsername");
   }
 }
 
-function setProfileError(message) {
-  profileError.hidden = !message;
-  profileError.textContent = message;
+function setProfileError(message, key) {
+  if (key) showKeyed(profileError, key);
+  else showRaw(profileError, message);
 }
 
 // ─── Custom avatar ───────────────────────────────────────────────────────────
 
 function paintAvatarPreview() {
   if (!avatarPreview) return;
-  const profileUsername =
+  const profileName =
     me && typeof me.profile_username === "string" ? me.profile_username.trim() : "";
-  const name = profileUsername || (me && (me.username || me.name)) || "管理员";
-  paintSidebarAvatar(avatarPreview, name, profileUsername, me);
+  const name = profileName || (me && (me.username || me.name)) || t("nav.admin");
+  paintSidebarAvatar(avatarPreview, name, profileName, me);
   if (avatarRemove) {
     avatarRemove.hidden = !(me && typeof me.avatar_data === "string" && me.avatar_data);
   }
 }
 
-function setAvatarError(message) {
-  avatarError.hidden = !message;
-  avatarError.textContent = message;
+function setAvatarError(message, key) {
+  if (key) showKeyed(avatarError, key);
+  else showRaw(avatarError, message);
 }
 
 const AVATAR_DATA_LIMIT = 400 * 1024;
+
+function imageError(key) {
+  const error = new Error(t(key));
+  error.i18nKey = key;
+  return error;
+}
 
 // Center-crop to a square and shrink to at most 128×128; if the exported
 // data URL is still too large, step down in size and quality until it fits.
@@ -349,14 +505,14 @@ async function fileToAvatarDataUrl(file) {
       source = await new Promise((resolve, reject) => {
         const image = new Image();
         image.onload = () => resolve(image);
-        image.onerror = () => reject(new Error("图片读取失败，请换一张试试"));
+        image.onerror = () => reject(imageError("users.imageReadFailed"));
         image.src = url;
       });
     }
     const width = source.naturalWidth ?? source.width;
     const height = source.naturalHeight ?? source.height;
     const side = Math.min(width, height);
-    if (!side) throw new Error("图片读取失败，请换一张试试");
+    if (!side) throw imageError("users.imageReadFailed");
     const sx = (width - side) / 2;
     const sy = (height - side) / 2;
     for (const size of [128, 96, 64]) {
@@ -372,7 +528,7 @@ async function fileToAvatarDataUrl(file) {
         if (dataUrl.length <= AVATAR_DATA_LIMIT) return dataUrl;
       }
     }
-    throw new Error("图片压缩后仍过大，请换一张更小的图片");
+    throw imageError("users.imageTooLarge");
   } finally {
     cleanup();
     if (source && typeof source.close === "function") source.close();
@@ -382,7 +538,7 @@ async function fileToAvatarDataUrl(file) {
 async function uploadAvatar(file) {
   setAvatarError("");
   if (!file.type.startsWith("image/")) {
-    setAvatarError("请选择图片文件");
+    setAvatarError("", "users.chooseImage");
     return;
   }
   avatarFile.disabled = true;
@@ -393,7 +549,8 @@ async function uploadAvatar(file) {
       body: JSON.stringify({ image: dataUrl }),
     });
     if (!result.response.ok) {
-      setAvatarError(result.data.error || "头像上传失败");
+      if (result.data.error) setAvatarError(result.data.error);
+      else setAvatarError("", "users.avatarUploadFailed");
       return;
     }
     const saved = typeof result.data.avatar_data === "string" ? result.data.avatar_data : dataUrl;
@@ -401,11 +558,13 @@ async function uploadAvatar(file) {
     noteMe({ avatar_data: saved });
     paintAvatarPreview();
     paintSidebarProfile(getMe());
-    setAccountStatus("头像已更新");
-    toast("头像已更新");
+    setAccountStatus("", "users.avatarUpdated");
+    toast(t("users.avatarUpdated"));
   } catch (error) {
     if (isUnauthorized(error)) return;
-    setAvatarError(error instanceof Error && error.message ? error.message : "头像上传失败，请重试");
+    if (error && error.i18nKey) setAvatarError("", error.i18nKey);
+    else if (error instanceof Error && error.message) setAvatarError(error.message);
+    else setAvatarError("", "users.avatarUploadRetry");
   } finally {
     avatarFile.disabled = false;
   }
@@ -417,17 +576,18 @@ async function removeAvatar() {
   try {
     const result = await api("/api/v1/auth/avatar", { method: "DELETE" });
     if (!result.response.ok) {
-      setAvatarError(result.data.error || "移除头像失败");
+      if (result.data.error) setAvatarError(result.data.error);
+      else setAvatarError("", "users.avatarRemoveFailed");
       return;
     }
     me = { ...(me || { role: "admin" }), avatar_data: null };
     noteMe({ avatar_data: null });
     paintAvatarPreview();
     paintSidebarProfile(getMe());
-    toast("已移除自定义头像");
+    toast(t("users.avatarRemoved"));
   } catch (error) {
     if (isUnauthorized(error)) return;
-    setAvatarError("移除头像失败，请重试");
+    setAvatarError("", "users.avatarRemoveRetry");
   } finally {
     avatarRemove.disabled = false;
   }
@@ -441,8 +601,8 @@ function reportGithubReturn() {
   const query = new URLSearchParams(location.search);
   const state = query.get("github");
   if (state !== "bound" && state !== "error") return;
-  if (state === "bound") toast("GitHub 已绑定");
-  else toast("GitHub 绑定失败，请重试", { tone: "danger" });
+  if (state === "bound") toast(t("users.githubBound"));
+  else toast(t("users.githubBindFailed"), { tone: "danger" });
   query.delete("github");
   const rest = query.toString();
   history.replaceState(null, "", `${location.pathname}${rest ? `?${rest}` : ""}${location.hash}`);
@@ -473,9 +633,9 @@ async function unbindGithub() {
   const login =
     me && me.github && typeof me.github.login === "string" ? me.github.login : "GitHub";
   const confirmed = await openModal({
-    title: "解绑 GitHub？",
-    text: `解绑后将不能再用 GitHub 账号（${login}）登录本系统，密码登录不受影响。`,
-    confirmLabel: "解绑",
+    title: t("users.githubUnbindTitle"),
+    text: t("users.githubUnbindText", { name: login }),
+    confirmLabel: t("users.githubUnbind"),
     danger: true,
   });
   if (!confirmed) return;
@@ -485,8 +645,9 @@ async function unbindGithub() {
   try {
     const result = await api("/api/v1/auth/github/unbind", { method: "POST", body: "{}" });
     if (!result.response.ok) {
-      const message = result.data.error || "解绑失败";
-      setGithubError(message);
+      const message = result.data.error || t("users.unbindFailed");
+      if (result.data.error) setGithubError(result.data.error);
+      else setGithubError("", "users.unbindFailed");
       toast(message, { tone: "danger" });
       return;
     }
@@ -495,22 +656,24 @@ async function unbindGithub() {
     paintGithub();
     paintAvatarPreview();
     paintSidebarProfile(getMe());
-    setGithubStatus("已解绑 GitHub");
-    toast("已解绑 GitHub");
+    setGithubStatus("", "users.githubUnbound");
+    toast(t("users.githubUnbound"));
   } catch (error) {
     if (isUnauthorized(error)) return;
-    setGithubError("解绑失败，请重试");
+    setGithubError("", "users.githubUnbindRetry");
   } finally {
     githubUnbind.disabled = false;
   }
 }
 
-function setGithubError(message) {
-  showNotice(githubError, message);
+function setGithubError(message, key) {
+  if (key) showKeyed(githubError, key);
+  else showRaw(githubError, message);
 }
 
-function setGithubStatus(message) {
-  showNotice(githubStatus, message);
+function setGithubStatus(message, key) {
+  if (key) showKeyed(githubStatus, key);
+  else showRaw(githubStatus, message);
 }
 
 // ─── SMS translation preference ──────────────────────────────────────────────
@@ -519,27 +682,31 @@ function setGithubStatus(message) {
 // preference and only repaints on success, so a failed save keeps the
 // switch exactly as it was.
 function paintTranslate() {
+  if (!translateState || !translateToggle) return;
   translateEnabled = Boolean(me && me.translate_enabled);
-  translateState.textContent = translateEnabled
-    ? "已开启，新收到的非简体中文短信会自动翻译成简体中文"
-    : "开启后，新收到的非简体中文短信会自动翻译成简体中文";
+  const stateKey = translateEnabled ? "users.translateOnDetail" : "users.translateOffDetail";
+  translateState.setAttribute("data-i18n", stateKey);
+  translateState.textContent = t(stateKey);
   translateToggle.disabled = false;
-  translateToggle.textContent = translateEnabled ? "关闭短信翻译" : "开启短信翻译";
+  const toggleKey = translateEnabled ? "users.translateDisable" : "users.translateEnable";
+  translateToggle.setAttribute("data-i18n", toggleKey);
+  translateToggle.textContent = t(toggleKey);
   translateToggle.className = translateEnabled ? "secondary" : "primary";
 }
 
 async function toggleTranslate() {
   const next = !translateEnabled;
   translateToggle.disabled = true;
-  showNotice(translateError, "");
+  showRaw(translateError, "");
   try {
     const result = await api("/api/v1/me/preferences", {
       method: "PATCH",
       body: JSON.stringify({ translate_enabled: next }),
     });
     if (!result.response.ok) {
-      const message = result.data.error || "保存翻译设置失败";
-      showNotice(translateError, message);
+      const message = result.data.error || t("users.translateSaveFailed");
+      if (result.data.error) showRaw(translateError, result.data.error);
+      else showKeyed(translateError, "users.translateSaveFailed");
       toast(message, { tone: "danger" });
       return;
     }
@@ -548,11 +715,12 @@ async function toggleTranslate() {
     me = { ...(me || { role: "admin" }), translate_enabled: translateEnabled };
     noteMe({ translate_enabled: translateEnabled });
     paintTranslate();
-    toast(translateEnabled ? "已开启短信翻译" : "已关闭短信翻译");
+    const messageKey = translateEnabled ? "users.translateEnabled" : "users.translateDisabled";
+    toast(t(messageKey));
   } catch (error) {
     if (isUnauthorized(error)) return;
-    showNotice(translateError, "保存翻译设置失败，请重试");
-    toast("保存翻译设置失败，请重试", { tone: "danger" });
+    showKeyed(translateError, "users.translateSaveRetry");
+    toast(t("users.translateSaveRetry"), { tone: "danger" });
   } finally {
     translateToggle.disabled = false;
   }
@@ -566,17 +734,17 @@ async function submitPassword(event) {
   const currentPassword = passwordCurrent.value;
   if (!passwordOk) return;
   if (!currentPassword) {
-    setAccountError("请填写当前密码");
+    setAccountError("", "auth.passwordRequired");
     passwordCurrent.focus();
     return;
   }
   if (currentPassword === passwordInput.value) {
-    setAccountError("新密码不能与当前密码相同");
+    setAccountError("", "users.passwordSame");
     return;
   }
   passwordSubmit.disabled = true;
-  const previous = passwordSubmit.textContent;
-  passwordSubmit.textContent = "保存中…";
+  passwordSubmit.dataset.busy = "1";
+  passwordSubmit.textContent = t("users.saving");
   try {
     const result = await api("/api/v1/auth/password", {
       method: "POST",
@@ -584,21 +752,23 @@ async function submitPassword(event) {
       allowUnauthorized: true,
     });
     if (!result.response.ok) {
-      setAccountError(result.data.error || "改密码失败");
+      if (result.data.error) setAccountError(result.data.error);
+      else setAccountError("", "users.passwordChangeFailed");
       return;
     }
     passwordCurrent.value = "";
     passwordInput.value = "";
     passwordInput.type = "password";
     passwordStrength.dataset.score = "0";
-    rememberFlash("密码已更新，请用新密码重新登录");
+    rememberFlash(t("users.passwordUpdated"));
     location.assign("/login.html");
   } catch (error) {
     if (isUnauthorized(error)) return;
-    setAccountError("改密码失败，请重试");
+    setAccountError("", "users.passwordChangeRetry");
   } finally {
     passwordSubmit.disabled = false;
-    passwordSubmit.textContent = previous;
+    delete passwordSubmit.dataset.busy;
+    passwordSubmit.textContent = t("users.savePassword");
   }
 }
 
@@ -607,12 +777,13 @@ async function loadSessions() {
   const result = await api("/api/v1/auth/sessions");
   if (token !== viewToken) return;
   if (!result.response.ok) {
-    const message = result.data.error || "加载会话失败";
-    setSessionsError(message);
+    if (result.data.error) setSessionsError(result.data.error);
+    else setSessionsError("", "users.sessionsLoadFailed");
     return;
   }
   setSessionsError("");
   sessions = Array.isArray(result.data.sessions) ? result.data.sessions : [];
+  sessionsReady = true;
   renderSessions();
 }
 
@@ -622,7 +793,7 @@ function renderSessions() {
   if (sessions.length === 0) {
     const empty = document.createElement("li");
     empty.className = "session-empty";
-    empty.textContent = "没有有效的登录会话。";
+    empty.textContent = t("users.noSessions");
     sessionList.append(empty);
     revokeOthers.disabled = true;
     return;
@@ -640,12 +811,12 @@ function renderSession(session) {
   const title = document.createElement("div");
   title.className = "session-title";
   const label = document.createElement("strong");
-  label.textContent = session.current ? "当前会话" : "登录会话";
+  label.textContent = session.current ? t("users.currentSession") : t("users.loginSession");
   title.append(label);
   if (session.current) {
     const badge = document.createElement("span");
     badge.className = "badge";
-    badge.textContent = "当前";
+    badge.textContent = t("users.currentBadge");
     title.append(badge);
   }
 
@@ -655,21 +826,21 @@ function renderSession(session) {
   const expiresAt = Number(session.expires_at);
   const parts = [];
   if (Number.isFinite(createdAt) && createdAt > 0) {
-    parts.push(`登录于 ${formatTime(createdAt)}`);
+    parts.push(t("users.signedInAt", { time: formatTime(createdAt) }));
   }
   if (Number.isFinite(expiresAt) && expiresAt > 0) {
-    parts.push(`有效期至 ${formatTime(expiresAt)}`);
+    parts.push(t("users.expiresAt", { time: formatTime(expiresAt) }));
   }
   const agent = [session.browser, session.os, session.device]
     .filter((value) => typeof value === "string" && value)
     .join(" · ");
   if (agent) parts.push(agent);
-  if (session.ip) parts.push(`IP ${session.ip}`);
-  if (!parts.length) parts.push("会话时间未知");
+  if (session.ip) parts.push(t("users.ip", { ip: session.ip }));
+  if (!parts.length) parts.push(t("users.sessionTimeUnknown"));
   meta.textContent = parts.join(" · ");
   const detail = [];
-  if (Number.isFinite(createdAt) && createdAt > 0) detail.push(`登录：${absoluteTime(createdAt)}`);
-  if (Number.isFinite(expiresAt) && expiresAt > 0) detail.push(`过期：${absoluteTime(expiresAt)}`);
+  if (Number.isFinite(createdAt) && createdAt > 0) detail.push(t("users.signedInAbsolute", { time: absoluteTime(createdAt) }));
+  if (Number.isFinite(expiresAt) && expiresAt > 0) detail.push(t("users.expiresAbsolute", { time: absoluteTime(expiresAt) }));
   if (detail.length) meta.title = detail.join("\n");
   main.append(title, meta);
 
@@ -677,8 +848,8 @@ function renderSession(session) {
   action.type = "button";
   action.className = session.current ? "secondary" : "ghost";
   action.dataset.sessionId = session.id;
-  action.textContent = session.current ? "退出此会话" : "撤销";
-  action.setAttribute("aria-label", session.current ? "退出当前会话" : "撤销这个会话");
+  action.textContent = session.current ? t("users.logoutThis") : t("users.revoke");
+  action.setAttribute("aria-label", session.current ? t("users.logoutCurrentAria") : t("users.revokeThisAria"));
 
   row.append(main, action);
   return row;
@@ -686,11 +857,9 @@ function renderSession(session) {
 
 async function revokeSession(session) {
   const confirmed = await openModal({
-    title: session.current ? "退出当前会话？" : "撤销这个会话？",
-    text: session.current
-      ? "撤销后这个浏览器需要重新登录。"
-      : "撤销后，对应浏览器需要重新登录。",
-    confirmLabel: session.current ? "退出" : "撤销",
+    title: session.current ? t("users.logoutCurrentTitle") : t("users.revokeThisTitle"),
+    text: session.current ? t("users.logoutCurrentText") : t("users.revokeThisText"),
+    confirmLabel: session.current ? t("users.logOut") : t("users.revoke"),
   });
   if (!confirmed) return;
   setSessionsError("");
@@ -698,30 +867,31 @@ async function revokeSession(session) {
   try {
     const result = await api(`/api/v1/auth/sessions/${session.id}`, { method: "DELETE" });
     if (!result.response.ok) {
-      const message = result.data.error || "撤销会话失败";
-      setSessionsError(message);
+      const message = result.data.error || t("users.revokeFailed");
+      if (result.data.error) setSessionsError(result.data.error);
+      else setSessionsError("", "users.revokeFailed");
       toast(message, { tone: "danger" });
       return;
     }
     if (session.current) {
-      rememberFlash("当前会话已撤销，请重新登录");
+      rememberFlash(t("users.currentRevoked"));
       location.assign("/login.html");
       return;
     }
-    setSessionsStatus("已撤销这个会话");
-    toast("已撤销这个会话");
+    setSessionsStatus("", "users.sessionRevoked");
+    toast(t("users.sessionRevoked"));
     await loadSessions();
   } catch (error) {
     if (isUnauthorized(error)) return;
-    setSessionsError("撤销会话失败，请重试");
+    setSessionsError("", "users.revokeRetry");
   }
 }
 
 async function revokeOtherSessions() {
   const confirmed = await openModal({
-    title: "撤销其它会话？",
-    text: "当前会话会保留，其它浏览器需要重新登录。",
-    confirmLabel: "撤销其它会话",
+    title: t("users.revokeOthersTitle"),
+    text: t("users.revokeOthersText"),
+    confirmLabel: t("users.revokeOthers"),
   });
   if (!confirmed) return;
   revokeOthers.disabled = true;
@@ -733,43 +903,41 @@ async function revokeOtherSessions() {
       body: "{}",
     });
     if (!result.response.ok) {
-      const message = result.data.error || "撤销其它会话失败";
-      setSessionsError(message);
+      const message = result.data.error || t("users.revokeOthersFailed");
+      if (result.data.error) setSessionsError(result.data.error);
+      else setSessionsError("", "users.revokeOthersFailed");
       toast(message, { tone: "danger" });
       return;
     }
-    setSessionsStatus("已撤销其它会话");
-    toast("已撤销其它会话");
+    setSessionsStatus("", "users.othersRevoked");
+    toast(t("users.othersRevoked"));
     await loadSessions();
   } catch (error) {
     if (isUnauthorized(error)) return;
-    setSessionsError("撤销其它会话失败，请重试");
+    setSessionsError("", "users.revokeOthersRetry");
   } finally {
     revokeOthers.disabled = !sessions.some((session) => !session.current);
   }
 }
 
-function showRetry(message) {
-  showNotice(pageError, "");
-  pageRetry.hidden = false;
-  const span = pageRetry.querySelector("span");
-  if (span) span.textContent = message;
+function setAccountError(message, key) {
+  if (key) showKeyed(accountError, key);
+  else showRaw(accountError, message);
 }
 
-function setAccountError(message) {
-  showNotice(accountError, message);
+function setAccountStatus(message, key) {
+  if (key) showKeyed(accountStatus, key);
+  else showRaw(accountStatus, message);
 }
 
-function setAccountStatus(message) {
-  showNotice(accountStatus, message);
+function setSessionsError(message, key) {
+  if (key) showKeyed(sessionsError, key);
+  else showRaw(sessionsError, message);
 }
 
-function setSessionsError(message) {
-  showNotice(sessionsError, message);
-}
-
-function setSessionsStatus(message) {
-  showNotice(sessionsStatus, message);
+function setSessionsStatus(message, key) {
+  if (key) showKeyed(sessionsStatus, key);
+  else showRaw(sessionsStatus, message);
 }
 
 registerView("/users.html", startView);

@@ -113,6 +113,7 @@ export interface SessionUser {
   expires_at: number;
   totp_enabled_at?: number | null;
   translate_enabled?: number | null;
+  locale?: string | null;
 }
 
 export interface TotpUserRecord {

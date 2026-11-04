@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="robots" content="noindex, nofollow" />
-    <title>API 与 MCP · SMSinBox</title>
+    <title data-i18n="api.documentTitle">API 与 MCP · SMSinBox</title>
     <link rel="icon" href="/logo.png" type="image/png" />
     <script src="/theme-boot.js"></script>
     <link rel="stylesheet" href="/style.css" />
@@ -17,30 +17,30 @@
       </aside>
       <div class="main">
         <header class="topbar">
-          <button id="menu-toggle" class="ghost icon-btn" type="button" aria-label="打开导航" aria-expanded="false" aria-controls="sidebar">
+          <button id="menu-toggle" class="ghost icon-btn" type="button" aria-label="打开导航" data-i18n-attr="aria-label:shell.openNav" aria-expanded="false" aria-controls="sidebar">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-menu"/></svg>
           </button>
-          <h1 class="topbar-title">API 与 MCP</h1>
+          <h1 class="topbar-title" data-i18n="nav.api-mcp">API 与 MCP</h1>
           <div class="topbar-actions">
             <button class="ghost icon-btn" type="button" data-theme-toggle aria-label="主题：自动">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-sun"/></svg>
               <span class="btn-label sr-only">主题：自动</span>
             </button>
-            <button id="refresh" class="ghost icon-btn" type="button" aria-label="刷新">
+            <button id="refresh" class="ghost icon-btn" type="button" aria-label="刷新" data-i18n-attr="aria-label:shell.refresh">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-refresh"/></svg>
             </button>
           </div>
         </header>
         <div class="page">
           <div class="api-toolbar">
-            <div class="tabs api-tabs" role="tablist" aria-label="API 与 MCP 分区">
-              <button id="tab-token" class="tab is-active" type="button" role="tab" aria-selected="true" aria-controls="token-panel" data-tab="tokens">令牌管理</button>
-              <button id="tab-mcp" class="tab" type="button" role="tab" aria-selected="false" aria-controls="mcp-panel" data-tab="mcp" tabindex="-1">MCP 接入</button>
-              <button id="tab-permissions" class="tab" type="button" role="tab" aria-selected="false" aria-controls="permissions-panel" data-tab="permissions" tabindex="-1">权限管理</button>
-              <button id="tab-docs" class="tab" type="button" role="tab" aria-selected="false" aria-controls="api-panel" data-tab="docs" tabindex="-1">外部 API 文档</button>
+            <div class="tabs api-tabs" role="tablist" aria-label="API 与 MCP 分区" data-i18n-attr="aria-label:api.tabsLabel">
+              <button id="tab-token" class="tab is-active" type="button" role="tab" aria-selected="true" aria-controls="token-panel" data-tab="tokens" data-i18n="api.tabTokens">令牌管理</button>
+              <button id="tab-mcp" class="tab" type="button" role="tab" aria-selected="false" aria-controls="mcp-panel" data-tab="mcp" tabindex="-1" data-i18n="api.tabMcp">MCP 接入</button>
+              <button id="tab-permissions" class="tab" type="button" role="tab" aria-selected="false" aria-controls="permissions-panel" data-tab="permissions" tabindex="-1" data-i18n="api.tabPermissions">权限管理</button>
+              <button id="tab-docs" class="tab" type="button" role="tab" aria-selected="false" aria-controls="api-panel" data-tab="docs" tabindex="-1" data-i18n="api.tabDocs">外部 API 文档</button>
             </div>
             <div class="api-actions">
-              <button id="add-token" class="primary" type="button">新建 Token</button>
+              <button id="add-token" class="primary" type="button" data-i18n="api.newToken">新建 Token</button>
             </div>
           </div>
 
@@ -49,43 +49,43 @@
 
           <!-- Token management -->
           <section id="token-panel" class="panel stack tab-panel" role="tabpanel" aria-labelledby="tab-token" data-panel="tokens">
-            <h2>令牌管理</h2>
+            <h2 data-i18n="api.tabTokens">令牌管理</h2>
             <div id="token-list" class="devices"></div>
           </section>
 
           <!-- MCP access -->
           <section id="mcp-panel" class="panel stack tab-panel" role="tabpanel" aria-labelledby="tab-mcp" data-panel="mcp" hidden>
-            <h2>MCP 接入</h2>
+            <h2 data-i18n="api.tabMcp">MCP 接入</h2>
             <div class="device-facts">
               <div>
-                <dt>MCP 状态</dt>
-                <dd><span class="badge ok">服务就绪</span></dd>
+                <dt data-i18n="api.mcpStatus">MCP 状态</dt>
+                <dd><span class="badge ok" data-i18n="api.serviceReady">服务就绪</span></dd>
               </div>
               <div>
                 <dt>Endpoint</dt>
                 <dd class="device-id">
                   <code id="mcp-endpoint-url">/mcp</code>
-                  <button id="copy-mcp-url" class="secondary" type="button">复制</button>
+                  <button id="copy-mcp-url" class="secondary" type="button" data-i18n="common.copy">复制</button>
                 </dd>
               </div>
               <div>
-                <dt>传输协议</dt>
+                <dt data-i18n="api.transport">传输协议</dt>
                 <dd>Streamable HTTP (POST JSON-RPC 2.0)</dd>
               </div>
               <div>
-                <dt>认证方式</dt>
-                <dd>Bearer Token（与 REST API 共用）</dd>
+                <dt data-i18n="api.authMethod">认证方式</dt>
+                <dd data-i18n="api.authValue">Bearer Token（与 REST API 共用）</dd>
               </div>
               <div class="span-2">
-                <dt>只读工具 (7 个)</dt>
+                <dt data-i18n="api.readonlyTools">只读工具 (7 个)</dt>
                 <dd><code>list_messages</code>, <code>search_messages</code>, <code>get_message</code>, <code>get_latest_otp</code>, <code>search_otp</code>, <code>list_devices</code>, <code>get_device_status</code></dd>
               </div>
             </div>
 
             <div class="config-sample">
-              <p class="subtle">通用 MCP 客户端配置示例（将 <code>smsx_YOUR_TOKEN_HERE</code> 替换为您新建的 Token）：</p>
+              <p class="subtle"><span data-i18n="api.mcpSampleBefore">通用 MCP 客户端配置示例（将 </span><code>smsx_YOUR_TOKEN_HERE</code><span data-i18n="api.mcpSampleAfter"> 替换为您新建的 Token）：</span></p>
               <div class="code-block">
-                <button id="copy-mcp-config" class="secondary copy-corner" type="button">复制代码</button>
+                <button id="copy-mcp-config" class="secondary copy-corner" type="button" data-i18n="api.copyCode">复制代码</button>
                 <pre id="mcp-config-sample"></pre>
               </div>
             </div>
@@ -93,14 +93,14 @@
             <div class="stack" id="mcp-tools-list"></div>
 
             <details class="fold">
-              <summary>如何连接 MCP 客户端</summary>
-              <p>在 Claude Desktop 的 <code>claude_desktop_config.json</code> 或 Cursor 的 MCP 设置中添加上述通用 JSON 配置即可。MCP 采用 Streamable HTTP 传输协议，直接向 <code>/mcp</code> 端点发起带 Bearer Token 的 POST 请求。</p>
+              <summary data-i18n="api.mcpHowConnect">如何连接 MCP 客户端</summary>
+              <p><span data-i18n="api.mcpHowBefore">在 Claude Desktop 的 </span><code>claude_desktop_config.json</code><span data-i18n="api.mcpHowMid"> 或 Cursor 的 MCP 设置中添加上述通用 JSON 配置即可。MCP 采用 Streamable HTTP 传输协议，直接向 </span><code>/mcp</code><span data-i18n="api.mcpHowAfter"> 端点发起带 Bearer Token 的 POST 请求</span></p>
             </details>
           </section>
 
           <section id="permissions-panel" class="panel stack tab-panel" role="tabpanel" aria-labelledby="tab-permissions" data-panel="permissions" hidden>
             <div class="section-head">
-              <h2>权限管理</h2>
+              <h2 data-i18n="api.tabPermissions">权限管理</h2>
             </div>
             <div id="permissions-list" class="stack"></div>
           </section>
@@ -108,66 +108,66 @@
           <!-- API documentation -->
           <section id="api-panel" class="panel stack tab-panel" role="tabpanel" aria-labelledby="tab-docs" data-panel="docs" hidden>
             <div class="section-head">
-              <h2 id="api-title">外部 REST API</h2>
-              <a href="/api/ext/v1/openapi.json" target="_blank" rel="noopener" class="subtle">OpenAPI 规范 ↗</a>
+              <h2 id="api-title" data-i18n="api.restTitle">外部 REST API</h2>
+              <a href="/api/ext/v1/openapi.json" target="_blank" rel="noopener" class="subtle" data-i18n="api.openapi">OpenAPI 规范 ↗</a>
             </div>
             <div class="device-facts">
               <div>
-                <dt>API 状态</dt>
-                <dd><span class="badge ok">服务就绪</span></dd>
+                <dt data-i18n="api.apiStatus">API 状态</dt>
+                <dd><span class="badge ok" data-i18n="api.serviceReady">服务就绪</span></dd>
               </div>
               <div>
                 <dt>API Base URL</dt>
                 <dd class="device-id">
                   <code id="api-base-url">/api/ext/v1</code>
-                  <button id="copy-base-url" class="secondary" type="button">复制</button>
+                  <button id="copy-base-url" class="secondary" type="button" data-i18n="common.copy">复制</button>
                 </dd>
               </div>
             </div>
 
             <div class="endpoints">
-              <h3>接口端点</h3>
-              <p class="subtle">以下端点均基于上方 API Base URL，全部使用 GET 方法并携带 <code>Authorization: Bearer &lt;Token&gt;</code>。</p>
+              <h3 data-i18n="api.endpointsTitle">接口端点</h3>
+              <p class="subtle"><span data-i18n="api.endpointsBefore">以下端点均基于上方 API Base URL，全部使用 GET 方法并携带 </span><code>Authorization: Bearer &lt;Token&gt;</code><span data-i18n="api.endpointsAfter"></span></p>
               <div class="endpoint-list" role="list">
                 <div class="endpoint-row" role="listitem">
                   <span class="method">GET</span>
                   <code class="endpoint-path">/health</code>
-                  <span class="endpoint-desc">连通性检查，验证 API 与 Token 有效。</span>
+                  <span class="endpoint-desc" data-i18n="api.docHealth">连通性检查，验证 API 与 Token 有效</span>
                 </div>
                 <div class="endpoint-row" role="listitem">
                   <span class="method">GET</span>
                   <code class="endpoint-path">/me</code>
-                  <span class="endpoint-desc">当前 Token 详情（权限、设备范围、有效期）。</span>
+                  <span class="endpoint-desc" data-i18n="api.docMe">当前 Token 详情（权限、设备范围、有效期）</span>
                 </div>
                 <div class="endpoint-row" role="listitem">
                   <span class="method">GET</span>
                   <code class="endpoint-path">/messages</code>
-                  <span class="endpoint-desc">短信列表，支持分页与 device_id / from / since / until / q 过滤。</span>
+                  <span class="endpoint-desc" data-i18n="api.docMessages">短信列表，支持分页与 device_id / from / since / until / q 过滤</span>
                 </div>
                 <div class="endpoint-row" role="listitem">
                   <span class="method">GET</span>
                   <code class="endpoint-path">/messages/{id}</code>
-                  <span class="endpoint-desc">单条短信详情。</span>
+                  <span class="endpoint-desc" data-i18n="api.docMessage">单条短信详情</span>
                 </div>
                 <div class="endpoint-row" role="listitem">
                   <span class="method">GET</span>
                   <code class="endpoint-path">/otp/latest</code>
-                  <span class="endpoint-desc">最新验证码，可用 device_id / from / since 过滤。</span>
+                  <span class="endpoint-desc" data-i18n="api.docOtpLatest">最新验证码，可用 device_id / from / since 过滤</span>
                 </div>
                 <div class="endpoint-row" role="listitem">
                   <span class="method">GET</span>
                   <code class="endpoint-path">/otp/search</code>
-                  <span class="endpoint-desc">验证码检索，支持分页与过滤。</span>
+                  <span class="endpoint-desc" data-i18n="api.docOtpSearch">验证码检索，支持分页与过滤</span>
                 </div>
                 <div class="endpoint-row" role="listitem">
                   <span class="method">GET</span>
                   <code class="endpoint-path">/devices</code>
-                  <span class="endpoint-desc">授权设备列表及在线状态。</span>
+                  <span class="endpoint-desc" data-i18n="api.docDevices">授权设备列表及在线状态</span>
                 </div>
                 <div class="endpoint-row" role="listitem">
                   <span class="method">GET</span>
                   <code class="endpoint-path">/devices/{id}/status</code>
-                  <span class="endpoint-desc">单台设备在线状态与最后消息时间。</span>
+                  <span class="endpoint-desc" data-i18n="api.docDeviceStatus">单台设备在线状态与最后消息时间</span>
                 </div>
               </div>
             </div>
@@ -175,17 +175,17 @@
             <div id="api-endpoints-details" class="stack"></div>
 
             <details class="fold">
-              <summary>如何调用 REST API</summary>
-              <p>使用标准 HTTP 客户端携带 <code>Authorization: Bearer &lt;Token&gt;</code> 发起 GET 请求：</p>
+              <summary data-i18n="api.restHow">如何调用 REST API</summary>
+              <p><span data-i18n="api.restHowBefore">使用标准 HTTP 客户端携带 </span><code>Authorization: Bearer &lt;Token&gt;</code><span data-i18n="api.restHowAfter"> 发起 GET 请求：</span></p>
               <div class="code-block">
-                <button id="copy-curl-example" class="secondary copy-corner" type="button">复制</button>
+                <button id="copy-curl-example" class="secondary copy-corner" type="button" data-i18n="common.copy">复制</button>
                 <pre id="curl-example"></pre>
               </div>
             </details>
 
             <details class="fold">
-              <summary>如何测试连接</summary>
-              <p>可以向 <code>/api/ext/v1/health</code> 发送 GET 请求，或向 <code>/mcp</code> 发送 <code>ping</code> JSON-RPC 请求检验凭证有效性。</p>
+              <summary data-i18n="api.testConn">如何测试连接</summary>
+              <p><span data-i18n="api.testBefore">可以向 </span><code>/api/ext/v1/health</code><span data-i18n="api.testMid"> 发送 GET 请求，或向 </span><code>/mcp</code><span data-i18n="api.testSend"> 发送 </span><code>ping</code><span data-i18n="api.testEnd"> JSON-RPC 请求检验凭证有效性</span></p>
             </details>
           </section>
         </div>
@@ -197,70 +197,70 @@
     <!-- Create Token Modal Dialog -->
     <dialog id="token-dialog" class="modal">
       <div class="modal-card">
-        <h2 id="token-dialog-title">新建外部访问 Token</h2>
+        <h2 id="token-dialog-title" data-i18n="api.createTitle">新建外部访问 Token</h2>
         <form id="token-form" class="stack">
-          <label>Token 名称
-            <input name="name" required maxlength="80" placeholder="例如：Cursor Agent、自动化统计" />
+          <label data-i18n="api.tokenName">Token 名称
+            <input name="name" required maxlength="80" placeholder="例如：Cursor Agent、自动化统计" data-i18n-attr="placeholder:api.tokenNamePlaceholder" />
           </label>
 
           <fieldset class="scope-fieldset stack">
-            <legend>访问权限</legend>
+            <legend data-i18n="api.permissionsLegend">访问权限</legend>
             <label class="scope-option">
               <input type="checkbox" name="permissions" value="messages:read" checked />
-              <span><strong>messages:read</strong> - 读取短信列表与正文</span>
+              <span><strong>messages:read</strong> - <span data-i18n="api.permMessagesDesc">读取短信列表与正文</span></span>
             </label>
             <label class="scope-option">
               <input type="checkbox" name="permissions" value="otp:read" checked />
-              <span><strong>otp:read</strong> - 读取最新验证码及检索验证码</span>
+              <span><strong>otp:read</strong> - <span data-i18n="api.permOtpDesc">读取最新验证码及检索验证码</span></span>
             </label>
             <label class="scope-option">
               <input type="checkbox" name="permissions" value="devices:read" checked />
-              <span><strong>devices:read</strong> - 查看授权设备列表</span>
+              <span><strong>devices:read</strong> - <span data-i18n="api.permDevicesDesc">查看授权设备列表</span></span>
             </label>
             <label class="scope-option">
               <input type="checkbox" name="permissions" value="devices:status" checked />
-              <span><strong>devices:status</strong> - 查看设备在线状态与最后上报时间</span>
+              <span><strong>devices:status</strong> - <span data-i18n="api.permStatusDesc">查看设备在线状态与最后上报时间</span></span>
             </label>
           </fieldset>
 
           <fieldset class="scope-fieldset stack">
-            <legend>设备授权范围</legend>
+            <legend data-i18n="api.scopeLegend">设备授权范围</legend>
             <label class="scope-option">
               <input type="radio" name="scope_type" value="all" checked />
-              <span>全部设备（包括后续添加的新设备）</span>
+              <span data-i18n="api.scopeAll">全部设备（包括后续添加的新设备）</span>
             </label>
             <label class="scope-option">
               <input type="radio" name="scope_type" value="custom" />
-              <span>指定设备</span>
+              <span data-i18n="api.scopeCustom">指定设备</span>
             </label>
             <div id="scope-device-picker" class="scope-device-picker stack" hidden>
               <div id="device-checkbox-list" class="stack"></div>
             </div>
           </fieldset>
 
-          <label>有效期
+          <label data-i18n="api.expires">有效期
             <span id="token-expires"></span>
           </label>
 
           <p id="token-form-error" class="field-error" hidden></p>
 
           <div class="modal-actions">
-            <button id="token-dialog-cancel" class="secondary" type="button">取消</button>
-            <button type="submit">创建 Token</button>
+            <button id="token-dialog-cancel" class="secondary" type="button" data-i18n="common.cancel">取消</button>
+            <button type="submit" data-i18n="api.createToken">创建 Token</button>
           </div>
         </form>
 
         <div id="token-result-box" class="stack" hidden>
           <div class="callout note">
-            <p><strong>请立即复制并妥善保管您的 Token！</strong></p>
-            <p class="subtle">完整 Token 也可在下方令牌列表中随时查看和复制。</p>
+            <p><strong data-i18n="api.copyNow">请立即复制并妥善保管您的 Token！</strong></p>
+            <p class="subtle" data-i18n="api.copyLater">完整 Token 也可在下方令牌列表中随时查看和复制</p>
           </div>
           <div class="code-block" style="position: relative;">
             <code id="new-token-plaintext" style="display: block; word-break: break-all; padding: 12px; font-size: var(--fs-sm);"></code>
           </div>
           <div class="modal-actions">
-            <button id="copy-new-token-btn" class="primary" type="button">复制 Token</button>
-            <button id="token-result-close" class="secondary" type="button">完成</button>
+            <button id="copy-new-token-btn" class="primary" type="button" data-i18n="api.copyToken">复制 Token</button>
+            <button id="token-result-close" class="secondary" type="button" data-i18n="api.done">完成</button>
           </div>
         </div>
       </div>

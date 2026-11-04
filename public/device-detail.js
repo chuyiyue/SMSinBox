@@ -16,6 +16,7 @@ import {
 } from "./common.js";
 import { deviceStateOf, getDevices, noteDeviceSeen, refreshDevices } from "./device-store.js";
 import { addFact, describeDevice, DEVICE_TYPES, deviceTypeOf, isStale, presenceDot, presenceLabel, pushConfirm } from "./device-panel.js";
+import { t } from "./i18n.js";
 
 function emitDevicesChanged() {
   document.dispatchEvent(new CustomEvent("smsinbox:devices-changed"));
@@ -35,7 +36,7 @@ export function openDeviceDetail(device, entry = null) {
   const overlay = document.createElement("button");
   overlay.type = "button";
   overlay.className = "ui-drawer-overlay";
-  overlay.setAttribute("aria-label", "关闭设备详情");
+  overlay.setAttribute("aria-label", t("devices.closeDetail"));
   overlay.addEventListener("click", closeDeviceDetail);
 
   const panel = document.createElement("div");
@@ -46,7 +47,7 @@ export function openDeviceDetail(device, entry = null) {
   const back = document.createElement("button");
   back.type = "button";
   back.className = "secondary device-detail-back";
-  back.textContent = "返回";
+  back.textContent = t("common.back");
   back.addEventListener("click", closeDeviceDetail);
   const text = document.createElement("div");
   text.className = "device-detail-heading";
@@ -58,7 +59,7 @@ export function openDeviceDetail(device, entry = null) {
   typeIcon.innerHTML = `<svg class="device-type-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#${view.platform.icon}"/></svg>`;
   const title = document.createElement("h2");
   title.className = "ui-drawer-title";
-  title.textContent = String(device?.name || "未命名设备");
+  title.textContent = String(device?.name || t("common.unnamedDevice"));
   titleRow.append(typeIcon.firstChild, title);
   const meta = document.createElement("p");
   meta.className = "device-detail-meta-line";
@@ -83,7 +84,12 @@ export function openDeviceDetail(device, entry = null) {
     }
   };
   document.addEventListener("keydown", onKey, true);
-  deviceDetailState = { root, onKey, id };
+  const onLocale = () => {
+    rerenderDeviceDetail();
+  };
+  document.addEventListener("smsinbox:locale", onLocale);
+  root.dataset.deviceId = id;
+  deviceDetailState = { root, onKey, id, onLocale, device, entry };
   const firstTab = panel.querySelector("[data-device-tab]");
   firstTab?.click();
   const initialFocus = panel.querySelector("button, input, select, textarea, a[href]") || back;
@@ -92,8 +98,9 @@ export function openDeviceDetail(device, entry = null) {
 
 export function closeDeviceDetail() {
   if (!deviceDetailState) return;
-  const { root, onKey, id } = deviceDetailState;
+  const { root, onKey, id, onLocale } = deviceDetailState;
   document.removeEventListener("keydown", onKey, true);
+  document.removeEventListener("smsinbox:locale", onLocale);
   root.remove();
   document.body.classList.remove("drawer-open");
   deviceDetailState = null;
@@ -123,20 +130,19 @@ function buildDeviceDetailShell(device, entry = null) {
   status.append(presenceDot(deviceStateOf(device)));
   const factList = document.createElement("dl");
   factList.className = "device-facts";
-  addFact(factList, "平台", view.platformDetail, { wide: true });
-  if (total !== null) addFact(factList, "短信数量", `${total} 条`);
-  addFact(factList, "设备 ID", null, { wide: true, node: idLine(device.id) });
+  addFact(factList, t("devices.platform"), view.platformDetail, { wide: true });
+  if (total !== null) addFact(factList, t("devices.messageCountLabel"), t("devices.messageCount", { count: total }));
+  addFact(factList, t("devices.deviceId"), null, { wide: true, node: idLine(device.id) });
   status.append(factList);
   summary.append(status);
 
   const tabs = document.createElement("div");
   tabs.className = "tabs device-detail-tabs";
   const labels = [
-    ["overview", "概览"],
-    ["messages", "短信记录"],
-
-    ["push", "推送配置"],
-    ["advanced", "高级设置"],
+    ["overview", t("devices.tabOverview")],
+    ["messages", t("devices.tabMessages")],
+    ["push", t("devices.tabPush")],
+    ["advanced", t("devices.tabAdvanced")],
   ];
   for (const [key, label] of labels) {
     const tab = document.createElement("button");
@@ -208,13 +214,13 @@ function buildOverviewPanel(device, view, total) {
   const summary = document.createElement("div");
   summary.className = "device-detail-card";
   const heading = document.createElement("h3");
-  heading.textContent = "状态概览";
+  heading.textContent = t("devices.statusOverview");
   const meta = document.createElement("dl");
   meta.className = "device-facts";
-  addFact(meta, "设备名称", device.name || "未命名设备", { wide: true });
-  addFact(meta, "最近状态", presenceLabel(deviceStateOf(device)), { wide: true });
-  addFact(meta, "平台", view.platformBadge, { wide: true });
-  if (total !== null) addFact(meta, "短信数", `${total} 条`, { wide: true });
+  addFact(meta, t("devices.deviceName"), device.name || t("common.unnamedDevice"), { wide: true });
+  addFact(meta, t("devices.recentStatus"), presenceLabel(deviceStateOf(device)), { wide: true });
+  addFact(meta, t("devices.platform"), view.platformBadge, { wide: true });
+  if (total !== null) addFact(meta, t("devices.smsCount"), t("devices.messageCount", { count: total }), { wide: true });
   summary.append(heading, meta);
   panel.append(summary);
   return panel;
@@ -230,7 +236,7 @@ async function loadDeviceMessagePanel(panel, deviceId) {
       wrapper.replaceChildren();
       const message = document.createElement("p");
       message.className = "empty subtle";
-      message.textContent = result.data.error || "无法加载短信记录";
+      message.textContent = result.data.error || t("devices.messagesUnavailable");
       wrapper.append(message);
       return;
     }
@@ -239,7 +245,7 @@ async function loadDeviceMessagePanel(panel, deviceId) {
     if (messages.length === 0) {
       const empty = document.createElement("p");
       empty.className = "empty subtle";
-      empty.textContent = "暂无短信记录";
+      empty.textContent = t("devices.messagesEmpty");
       wrapper.append(empty);
       return;
     }
@@ -249,14 +255,14 @@ async function loadDeviceMessagePanel(panel, deviceId) {
       const sender = document.createElement("div");
       sender.className = "device-message-head";
       const who = document.createElement("strong");
-      who.textContent = message.from_number || "未知号码";
+      who.textContent = message.from_number || t("devices.unknownNumber");
       const time = document.createElement("span");
       time.className = "subtle";
-      time.textContent = message.received_at ? formatTime(Number(message.received_at)) : "刚刚";
+      time.textContent = message.received_at ? formatTime(Number(message.received_at)) : t("time.justNow");
       sender.append(who, time);
       const content = document.createElement("p");
       content.className = "device-message-body";
-      content.textContent = message.content || "（空白内容）";
+      content.textContent = message.content || t("devices.emptyContent");
       item.append(sender, content);
       if (message.code) {
         const chipWrap = document.createElement("div");
@@ -270,7 +276,7 @@ async function loadDeviceMessagePanel(panel, deviceId) {
     wrapper.replaceChildren();
     const empty = document.createElement("p");
     empty.className = "empty subtle";
-    empty.textContent = "加载短信记录失败";
+    empty.textContent = t("devices.messagesLoadFailed");
     wrapper.append(empty);
   }
 }
@@ -281,7 +287,7 @@ function buildPushPanel(device, view) {
   const summary = document.createElement("div");
   summary.className = "device-detail-card";
   const title = document.createElement("h3");
-  title.textContent = "推送配置";
+  title.textContent = t("devices.tabPush");
   const actions = document.createElement("div");
   actions.className = "actions device-detail-actions";
   for (const action of view.actions) {
@@ -298,7 +304,7 @@ function buildPushPanel(device, view) {
     const wrap = document.createElement("div");
     wrap.className = "stack";
     const label = document.createElement("strong");
-    label.textContent = "推送链接";
+    label.textContent = t("devices.pushLink");
     const code = document.createElement("code");
     code.className = "code-block";
     code.textContent = view.pushUrl;
@@ -308,10 +314,10 @@ function buildPushPanel(device, view) {
     const copy = document.createElement("button");
     copy.type = "button";
     copy.className = "secondary";
-    copy.textContent = "复制推送链接";
+    copy.textContent = t("devices.copyPushUrl");
     copy.addEventListener("click", async (event) => {
-      const copied = await flashLabel(event.currentTarget, view.pushUrl, "复制推送链接");
-      if (copied) toast("已复制");
+      const copied = await flashLabel(event.currentTarget, view.pushUrl, t("devices.copyPushUrl"));
+      if (copied) toast(t("devices.copied"));
     });
     copyRow.append(copy);
     wrap.append(label, code, copyRow);
@@ -319,7 +325,7 @@ function buildPushPanel(device, view) {
   } else if (device?.push === "active") {
     const note = document.createElement("p");
     note.className = "subtle";
-    note.textContent = "这条链接是旧版生成的，没有保存明文。点「轮换接口」换一条新链接后，就能随时在这里查看和复制。";
+    note.textContent = t("devices.legacyPushNote");
     panel.append(note);
   }
   return panel;
@@ -332,13 +338,13 @@ function buildAdvancedPanel(device) {
   const renameSection = document.createElement("section");
   renameSection.className = "stack";
   const renameTitle = document.createElement("h3");
-  renameTitle.textContent = "设备名称";
+  renameTitle.textContent = t("devices.deviceName");
   const renameForm = document.createElement("form");
   renameForm.className = "stack";
   renameForm.id = "device-rename-form";
   renameForm.noValidate = true;
   const nameLabel = document.createElement("label");
-  nameLabel.textContent = "显示名称";
+  nameLabel.textContent = t("devices.displayName");
   const nameInput = document.createElement("input");
   nameInput.type = "text";
   nameInput.maxLength = 64;
@@ -361,16 +367,16 @@ function buildAdvancedPanel(device) {
   const typeSection = document.createElement("section");
   typeSection.className = "stack";
   const typeTitle = document.createElement("h3");
-  typeTitle.textContent = "设备类型";
+  typeTitle.textContent = t("devices.deviceType");
   const typeField = mountSelect({
     value: deviceTypeOf(device?.platform)?.value ?? "other",
-    ariaLabel: "设备类型",
+    ariaLabel: t("devices.deviceType"),
     options: DEVICE_TYPES.map((type) => ({ value: type.value, label: type.label, icon: type.icon })),
     onChange: (next) => void submitDeviceType(device, next),
   });
   const typeNote = document.createElement("p");
   typeNote.className = "subtle";
-  typeNote.textContent = "短信上报的类型与它不一致时，会按上报的类型显示。";
+  typeNote.textContent = t("devices.typeNote");
   typeSection.append(typeTitle, typeField.root, typeNote);
 
   // Save and delete stack vertically, one per row (Roye); the save button
@@ -380,11 +386,11 @@ function buildAdvancedPanel(device) {
   const save = document.createElement("button");
   save.type = "submit";
   save.setAttribute("form", "device-rename-form");
-  save.textContent = "保存名称";
+  save.textContent = t("devices.saveName");
   const remove = document.createElement("button");
   remove.type = "button";
   remove.className = "danger";
-  remove.textContent = "删除设备";
+  remove.textContent = t("devices.deleteDevice");
   remove.addEventListener("click", () => removeDevice(device));
   actions.append(save, remove);
   panel.append(renameSection, typeSection, actions);
@@ -398,16 +404,16 @@ async function submitDeviceType(device, platform) {
       body: JSON.stringify({ platform }),
     });
     if (!result.response.ok) {
-      toast(result.data?.error || "更改设备类型失败", { tone: "danger" });
+      toast(result.data?.error || t("devices.typeChangeFailed"), { tone: "danger" });
       return;
     }
     device.platform = platform;
     await refreshDevices().catch(() => {});
     emitDevicesChanged();
-    toast("设备类型已更新");
+    toast(t("devices.typeUpdated"));
   } catch (error) {
     if (isUnauthorized(error)) return;
-    toast("更改设备类型失败", { tone: "danger" });
+    toast(t("devices.typeChangeFailed"), { tone: "danger" });
   }
 }
 
@@ -415,7 +421,7 @@ async function submitDeviceRename(device, input, save, errorBox) {
   const name = input.value.trim();
   errorBox.hidden = true;
   if (!name || name.length > 64) {
-    errorBox.textContent = "设备名称需要 1 到 64 个字符";
+    errorBox.textContent = t("devices.nameLength");
     errorBox.hidden = false;
     return;
   }
@@ -431,7 +437,7 @@ async function submitDeviceRename(device, input, save, errorBox) {
       body: JSON.stringify({ name }),
     });
     if (!result.response.ok) {
-      errorBox.textContent = result.data.error || "保存名称失败";
+      errorBox.textContent = result.data.error || t("devices.saveNameFailed");
       errorBox.hidden = false;
       return;
     }
@@ -442,10 +448,10 @@ async function submitDeviceRename(device, input, save, errorBox) {
     // Refresh the store so the list cards and the sidebar follow the rename.
     await refreshDevices().catch(() => {});
     emitDevicesChanged();
-    toast("设备名称已更新");
+    toast(t("devices.nameUpdated"));
   } catch (error) {
     if (isUnauthorized(error)) return;
-    errorBox.textContent = "保存名称失败";
+    errorBox.textContent = t("devices.saveNameFailed");
     errorBox.hidden = false;
   } finally {
     save.disabled = false;
@@ -467,10 +473,10 @@ function idLine(id) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "secondary";
-  button.textContent = "复制 ID";
+  button.textContent = t("devices.copyId");
   button.addEventListener("click", (event) => {
     event.stopPropagation();
-    flashLabel(event.currentTarget, id, "复制 ID");
+    flashLabel(event.currentTarget, id, t("devices.copyId"));
   });
   line.append(code, button);
   return line;
@@ -481,29 +487,29 @@ function detailTestButton(device) {
   const test = document.createElement("button");
   test.type = "button";
   test.className = "secondary";
-  test.textContent = "发送测试消息";
+  test.textContent = t("devices.sendTest");
   test.addEventListener("click", async (event) => {
     event.stopPropagation();
     test.disabled = true;
     const previous = test.textContent;
-    test.textContent = "发送中…";
+    test.textContent = t("devices.sending");
     try {
       const sent = await api(`/api/v1/devices/${device.id}/test`, { method: "POST", body: "{}" });
       if (!sent.response.ok) {
-        toast(sent.data.error || "测试失败", { tone: "danger" });
+        toast(sent.data.error || t("devices.testFailed"), { tone: "danger" });
         return;
       }
       const code = sent.data.code || "";
-      toast(code ? `测试短信已写入收件箱（验证码 ${code}）` : "测试短信已写入收件箱", {
+      toast(code ? t("devices.testSentWithCode", { code }) : t("devices.testSent"), {
         href: "/",
-        linkLabel: "去收件箱查看",
+        linkLabel: t("devices.viewInbox"),
       });
       noteDeviceSeen(device.id, Date.now());
       await refreshDevices().catch(() => {});
       emitDevicesChanged();
     } catch (error) {
       if (isUnauthorized(error)) return;
-      toast("测试失败", { tone: "danger" });
+      toast(t("devices.testFailed"), { tone: "danger" });
     } finally {
       test.disabled = false;
       test.textContent = previous;
@@ -526,11 +532,11 @@ function reopenDeviceDetail(device) {
 export async function runPush(device, action) {
   const message = pushConfirm(action, device.name);
   if (!message) return;
-  const titles = { issue: "生成推送链接", rotate: "轮换接口", revoke: "撤销推送链接" };
+  const titles = { issue: t("devices.issuePushLink"), rotate: t("devices.rotateEndpoint"), revoke: t("devices.revokePushLink") };
   const confirmed = await openModal({
-    title: titles[action] || "确认操作",
+    title: titles[action] || t("devices.confirmAction"),
     text: message,
-    confirmLabel: "确定",
+    confirmLabel: t("common.confirm"),
     danger: action === "revoke",
   });
   if (!confirmed) return;
@@ -540,28 +546,28 @@ export async function runPush(device, action) {
       body: JSON.stringify({ action }),
     });
     if (!result.response.ok) {
-      toast(result.data.error || "操作失败", { tone: "danger" });
+      toast(result.data.error || t("devices.actionFailed"), { tone: "danger" });
       return;
     }
     // The push URL is stored server-side now, so the refreshed drawer and
     // cards simply show the new link; no one-time credential box needed.
     await refreshDevices().catch(() => {});
     const fresh = getDevices().find((item) => item.id === device.id) || device;
-    toast(action === "revoke" ? "推送链接已撤销" : "新的推送链接已生效");
+    toast(action === "revoke" ? t("devices.pushRevoked") : t("devices.pushReady"));
     if (deviceDetailState?.id === device.id) reopenDeviceDetail(fresh);
     emitDevicesChanged();
   } catch (error) {
     if (isUnauthorized(error)) return;
-    toast("操作失败", { tone: "danger" });
+    toast(t("devices.actionFailed"), { tone: "danger" });
   }
 }
 
 export async function removeDevice(device) {
   const name = String(device.name || "");
   const confirmed = await openModal({
-    title: `删除设备「${name}」？`,
-    text: "该设备已接收的所有短信也会被一并删除，无法恢复。",
-    confirmLabel: "删除",
+    title: t("devices.deleteDeviceTitle", { name }),
+    text: t("devices.deleteDeviceText"),
+    confirmLabel: t("common.delete"),
     danger: true,
     dismissible: false,
     requireText: name,
@@ -570,7 +576,7 @@ export async function removeDevice(device) {
   try {
     const deleted = await api(`/api/v1/devices/${device.id}`, { method: "DELETE" });
     if (!deleted.response.ok) {
-      toast(deleted.data.error || "删除失败", { tone: "danger" });
+      toast(deleted.data.error || t("devices.deleteFailed"), { tone: "danger" });
       return;
     }
     if (deviceDetailState?.id === device.id) closeDeviceDetail();
@@ -581,10 +587,34 @@ export async function removeDevice(device) {
       await new Promise((resolve) => window.setTimeout(resolve, reduce ? 0 : 180));
     }
     await refreshDevices().catch(() => {});
-    toast(`已删除「${name}」`);
+    toast(t("devices.deleted", { name }));
     emitDevicesChanged();
   } catch (error) {
     if (isUnauthorized(error)) return;
-    toast("删除失败", { tone: "danger" });
+    toast(t("devices.deleteFailed"), { tone: "danger" });
+  }
+}
+
+function rerenderDeviceDetail() {
+  const state = deviceDetailState;
+  if (!state) return;
+  const { root, device, entry } = state;
+  const activeTab = root.querySelector("[data-device-tab].is-active")?.dataset.deviceTab || "";
+  const view = describeDevice(device, entry?.message || null);
+  const title = root.querySelector(".ui-drawer-title");
+  if (title) title.textContent = String(device?.name || t("common.unnamedDevice"));
+  const meta = root.querySelector(".device-detail-meta-line");
+  if (meta) meta.textContent = `${presenceLabel(deviceStateOf(device))} · ${view.platformBadge}`;
+  const use = root.querySelector(".device-detail-title-row use");
+  if (use) use.setAttribute("href", `/icons.svg#${view.platform.icon}`);
+  const overlay = root.querySelector(".ui-drawer-overlay");
+  if (overlay) overlay.setAttribute("aria-label", t("devices.closeDetail"));
+  const back = root.querySelector(".device-detail-back");
+  if (back) back.textContent = t("common.back");
+  const body = root.querySelector(".device-detail-body");
+  if (!body) return;
+  body.replaceChildren(buildDeviceDetailShell(device, entry));
+  if (activeTab && activeTab !== "overview") {
+    body.querySelector(`[data-device-tab="${activeTab}"]`)?.click();
   }
 }

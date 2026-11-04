@@ -2,6 +2,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { copyBytes } from "../src/auth";
 import { errorText } from "../src/log";
+import { MESSAGES } from "../public/i18n.js";
+
+// A sentence that moved into the dictionary still has to be present there,
+// and the page still has to reference that key.
+function expectCopy(source: string, key: string, zh: string) {
+  expect(MESSAGES["zh-CN"][key], key).toContain(zh);
+  expect(MESSAGES.en[key], key).toBeTruthy();
+  expect(source, key).toContain(key);
+}
 
 const pages = ["public/index.html", "public/devices.html", "public/notify.html", "public/api-mcp.html", "public/users.html"];
 
@@ -113,7 +122,7 @@ describe("site consistency", () => {
     expect(apimcp).toContain("if (!result.response.ok)");
     expect(devices).toContain("flashLabel");
     expect(readFileSync("public/inbox.js", "utf8")).toContain("flashLabel");
-    expect(readFileSync("public/common.js", "utf8")).toContain("还没有设备。");
+    expectCopy(readFileSync("public/common.js", "utf8"), "devices.sidebarEmpty", "还没有设备");
     const shell = readFileSync("public/shell.js", "utf8");
     const store = readFileSync("public/device-store.js", "utf8");
     const common = readFileSync("public/common.js", "utf8");
@@ -187,7 +196,7 @@ describe("site consistency", () => {
     const shellCss = readFileSync("public/css/shell.css", "utf8");
     expect(common).toContain('`/devices.html#dev-${encodeURIComponent(id)}`');
     expect(common).toContain('"/devices.html"');
-    expect(common).toContain("还没有设备。");
+    expectCopy(common, "devices.sidebarEmpty", "还没有设备");
     expect(common).not.toContain("sidebar-empty-add");
     expect(common).not.toContain('key: "all"');
     expect(shellCss).not.toContain(".sidebar-add-row");
@@ -288,7 +297,8 @@ describe("site consistency", () => {
     expect(html).toContain('id="notify-status"');
     const external = html.slice(html.indexOf('id="npanel-external"'), html.indexOf("</section>", html.indexOf('id="npanel-external"')));
     expect(external).toContain("hidden");
-    expect(external).toContain("<h2>外部推送</h2>");
+    expect(external).toMatch(/<h2[^>]*data-i18n="notify.tabExternal"[^>]*>外部推送<\/h2>/);
+    expect(MESSAGES["zh-CN"]["notify.tabExternal"]).toBe("外部推送");
     expect(external).not.toContain("<button");
     expect(external).not.toContain("<form");
     const history = html.slice(html.indexOf('id="npanel-history"'), html.indexOf("</section>", html.indexOf('id="npanel-history"')));
@@ -302,7 +312,7 @@ describe("site consistency", () => {
     expect(js).toContain('querySelector("#npanel-history")');
     expect(js).toContain("addButton.hidden = name !== \"system\"");
     expect(js).toContain("/api/v1/notify/history?limit=50&offset=");
-    expect(js).toContain("还没有推送记录。短信推送到渠道后会记在这里。");
+    expectCopy(js, "notify.historyEmpty", "还没有推送记录。短信推送到渠道后会记在这里");
     expect(css).toMatch(/\.notify-toolbar \{[^}]*display: flex;[^}]*flex-wrap: wrap;/);
     expect(css).toContain(".notify-actions { display: flex; gap: 8px; margin-left: auto; }");
   });
@@ -521,14 +531,16 @@ describe("site consistency", () => {
     for (const heading of ["管理员账号", "会话管理", "两步验证", "系统信息"]) {
       expect(html).toContain(heading);
     }
-    expect(html).toContain("<title>系统管理 · SMSinBox</title>");
-    expect(html).toContain('<h1 class="topbar-title">系统管理</h1>');
+    expect(html).toMatch(/<title[^>]*>系统管理 · SMSinBox<\/title>/);
+    expectCopy(html, "users.documentTitle", "系统管理 · SMSinBox");
+    expect(html).toMatch(/<h1 class="topbar-title"[^>]*>系统管理<\/h1>/);
+    expect(MESSAGES["zh-CN"]["nav.users"]).toBe("系统管理");
     // The only username surface is the display-only profile nickname form;
     // there is still no form that changes a login username.
     expect(html).not.toContain('id="username-form"');
     expect(html).toContain('id="profile-form"');
     expect(html).toContain('id="profile-username"');
-    expect(html).toContain("仅用于显示与头像：与 GitHub 账号同名时显示其头像，其它名字按名生成头像。不用于登录。");
+    expect(html).toContain("仅用于显示与头像：与 GitHub 账号同名时显示其头像，其它名字按名生成头像。不用于登录");
     expect(html).toContain('id="password-form"');
     expect(html).toContain('name="current_password"');
     expect(html).toContain('id="session-list"');
@@ -634,7 +646,7 @@ describe("site consistency", () => {
     for (const code of ["github_forbidden", "github_state", "github_exchange"]) {
       expect(loginJs).toContain(code);
     }
-    expect(loginJs).toContain("该 GitHub 账号无权登录本系统");
+    expectCopy(loginJs, "auth.githubForbidden", "该 GitHub 账号无权登录本系统");
     expect(loginJs).toContain("history.replaceState");
 
     const users = readFileSync("public/users.html", "utf8");
@@ -647,7 +659,7 @@ describe("site consistency", () => {
     expect(users).toContain('id="github-login-name"');
     expect(usersJs).toContain("/api/v1/auth/github/unbind");
     expect(usersJs).toContain("github_enabled");
-    expect(usersJs).toContain("GitHub 已绑定");
+    expectCopy(usersJs, "users.githubBound", "GitHub 已绑定");
     expect(usersJs).not.toContain("window.confirm");
 
     // Custom avatar upload lives in the account panel: file picker,
@@ -676,8 +688,8 @@ describe("site consistency", () => {
     expect(users).toContain('id="features-panel"');
     expect(users).toContain("功能设置");
     expect(users).toContain("短信翻译");
-    expect(usersJs).toContain("已开启，新收到的非简体中文短信会自动翻译成简体中文");
-    expect(usersJs).toContain("开启后，新收到的非简体中文短信会自动翻译成简体中文");
+    expect(MESSAGES["zh-CN"]["users.translateOnDetail"]).toBe("已开启，新收到的非简体中文短信会自动翻译成简体中文");
+    expect(MESSAGES["zh-CN"]["users.translateOffDetail"]).toBe("开启后，新收到的非简体中文短信会自动翻译成简体中文");
     expect(users).toContain('id="translate-toggle"');
     expect(usersJs).toContain("/api/v1/me/preferences");
     expect(usersJs).toContain('method: "PATCH"');
@@ -687,9 +699,10 @@ describe("site consistency", () => {
     const inbox = readFileSync("public/inbox.js", "utf8");
     expect(inbox).toContain("translated_content");
     expect(inbox).toContain("source_lang");
-    expect(inbox).toContain("已翻译 · 来自");
-    expect(inbox).toContain("短信翻译");
-    expect(inbox).toContain('"zh-Hant": "繁体中文"');
+    expectCopy(inbox, "inbox.translatedFrom", "已翻译 · 来自");
+    expectCopy(inbox, "inbox.translationHeading", "短信翻译");
+    expect(inbox).toContain('"zh-Hant": "lang.zh-Hant"');
+    expect(MESSAGES["zh-CN"]["lang.zh-Hant"]).toBe("繁体中文");
     expect(inbox).toContain("message-translated");
     expect(inbox).toContain("message-card");
 
@@ -781,24 +794,28 @@ describe("site consistency", () => {
     expect(inbox).toContain("state.manageMode ? rowSelectNode(message) : avatarNode(message)");
     expect(inbox).toContain("paintManageButton()");
     expect(inbox).toContain('manageButton.classList.toggle("danger", deleting)');
-    expect(inbox).toContain("删除（${count}）");
+    expectCopy(inbox, "inbox.deleteCount", "删除（{count}）");
     expect(css).toContain(".avatar .message-check");
 
     // Both delete flows share the confirm dialog and the delete endpoint.
     expect(inbox).toContain('"/api/v1/messages/delete"');
     expect(inbox).toContain("requestDeleteMessages(ids)");
     expect(inbox).toContain("requestDeleteMessages([message.id])");
-    expect(inbox).toContain("删除后不可恢复");
+    expectCopy(inbox, "inbox.deleteManyConfirm", "删除后不可恢复");
+    expectCopy(inbox, "inbox.deleteOneConfirm", "删除后不可恢复");
 
     // Detail cards carry their own copy buttons; the old standalone
     // copy-full action is gone and a full-width danger delete sits in
     // its place.
-    expect(inbox).toContain('cardCopyButton("复制验证码"');
-    expect(inbox).toContain('cardCopyButton("复制译文"');
-    expect(inbox).toContain('cardCopyButton("复制原文"');
+    expect(inbox).toContain('cardCopyButton(t("inbox.copyCode")');
+    expectCopy(inbox, "inbox.copyCode", "复制验证码");
+    expect(inbox).toContain('cardCopyButton(t("inbox.copyTranslation")');
+    expectCopy(inbox, "inbox.copyTranslation", "复制译文");
+    expect(inbox).toContain('cardCopyButton(t("inbox.copyOriginal")');
+    expectCopy(inbox, "inbox.copyOriginal", "复制原文");
     expect(inbox).not.toContain("复制全文");
     expect(inbox).toContain('"danger message-detail-delete"');
-    expect(inbox).toContain("删除这条短信");
+    expectCopy(inbox, "inbox.deleteMessage", "删除这条短信");
     expect(css).toContain(".message-card-head");
     expect(css).toContain(".message-detail-delete");
   });

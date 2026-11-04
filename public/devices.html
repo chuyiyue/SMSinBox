@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="robots" content="noindex, nofollow" />
-    <title>设备 · SMSinBox</title>
+    <title data-i18n="devices.documentTitle">设备 · SMSinBox</title>
     <link rel="icon" href="/logo.png" type="image/png" />
     <script src="/theme-boot.js"></script>
     <link rel="stylesheet" href="/style.css" />
@@ -17,16 +17,16 @@
       </aside>
       <div class="main">
         <header class="topbar">
-          <button id="menu-toggle" class="ghost icon-btn" type="button" aria-label="打开导航" aria-expanded="false" aria-controls="sidebar">
+          <button id="menu-toggle" class="ghost icon-btn" type="button" aria-label="打开导航" aria-expanded="false" aria-controls="sidebar" data-i18n-attr="aria-label:shell.openNav">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-menu"/></svg>
           </button>
-          <h1 class="topbar-title">设备</h1>
+          <h1 class="topbar-title" data-i18n="devices.heading">设备</h1>
           <div class="topbar-actions">
             <button class="ghost icon-btn" type="button" data-theme-toggle aria-label="主题：自动">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-sun"/></svg>
               <span class="btn-label sr-only">主题：自动</span>
             </button>
-            <button id="refresh" class="ghost icon-btn" type="button" aria-label="刷新">
+            <button id="refresh" class="ghost icon-btn" type="button" aria-label="刷新" data-i18n-attr="aria-label:shell.refresh">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-refresh"/></svg>
             </button>
           </div>
@@ -39,102 +39,102 @@
           <template id="add-device-template">
             <section class="add-device-panel">
               <div class="add-device-head">
-                <h2 id="add-device-title">添加设备</h2>
+                <h2 id="add-device-title" data-i18n="devices.addDevice">添加设备</h2>
               </div>
               <form id="device-form" class="add-device-form">
-                <label class="sr-only" for="device-name">设备名称</label>
-                <input id="device-name" name="name" required maxlength="64" placeholder="设备名称，例如：我的 Pixel" autocomplete="off" />
+                <label class="sr-only" for="device-name" data-i18n="devices.deviceName">设备名称</label>
+                <input id="device-name" name="name" required maxlength="64" placeholder="设备名称，例如：我的 Pixel" autocomplete="off" data-i18n-attr="placeholder:devices.namePlaceholder" />
                 <div id="device-platform-mount"></div>
-                <button type="submit">添加设备</button>
+                <button type="submit" data-i18n="devices.addDevice">添加设备</button>
               </form>
-              <p class="subtle">设备类型只是预选：短信上报的类型与它不一致时，会按上报的类型显示。</p>
+              <p class="subtle" data-i18n="devices.typePreviewNote">设备类型只是预选：短信上报的类型与它不一致时，会按上报的类型显示</p>
               <div id="token-box" class="token-box stack" hidden role="status">
-                <p class="callout note">Bearer token 只显示这一次，关闭后无法再次查看</p>
+                <p class="callout note" data-i18n="devices.tokenOnce">Bearer token 只显示这一次，关闭后无法再次查看</p>
                 <div id="bearer-wrap" class="stack" hidden>
-                  <strong>Bearer token</strong>
+                  <strong data-i18n="devices.bearerToken">Bearer token</strong>
                   <code id="token-value" class="code-block"></code>
-                  <p class="subtle">用于请求头 <code>Authorization: Bearer &lt;token&gt;</code>，只显示这一次；丢失后删除设备并新建。</p>
+                  <p class="subtle"><span data-i18n="devices.tokenUsageBefore">用于请求头 </span><code>Authorization: Bearer &lt;token&gt;</code><span data-i18n="devices.tokenUsageAfter">，只显示这一次；丢失后删除设备并新建</span></p>
                   <div class="actions">
-                    <button id="copy-token" class="secondary" type="button">复制 token</button>
+                    <button id="copy-token" class="secondary" type="button" data-i18n="devices.copyToken">复制 token</button>
                   </div>
                 </div>
                 <div id="push-wrap" class="stack" hidden>
-                  <strong>推送链接</strong>
+                  <strong data-i18n="devices.pushLink">推送链接</strong>
                   <code id="push-url-value" class="code-block"></code>
-                  <p class="subtle">贴进快捷指令使用。它等同设备密钥，不要外传；已保存，可随时在设备详情「推送配置」里查看。</p>
+                  <p class="subtle" data-i18n="devices.pushLinkHint">贴进快捷指令使用。它等同设备密钥，不要外传；已保存，可随时在设备详情「推送配置」里查看</p>
                   <div class="actions">
-                    <button id="copy-push-url" class="secondary" type="button">复制推送链接</button>
+                    <button id="copy-push-url" class="secondary" type="button" data-i18n="devices.copyPushUrl">复制推送链接</button>
                   </div>
                 </div>
-                <label><input id="token-saved" type="checkbox" /> 我已保存好</label>
+                <label data-i18n="devices.savedConfirm"><input id="token-saved" type="checkbox" /> 我已保存好</label>
                 <div class="add-device-actions">
-                  <button id="token-done" type="button" disabled>完成</button>
+                  <button id="token-done" type="button" disabled data-i18n="devices.done">完成</button>
                 </div>
               </div>
             </section>
           </template>
 
           <div class="devices-toolbar">
-            <div class="tabs api-tabs devices-page-tabs" role="tablist" aria-label="设备页面视图">
-              <button class="tab is-active" id="dtab-list" type="button" role="tab" aria-selected="true" aria-controls="dpanel-list">设备列表</button>
-              <button class="tab" id="dtab-guide" type="button" role="tab" aria-selected="false" aria-controls="dpanel-guide">接入指引</button>
+            <div class="tabs api-tabs devices-page-tabs" role="tablist" aria-label="设备页面视图" data-i18n-attr="aria-label:devices.pageTabs">
+              <button class="tab is-active" id="dtab-list" type="button" role="tab" aria-selected="true" aria-controls="dpanel-list" data-i18n="devices.tabList">设备列表</button>
+              <button class="tab" id="dtab-guide" type="button" role="tab" aria-selected="false" aria-controls="dpanel-guide" data-i18n="devices.tabGuide">接入指引</button>
             </div>
             <div class="devices-actions">
-              <button id="add-group" class="ghost" type="button">新建分组</button>
-              <button id="add-device" class="primary" type="button">添加设备</button>
+              <button id="add-group" class="ghost" type="button" data-i18n="devices.newGroup">新建分组</button>
+              <button id="add-device" class="primary" type="button" data-i18n="devices.addDevice">添加设备</button>
             </div>
           </div>
 
           <section class="devices-section" id="dpanel-list" role="tabpanel" aria-labelledby="devices-title">
             <div class="section-head">
-              <h2 id="devices-title">我的设备</h2>
+              <h2 id="devices-title" data-i18n="devices.myDevices">我的设备</h2>
             </div>
             <div id="devices" class="devices cards"></div>
           </section>
 
-          <section id="dpanel-guide" role="tabpanel" aria-label="接入指引" hidden>
+          <section id="dpanel-guide" role="tabpanel" aria-label="接入指引" data-i18n-attr="aria-label:devices.tabGuide" hidden>
             <div id="device-guide" class="device-guide stack"></div>
           </section>
 
           <template id="api-config-template">
             <section class="api-config">
-              <h3 class="api-config-title">API 配置</h3>
+              <h3 class="api-config-title" data-i18n="guide.api.configTitle">API 配置</h3>
               <dl class="api-facts">
                 <div>
-                  <dt>请求地址</dt>
+                  <dt data-i18n="guide.api.url">请求地址</dt>
                   <dd>
                     <code id="sms-url"></code>
-                    <button id="copy-sms-url" class="secondary" type="button">复制地址</button>
+                    <button id="copy-sms-url" class="secondary" type="button" data-i18n="devices.copyAddress">复制地址</button>
                   </dd>
                 </div>
                 <div>
-                  <dt>请求方法</dt>
+                  <dt data-i18n="guide.api.method">请求方法</dt>
                   <dd><code>POST</code></dd>
                 </div>
                 <div>
-                  <dt>Authorization</dt>
+                  <dt data-i18n="guide.api.authorization">Authorization</dt>
                   <dd>
-                    <code>Bearer &lt;设备 token&gt;</code>
-                    <button id="copy-auth" class="secondary" type="button">复制</button>
+                    <code data-i18n="guide.api.bearerValue">Bearer &lt;设备 token&gt;</code>
+                    <button id="copy-auth" class="secondary" type="button" data-i18n="common.copy">复制</button>
                   </dd>
                 </div>
                 <div>
-                  <dt>Content-Type</dt>
+                  <dt data-i18n="guide.api.contentType">Content-Type</dt>
                   <dd><code>application/json</code></dd>
                 </div>
               </dl>
-              <p class="subtle">限流：60 次 / 分钟。</p>
+              <p class="subtle" data-i18n="guide.api.rateLimit">限流：60 次 / 分钟</p>
               <details class="fold">
-                <summary>JSON 请求体模板</summary>
+                <summary data-i18n="guide.api.jsonTemplate">JSON 请求体模板</summary>
                 <div class="code-block">
-                  <button id="copy-template" class="secondary copy-corner" type="button">复制模板</button>
+                  <button id="copy-template" class="secondary copy-corner" type="button" data-i18n="devices.copyTemplate">复制模板</button>
                   <pre id="android-template"></pre>
                 </div>
               </details>
               <details class="fold">
-                <summary>curl 示例</summary>
+                <summary data-i18n="guide.api.curlSample">curl 示例</summary>
                 <div class="code-block">
-                  <button id="copy-curl" class="secondary copy-corner" type="button">复制</button>
+                  <button id="copy-curl" class="secondary copy-corner" type="button" data-i18n="common.copy">复制</button>
                   <pre id="curl-sample"></pre>
                 </div>
               </details>
@@ -143,95 +143,95 @@
 
           <template id="setup-guide-template">
             <details class="fold setup-details" id="setup-details">
-              <summary id="setup-title">接入指引（iOS / Android / 通用 API）</summary>
-              <p class="subtle">三种方式都是把短信 POST 到你的收件箱，区别只在手机端怎么发。先在「设备列表」里添加设备，再按平台看对应步骤。带底纹的值点一下就能复制。</p>
-              <div class="tabs" role="tablist" aria-label="配置平台">
-                <button class="tab is-active" type="button" data-tab="ios" role="tab" aria-selected="true">iOS</button>
-                <button class="tab" type="button" data-tab="android" role="tab" aria-selected="false">Android</button>
-                <button class="tab" type="button" data-tab="api" role="tab" aria-selected="false">通用 API</button>
+              <summary id="setup-title" data-i18n="guide.title">接入指引（iOS / Android / 通用 API）</summary>
+              <p class="subtle" data-i18n="guide.intro">三种方式都是把短信 POST 到你的收件箱，区别只在手机端怎么发。先在「设备列表」里添加设备，再按平台看对应步骤。带底纹的值点一下就能复制</p>
+              <div class="tabs" role="tablist" aria-label="配置平台" data-i18n-attr="aria-label:guide.platformTabs">
+                <button class="tab is-active" type="button" data-tab="ios" role="tab" aria-selected="true" data-i18n="guide.tab.ios">iOS</button>
+                <button class="tab" type="button" data-tab="android" role="tab" aria-selected="false" data-i18n="guide.tab.android">Android</button>
+                <button class="tab" type="button" data-tab="api" role="tab" aria-selected="false" data-i18n="guide.tab.api">通用 API</button>
               </div>
               <div data-panel="ios">
-                <p>用 iPhone 自带的「快捷指令」自动化转发，不用装 App。</p>
+                <p data-i18n="guide.ios.intro">用 iPhone 自带的「快捷指令」自动化转发，不用装 App</p>
                 <ol>
-                  <li><strong>先复制推送链接。</strong>打开这台设备的「推送配置」，复制它的推送链接，下一步要用。链接会一直保存，以后也能随时回来看；万一泄露，在设备菜单里点「轮换接口」换一条新的。</li>
-                  <li><strong>安装快捷指令。</strong>在 iPhone 上点「导入快捷指令」，会直接跳到快捷指令 App 导入做好的快捷指令（已签名）；导入后把第 1 步的推送链接填到指令里预留的位置，就能用了。只用这个链接，不要装来路不明的分享。<br /><a class="button" href="https://www.icloud.com/shortcuts/f7880f724c5443aebffc1ab5c5b7788f" target="_blank" rel="noopener">导入快捷指令</a> <button type="button" class="copy-value" data-copy="https://www.icloud.com/shortcuts/f7880f724c5443aebffc1ab5c5b7788f">https://www.icloud.com/shortcuts/f7880f724c5443aebffc1ab5c5b7788f</button><br />在电脑上看这页时，点链接可以先复制下来、发到手机上再打开。系统拒绝导入时，可以下载 <a class="button secondary" href="/api/v1/ios/shortcut?variant=all" download="SMSinBox-iOS.shortcut">未签名版文件</a> 再试，但 iOS 15 及以上经常拒绝未签名文件，优先用上面的导入。</li>
-                  <li><strong>建自动化。</strong>打开「快捷指令 → 自动化」，给这条快捷指令新建「信息」触发器：
+                  <li><strong data-i18n="guide.ios.copyTitle">先复制推送链接</strong><span data-i18n="guide.ios.copyBody">打开这台设备的「推送配置」，复制它的推送链接，下一步要用。链接会一直保存，以后也能随时回来看；万一泄露，在设备菜单里点「轮换接口」换一条新的</span></li>
+                  <li><strong data-i18n="guide.ios.installTitle">安装快捷指令</strong><span data-i18n="guide.ios.installBody">在 iPhone 上点「导入快捷指令」，会直接跳到快捷指令 App 导入做好的快捷指令（已签名）；导入后把第 1 步的推送链接填到指令里预留的位置，就能用了。只用这个链接，不要装来路不明的分享</span><br /><a class="button" href="https://www.icloud.com/shortcuts/f7880f724c5443aebffc1ab5c5b7788f" target="_blank" rel="noopener" data-i18n="guide.ios.importLink">导入快捷指令</a> <button type="button" class="copy-value" data-copy="https://www.icloud.com/shortcuts/f7880f724c5443aebffc1ab5c5b7788f">https://www.icloud.com/shortcuts/f7880f724c5443aebffc1ab5c5b7788f</button><br /><span data-i18n="guide.ios.installDesktop">在电脑上看这页时，点链接可以先复制下来、发到手机上再打开。系统拒绝导入时，可以下载 </span><a class="button secondary" href="/api/v1/ios/shortcut?variant=all" download="SMSinBox-iOS.shortcut" data-i18n="guide.ios.unsigned">未签名版文件</a><span data-i18n="guide.ios.installAfter"> 再试，但 iOS 15 及以上经常拒绝未签名文件，优先用上面的导入</span></li>
+                  <li><strong data-i18n="guide.ios.autoTitle">建自动化</strong><span data-i18n="guide.ios.autoBody">打开「快捷指令 → 自动化」，给这条快捷指令新建「信息」触发器：</span>
                     <ul>
-                      <li>条件选「信息包含一个空格」，所有短信都会转发（短码发来的短信没有空格，这类会漏掉）；只收验证码时，条件改成包含「验证码」，并再建一条包含 <code>code</code> 的。</li>
-                      <li>短信内容要选「信息 › 内容」，不要选「快捷指令输入」，选错会收不到正文。</li>
-                      <li>打开自动化开关，关掉「运行前询问」；有「锁定时允许运行」也一并打开。手机重启后要先解锁一次，自动化才会恢复。</li>
+                      <li><span data-i18n="guide.ios.autoFilterBefore">条件选「信息包含一个空格」，所有短信都会转发（短码发来的短信没有空格，这类会漏掉）；只收验证码时，条件改成包含「验证码」，并再建一条包含 </span><code>code</code><span data-i18n="guide.ios.autoFilterAfter"> 的</span></li>
+                      <li data-i18n="guide.ios.autoContent">短信内容要选「信息 › 内容」，不要选「快捷指令输入」，选错会收不到正文</li>
+                      <li data-i18n="guide.ios.autoSwitch">打开自动化开关，关掉「运行前询问」；有「锁定时允许运行」也一并打开。手机重启后要先解锁一次，自动化才会恢复</li>
                     </ul>
                   </li>
-                  <li><strong>发一条短信测试。</strong>用另一台手机给这台 iPhone 发一条包含「验证码 123456」的短信：收件箱里能看到、设备卡的「最近活动」也更新了，就是接通了。设备卡上的「发送测试消息」只往服务器里写一条，不经过手机，没法用它验证自动化；收到真实短信后，设备卡会标明已收到 iOS 短信。</li>
+                  <li><strong data-i18n="guide.ios.testTitle">发一条短信测试</strong><span data-i18n="guide.ios.testBody">用另一台手机给这台 iPhone 发一条包含「验证码 123456」的短信：收件箱里能看到、设备卡的「最近活动」也更新了，就是接通了。设备卡上的「发送测试消息」只往服务器里写一条，不经过手机，没法用它验证自动化；收到真实短信后，设备卡会标明已收到 iOS 短信</span></li>
                 </ol>
-                <h3>出问题时</h3>
+                <h3 data-i18n="guide.ios.troubleTitle">出问题时</h3>
                 <ul>
-                  <li>返回 401「推送链接无效 / 已撤销」：链接填错或已被轮换，回「推送配置」重新复制。</li>
-                  <li>返回 429「请求过于频繁」：等一分钟再试。</li>
-                  <li>自动化停在「获取 URL 内容」或没反应：多半是链接没填上，或当时网络不通。</li>
-                  <li>一直收不到：回第 3 步检查内容变量是不是「信息 › 内容」。自动化开关的状态在本页看不到，只能在手机上确认。</li>
+                  <li data-i18n="guide.ios.trouble401">返回 401「推送链接无效 / 已撤销」：链接填错或已被轮换，回「推送配置」重新复制</li>
+                  <li data-i18n="guide.ios.trouble429">返回 429「请求过于频繁」：等一分钟再试</li>
+                  <li data-i18n="guide.ios.troubleUrl">自动化停在「获取 URL 内容」或没反应：多半是链接没填上，或当时网络不通</li>
+                  <li data-i18n="guide.ios.troubleMissing">一直收不到：回第 3 步检查内容变量是不是「信息 › 内容」。自动化开关的状态在本页看不到，只能在手机上确认</li>
                 </ul>
                 <details class="fold">
-                  <summary>进阶：不用快捷指令文件，手动添加「获取 URL 内容」</summary>
+                  <summary data-i18n="guide.ios.manualSummary">进阶：不用快捷指令文件，手动添加「获取 URL 内容」</summary>
                   <ol>
-                    <li>按第 3 步新建「信息」自动化，选「立即运行」并关闭询问。</li>
-                    <li>加判断：「信息 › 内容」为空时停止；「信息 › 发件人」为空时用文本「（发件人为空）」，结果存为变量「发件人」。</li>
-                    <li>加「文本」动作填入推送链接，再加「获取 URL 内容」：URL 选这个文本，方法选 POST。</li>
-                    <li>请求头只加一对：键填 <button type="button" class="copy-value" data-copy="Content-Type">Content-Type</button>、值填 <button type="button" class="copy-value" data-copy="application/json">application/json</button>。在快捷指令里它们是分开的两个输入框，点各自复制，不要加 Authorization。</li>
-                    <li>请求体选 JSON：<code>from</code> 用变量「发件人」，<code>content</code> 用「信息 › 内容」，<code>timestamp</code> 用当前日期，<code>device</code> 填 <code>iOS</code>。</li>
+                    <li data-i18n="guide.ios.manual1">按第 3 步新建「信息」自动化，选「立即运行」并关闭询问</li>
+                    <li data-i18n="guide.ios.manual2">加判断：「信息 › 内容」为空时停止；「信息 › 发件人」为空时用文本「（发件人为空）」，结果存为变量「发件人」</li>
+                    <li data-i18n="guide.ios.manual3">加「文本」动作填入推送链接，再加「获取 URL 内容」：URL 选这个文本，方法选 POST</li>
+                    <li><span data-i18n="guide.ios.manual4Before">请求头只加一对：键填 </span><button type="button" class="copy-value" data-copy="Content-Type">Content-Type</button><span data-i18n="guide.ios.manual4Mid">、值填 </span><button type="button" class="copy-value" data-copy="application/json">application/json</button><span data-i18n="guide.ios.manual4After">。在快捷指令里它们是分开的两个输入框，点各自复制，不要加 Authorization</span></li>
+                    <li><span data-i18n="guide.ios.manual5a">请求体选 JSON：</span><code>from</code><span data-i18n="guide.ios.manual5b"> 用变量「发件人」，</span><code>content</code><span data-i18n="guide.ios.manual5c"> 用「信息 › 内容」，</span><code>timestamp</code><span data-i18n="guide.ios.manual5d"> 用当前日期，</span><code>device</code><span data-i18n="guide.ios.manual5e"> 填 </span><code>iOS</code><span data-i18n="guide.ios.manual5f"></span></li>
                   </ol>
                 </details>
                 <details class="fold">
-                  <summary>已有旧快捷指令（Bearer 方式）</summary>
+                  <summary data-i18n="guide.ios.legacySummary">已有旧快捷指令（Bearer 方式）</summary>
                   <ol>
-                    <li>已经装好的旧快捷指令不用改，继续 POST 到 <button type="button" class="copy-value guide-sms-url"></button>。</li>
-                    <li>请求头带 <button type="button" class="copy-value guide-auth"></button>，再加一对：键 <button type="button" class="copy-value" data-copy="Content-Type">Content-Type</button>、值 <button type="button" class="copy-value" data-copy="application/json">application/json</button>。</li>
-                    <li>请求体字段是 <code>from</code>、<code>content</code>、<code>timestamp</code>、<code>device</code>。其中 <code>device</code>（设备类型）选填：不填按添加设备时预选的类型显示；填了且与预选不一致时，按上报的显示。</li>
-                    <li>设备 token 丢了没法找回，只能删除设备重新添加。</li>
+                    <li><span data-i18n="guide.ios.legacy1Before">已经装好的旧快捷指令不用改，继续 POST 到 </span><button type="button" class="copy-value guide-sms-url"></button><span data-i18n="guide.ios.legacy1After"></span></li>
+                    <li><span data-i18n="guide.ios.legacy2a">请求头带 </span><button type="button" class="copy-value guide-auth" data-i18n="guide.api.authHeader"></button><span data-i18n="guide.ios.legacy2b">，再加一对：键 </span><button type="button" class="copy-value" data-copy="Content-Type">Content-Type</button><span data-i18n="guide.ios.legacy2c">、值 </span><button type="button" class="copy-value" data-copy="application/json">application/json</button><span data-i18n="guide.ios.legacy2d"></span></li>
+                    <li><span data-i18n="guide.ios.legacy3a">请求体字段是 </span><code>from</code><span data-i18n="guide.ios.legacy3b">、</span><code>content</code><span data-i18n="guide.ios.legacy3b">、</span><code>timestamp</code><span data-i18n="guide.ios.legacy3b">、</span><code>device</code><span data-i18n="guide.ios.legacy3c">。其中 </span><code>device</code><span data-i18n="guide.ios.legacy3d">（设备类型）选填：不填按添加设备时预选的类型显示；填了且与预选不一致时，按上报的显示</span></li>
+                    <li data-i18n="guide.ios.legacy4">设备 token 丢了没法找回，只能删除设备重新添加</li>
                   </ol>
                 </details>
               </div>
               <div data-panel="android" hidden>
-                <p>用 SmsForwarder 把短信按 Webhook 转发出来。</p>
+                <p data-i18n="guide.android.intro">用 SmsForwarder 把短信按 Webhook 转发出来</p>
                 <ol>
-                  <li><strong>装 App。</strong>安装 <a href="https://github.com/pppscn/SmsForwarder" rel="noopener noreferrer" target="_blank">SmsForwarder</a>，按提示授予短信、通知权限。</li>
-                  <li><strong>加发送通道。</strong>新建通道，类型选 Webhook，方法选 POST；URL 直接填这台设备的<strong>推送链接</strong>（在设备详情「推送配置」里复制）。用推送链接不需要 Authorization 这类请求头。</li>
-                  <li><strong>填请求体。</strong>用本页上方「API 配置」里的 JSON 请求体模板：<code>{{FROM}}</code> 是发件人、<code>{{SMS}}</code> 是正文、<code>{{RECEIVE_TIME}}</code> 是接收时间，SmsForwarder 发送时会自动替换。</li>
-                  <li><strong>建转发规则。</strong>选短信应用、发件人不限制即可；只想收验证码，可以在规则里加关键字「验证码」，少收无关短信。</li>
-                  <li><strong>测试。</strong>用另一台手机发一条短信，或用 SmsForwarder 自带的发送测试；收件箱里能看到，就是接通了。</li>
+                  <li><strong data-i18n="guide.android.installTitle">装 App</strong><span data-i18n="guide.android.installBefore">安装 </span><a href="https://github.com/pppscn/SmsForwarder" rel="noopener noreferrer" target="_blank">SmsForwarder</a><span data-i18n="guide.android.installAfter">，按提示授予短信、通知权限</span></li>
+                  <li><strong data-i18n="guide.android.channelTitle">加发送通道</strong><span data-i18n="guide.android.channelBefore">新建通道，类型选 Webhook，方法选 POST；URL 直接填这台设备的</span><strong data-i18n="guide.android.pushLink">推送链接</strong><span data-i18n="guide.android.channelAfter">（在设备详情「推送配置」里复制）。用推送链接不需要 Authorization 这类请求头</span></li>
+                  <li><strong data-i18n="guide.android.bodyTitle">填请求体</strong><span data-i18n="guide.android.bodyBefore">用本页上方「API 配置」里的 JSON 请求体模板：</span><code>{{FROM}}</code><span data-i18n="guide.android.bodyFrom"> 是发件人、</span><code>{{SMS}}</code><span data-i18n="guide.android.bodySms"> 是正文、</span><code>{{RECEIVE_TIME}}</code><span data-i18n="guide.android.bodyTime"> 是接收时间，SmsForwarder 发送时会自动替换</span></li>
+                  <li><strong data-i18n="guide.android.ruleTitle">建转发规则</strong><span data-i18n="guide.android.ruleBody">选短信应用、发件人不限制即可；只想收验证码，可以在规则里加关键字「验证码」，少收无关短信</span></li>
+                  <li><strong data-i18n="guide.android.testTitle">测试</strong><span data-i18n="guide.android.testBody">用另一台手机发一条短信，或用 SmsForwarder 自带的发送测试；收件箱里能看到，就是接通了</span></li>
                 </ol>
-                <p class="subtle">也可以走 Bearer 方式：URL 填本页上方「API 配置」的请求地址，再按「通用 API」页签的方式二加请求头。</p>
+                <p class="subtle" data-i18n="guide.android.bearerNote">也可以走 Bearer 方式：URL 填本页上方「API 配置」的请求地址，再按「通用 API」页签的方式二加请求头</p>
               </div>
               <div data-panel="api" hidden>
-                <p>任何能发 HTTP 请求的程序都能接入。两种方式二选一，请求体都是 JSON。</p>
-                <h3>方式一：推送链接（更简单）</h3>
+                <p data-i18n="guide.api.intro">任何能发 HTTP 请求的程序都能接入。两种方式二选一，请求体都是 JSON</p>
+                <h3 data-i18n="guide.api.method1Title">方式一：推送链接（更简单）</h3>
                 <ol>
-                  <li>向这台设备的推送链接发 POST。链接在设备详情「推送配置」里，形如 <code>/api/v1/ingest/</code> 后面跟一串 32 位十六进制密钥。</li>
-                  <li>不用带任何请求头。链接本身就是凭证，不要发给别人；泄露了就点「轮换接口」换一条。</li>
+                  <li><span data-i18n="guide.api.method1Step1Before">向这台设备的推送链接发 POST。链接在设备详情「推送配置」里，形如 </span><code>/api/v1/ingest/</code><span data-i18n="guide.api.method1Step1After"> 后面跟一串 32 位十六进制密钥</span></li>
+                  <li data-i18n="guide.api.method1Step2">不用带任何请求头。链接本身就是凭证，不要发给别人；泄露了就点「轮换接口」换一条</li>
                 </ol>
-                <h3>方式二：Bearer token</h3>
+                <h3 data-i18n="guide.api.method2Title">方式二：Bearer token</h3>
                 <ol>
-                  <li>向 <button type="button" class="copy-value guide-sms-url"></button> 发 POST。</li>
-                  <li>请求头带 <button type="button" class="copy-value guide-auth"></button>，再加一对：键 <button type="button" class="copy-value" data-copy="Content-Type">Content-Type</button>、值 <button type="button" class="copy-value" data-copy="application/json">application/json</button>。</li>
+                  <li><span data-i18n="guide.api.method2Step1Before">向 </span><button type="button" class="copy-value guide-sms-url"></button><span data-i18n="guide.api.method2Step1After"> 发 POST</span></li>
+                  <li><span data-i18n="guide.api.method2HeadBefore">请求头带 </span><button type="button" class="copy-value guide-auth" data-i18n="guide.api.authHeader"></button><span data-i18n="guide.api.method2HeadPair">，再加一对：键 </span><button type="button" class="copy-value" data-copy="Content-Type">Content-Type</button><span data-i18n="guide.api.method2HeadValue">、值 </span><button type="button" class="copy-value" data-copy="application/json">application/json</button><span data-i18n="guide.api.method2HeadAfter"></span></li>
                 </ol>
-                <h3>请求体字段</h3>
-                <p><code>content</code> 必填，其余选填；字段名也可以用别名。</p>
+                <h3 data-i18n="guide.api.fieldsTitle">请求体字段</h3>
+                <p><code>content</code><span data-i18n="guide.api.fieldsNote"> 必填，其余选填；字段名也可以用别名</span></p>
                 <table class="user-table">
-                  <thead><tr><th>字段</th><th>别名</th><th>说明</th></tr></thead>
+                  <thead><tr><th data-i18n="guide.api.colField">字段</th><th data-i18n="guide.api.colAlias">别名</th><th data-i18n="guide.api.colDesc">说明</th></tr></thead>
                   <tbody>
-                    <tr><td data-label="字段">content</td><td data-label="别名">text、msg、body、sms</td><td data-label="说明">短信正文，必填</td></tr>
-                    <tr><td data-label="字段">from</td><td data-label="别名">sender</td><td data-label="说明">发件人号码或名称</td></tr>
-                    <tr><td data-label="字段">timestamp</td><td data-label="别名">receive_time</td><td data-label="说明">接收时间</td></tr>
-                    <tr><td data-label="字段">to</td><td data-label="别名">没有别名</td><td data-label="说明">收件号码</td></tr>
-                    <tr><td data-label="字段">device</td><td data-label="别名">没有别名</td><td data-label="说明">设备类型，如 Android、iOS</td></tr>
-                    <tr><td data-label="字段">sim</td><td data-label="别名">没有别名</td><td data-label="说明">SIM 卡槽，如 SIM1</td></tr>
+                    <tr><td data-label="字段" data-i18n-attr="data-label:guide.api.colField">content</td><td data-label="别名" data-i18n="guide.api.aliasContent" data-i18n-attr="data-label:guide.api.colAlias">text、msg、body、sms</td><td data-label="说明" data-i18n="guide.api.fieldContent" data-i18n-attr="data-label:guide.api.colDesc">短信正文，必填</td></tr>
+                    <tr><td data-label="字段" data-i18n-attr="data-label:guide.api.colField">from</td><td data-label="别名" data-i18n-attr="data-label:guide.api.colAlias">sender</td><td data-label="说明" data-i18n="guide.api.fieldFrom" data-i18n-attr="data-label:guide.api.colDesc">发件人号码或名称</td></tr>
+                    <tr><td data-label="字段" data-i18n-attr="data-label:guide.api.colField">timestamp</td><td data-label="别名" data-i18n-attr="data-label:guide.api.colAlias">receive_time</td><td data-label="说明" data-i18n="guide.api.fieldTimestamp" data-i18n-attr="data-label:guide.api.colDesc">接收时间</td></tr>
+                    <tr><td data-label="字段" data-i18n-attr="data-label:guide.api.colField">to</td><td data-label="别名" data-i18n="guide.api.noAlias" data-i18n-attr="data-label:guide.api.colAlias">没有别名</td><td data-label="说明" data-i18n="guide.api.fieldTo" data-i18n-attr="data-label:guide.api.colDesc">收件号码</td></tr>
+                    <tr><td data-label="字段" data-i18n-attr="data-label:guide.api.colField">device</td><td data-label="别名" data-i18n="guide.api.noAlias" data-i18n-attr="data-label:guide.api.colAlias">没有别名</td><td data-label="说明" data-i18n="guide.api.fieldDevice" data-i18n-attr="data-label:guide.api.colDesc">设备类型，如 Android、iOS</td></tr>
+                    <tr><td data-label="字段" data-i18n-attr="data-label:guide.api.colField">sim</td><td data-label="别名" data-i18n="guide.api.noAlias" data-i18n-attr="data-label:guide.api.colAlias">没有别名</td><td data-label="说明" data-i18n="guide.api.fieldSim" data-i18n-attr="data-label:guide.api.colDesc">SIM 卡槽，如 SIM1</td></tr>
                   </tbody>
                 </table>
-                <h3>返回与限流</h3>
+                <h3 data-i18n="guide.api.responseTitle">返回与限流</h3>
                 <ul>
-                  <li>成功返回 <code>{ "ok": true, "id": "…", "code": "识别到的验证码" }</code>。同一台设备同一分钟内重复发同一条短信会被去重，不会重复入库。</li>
-                  <li>每台设备每分钟最多 60 次请求，超了返回 429，等一分钟再发。</li>
-                  <li>链接或 token 无效、已撤销，返回 401。</li>
+                  <li><span data-i18n="guide.api.responseOkBefore">成功返回 </span><code data-i18n="guide.api.responseSample">{ "ok": true, "id": "…", "code": "识别到的验证码" }</code><span data-i18n="guide.api.responseOkAfter">。同一台设备同一分钟内重复发同一条短信会被去重，不会重复入库</span></li>
+                  <li data-i18n="guide.api.rateItem">每台设备每分钟最多 60 次请求，超了返回 429，等一分钟再发</li>
+                  <li data-i18n="guide.api.unauthorized">链接或 token 无效、已撤销，返回 401</li>
                 </ul>
               </div>
             </details>

@@ -1,4 +1,5 @@
-import { api, copyText, formatTime, isUnauthorized, showNotice, toast } from "./common.js";
+import { api, applyI18n, copyText, formatTime, isUnauthorized, showNotice, toast } from "./common.js";
+import { t } from "./i18n.js";
 import qrcode from "./vendor/qrcode.mjs";
 
 // Minimal two-factor settings card for /users.html. The full four-zone system
@@ -22,22 +23,41 @@ export function initTotpSettings() {
   let mode = "enable";
   let busy = false;
 
-  const setError = (message) => showNotice(errorBox, message);
-  const setOk = (message) => showNotice(okBox, message);
+  const setError = (message, key) => {
+    if (!errorBox) return;
+    if (key) {
+      errorBox.setAttribute("data-i18n", key);
+      showNotice(errorBox, t(key));
+      return;
+    }
+    errorBox.removeAttribute("data-i18n");
+    showNotice(errorBox, message);
+  };
+  const setOk = (message, key) => {
+    if (!okBox) return;
+    if (key) {
+      okBox.setAttribute("data-i18n", key);
+      showNotice(okBox, t(key));
+      return;
+    }
+    okBox.removeAttribute("data-i18n");
+    showNotice(okBox, message);
+  };
 
   async function load() {
     try {
       const result = await api("/api/v1/auth/totp");
       if (disposed) return;
       if (!result.response.ok) {
-        setError(result.data.error || "读取两步验证状态失败");
+        if (result.data.error) setError(result.data.error);
+        else setError("", "totp.loadFailed");
         return;
       }
       status = result.data;
       render();
     } catch (error) {
       if (disposed || isUnauthorized(error)) return;
-      setError("读取两步验证状态失败");
+      setError("", "totp.loadFailed");
     }
   }
 
@@ -45,30 +65,30 @@ export function initTotpSettings() {
     actions.replaceChildren();
     extraLine.textContent = "";
     extraLine.className = "subtle";
+    extraLine.removeAttribute("data-i18n");
     if (!status) return;
+    stateLine.removeAttribute("data-i18n");
     if (status.enabled) {
       const since = Number(status.enabled_at);
       stateLine.textContent = Number.isFinite(since) && since > 0
-        ? `已启用，${formatTime(since)}开始生效。登录时需要验证器上的 6 位码或一个恢复码。`
-        : "已启用。登录时需要验证器上的 6 位码或一个恢复码。";
+        ? t("totp.enabledSince", { time: formatTime(since) })
+        : t("totp.enabled");
       const remaining = Number(status.recovery_codes_remaining) || 0;
       if (remaining > 0) {
-        extraLine.textContent = `剩余恢复码 ${remaining} 个，每个只能用一次。`;
+        extraLine.textContent = t("totp.recoveryLeft", { count: remaining });
       } else {
-        extraLine.textContent = "恢复码已用完，请重新生成，或关闭两步验证后重新绑定。";
+        extraLine.textContent = t("totp.recoveryEmpty");
         extraLine.className = "callout warn";
       }
-      actions.append(button("重新生成恢复码", "recovery", "secondary"));
-      actions.append(button("关闭两步验证", "disable", "secondary"));
+      actions.append(button(t("totp.regen"), "recovery", "secondary"));
+      actions.append(button(t("totp.disable"), "disable", "secondary"));
       return;
     }
-    stateLine.textContent = status.pending
-      ? "上一次绑定还没确认，请重新开始并输入验证器上的验证码。"
-      : "未启用。启用后，登录还需要验证器上的一次性验证码。";
+    stateLine.textContent = status.pending ? t("totp.pendingHint") : t("totp.off");
     if (status.pending && Number(status.pending_expires_at) > Date.now()) {
-      extraLine.textContent = `待确认的绑定会在 ${formatTime(Number(status.pending_expires_at))} 过期。`;
+      extraLine.textContent = t("totp.pendingExpires", { time: formatTime(Number(status.pending_expires_at)) });
     }
-    actions.append(button(status.pending ? "重新开始绑定" : "启用两步验证", "enable", "primary"));
+    actions.append(button(status.pending ? t("totp.restart") : t("totp.enable"), "enable", "primary"));
   }
 
   function button(label, action, variant) {
@@ -90,7 +110,8 @@ export function initTotpSettings() {
       const result = await api("/api/v1/auth/totp/setup", { method: "POST", body: "{}" });
       if (disposed) return;
       if (!result.response.ok) {
-        setError(result.data.error || "无法开始绑定");
+        if (result.data.error) setError(result.data.error);
+        else setError("", "totp.setupFailed");
         return;
       }
       openDialog("enable", {
@@ -99,7 +120,7 @@ export function initTotpSettings() {
       });
     } catch (error) {
       if (disposed || isUnauthorized(error)) return;
-      setError("无法开始绑定，请重试");
+      setError("", "totp.setupRetry");
     } finally {
       if (enableButton) enableButton.disabled = false;
     }
@@ -118,22 +139,21 @@ export function initTotpSettings() {
     elements.code.value = "";
     elements.code.disabled = false;
     elements.submit.disabled = false;
-    elements.codeLabel.textContent = nextMode === "enable" ? "验证码" : "验证码或恢复码";
+    elements.codeLabel.textContent = nextMode === "enable" ? t("auth.code") : t("auth.codeOrRecovery");
     if (nextMode === "enable") {
-      elements.title.textContent = "启用两步验证";
-      elements.text.textContent =
-        "用身份验证器扫下面的二维码，或通过下面的链接添加账户，然后输入它显示的 6 位验证码。";
+      elements.title.textContent = t("totp.enable");
+      elements.text.textContent = t("totp.enableHelp");
       renderQr(elements.qr, data.uri || "");
       elements.uri.textContent = data.uri || "";
-      elements.submit.textContent = "确认启用";
+      elements.submit.textContent = t("totp.confirmEnable");
     } else if (nextMode === "disable") {
-      elements.title.textContent = "关闭两步验证";
-      elements.text.textContent = "需要当前密码，再加一个验证器验证码或未使用的恢复码。";
-      elements.submit.textContent = "关闭两步验证";
+      elements.title.textContent = t("totp.disable");
+      elements.text.textContent = t("totp.disableHelp");
+      elements.submit.textContent = t("totp.disable");
     } else {
-      elements.title.textContent = "重新生成恢复码";
-      elements.text.textContent = "需要当前密码，再加一个验证器验证码或未使用的恢复码。旧恢复码会立即作废。";
-      elements.submit.textContent = "生成新的恢复码";
+      elements.title.textContent = t("totp.regen");
+      elements.text.textContent = t("totp.regenHelp");
+      elements.submit.textContent = t("totp.generate");
     }
     if (!dialog.open) dialog.showModal();
     document.body.classList.add("modal-open");
@@ -144,16 +164,16 @@ export function initTotpSettings() {
   function showCodes(codes) {
     const elements = dialogElements();
     mode = "done";
-    elements.title.textContent = "保存恢复码";
-    elements.text.textContent = "每个恢复码只能使用一次。关闭后无法再次查看。";
+    elements.title.textContent = t("totp.saveTitle");
+    elements.text.textContent = t("totp.saveHelp");
     elements.secretBlock.hidden = true;
     elements.codeField.hidden = true;
     elements.passwordField.hidden = true;
     elements.codesBlock.hidden = false;
     elements.codes.textContent = codes.join("\n");
     elements.submit.disabled = false;
-    elements.submit.textContent = "我已保存，关闭";
-    setOk("两步验证设置已更新。");
+    elements.submit.textContent = t("totp.savedClose");
+    setOk("", "totp.updated");
     elements.submit.focus();
   }
 
@@ -167,9 +187,9 @@ export function initTotpSettings() {
       return;
     }
     const code = elements.code.value.trim();
-    if (!code) return showDialogError(elements, mode === "enable" ? "请输入验证码" : "请输入验证码或恢复码");
+    if (!code) return showDialogError(elements, mode === "enable" ? t("auth.enterCode") : t("auth.enterCodeOrRecovery"));
     const passwordValue = elements.password.value;
-    if (mode !== "enable" && !passwordValue) return showDialogError(elements, "请填写当前密码");
+    if (mode !== "enable" && !passwordValue) return showDialogError(elements, t("auth.passwordRequired"));
 
     const path = mode === "enable"
       ? "/api/v1/auth/totp/enable"
@@ -180,22 +200,28 @@ export function initTotpSettings() {
     setBusy(true);
     try {
       const result = await api(path, { method: "POST", body: JSON.stringify(body), allowUnauthorized: true });
-      if (disposed || !dialog?.open) return;
+      if (disposed || !dialog) return;
       if (!result.response.ok) {
-        showDialogError(elements, result.data.error || "操作失败");
+        if (!dialog.open) return;
+        showDialogError(elements, result.data.error || t("totp.actionFailed"));
         return;
       }
       if (mode === "disable") {
         closeDialog();
-        toast("两步验证已关闭");
+        toast(t("totp.disabledToast"));
         await load();
         return;
       }
       showCodes(Array.isArray(result.data.recovery_codes) ? result.data.recovery_codes.map(String) : []);
+      if (!dialog.open) {
+        dialog.showModal();
+        document.body.classList.add("modal-open");
+      }
       await load();
     } catch (error) {
       if (disposed || isUnauthorized(error)) return;
-      showDialogError(elements, "网络错误，请重试");
+      if (!dialog?.open) return;
+      showDialogError(elements, t("auth.networkError"));
     } finally {
       setBusy(false);
     }
@@ -206,14 +232,14 @@ export function initTotpSettings() {
     if (!dialog) return;
     const elements = dialogElements();
     elements.submit.disabled = next;
-    elements.submit.textContent = next ? "处理中…" : currentSubmitLabel();
+    elements.submit.textContent = next ? t("totp.working") : currentSubmitLabel();
   }
 
   function currentSubmitLabel() {
-    if (mode === "enable") return "确认启用";
-    if (mode === "disable") return "关闭两步验证";
-    if (mode === "recovery") return "生成新的恢复码";
-    return "我已保存，关闭";
+    if (mode === "enable") return t("totp.confirmEnable");
+    if (mode === "disable") return t("totp.disable");
+    if (mode === "recovery") return t("totp.generate");
+    return t("totp.savedClose");
   }
 
   function showDialogError(elements, message) {
@@ -233,36 +259,37 @@ export function initTotpSettings() {
     dialog.className = "modal";
     dialog.innerHTML = `
       <form class="modal-card stack" novalidate>
-        <h2 data-totp="title">启用两步验证</h2>
+        <h2 data-totp="title"></h2>
         <p class="subtle" data-totp="text"></p>
         <div class="stack" data-totp="secret-block" hidden>
           <div class="totp-qr" data-totp="qr" hidden></div>
-          <p class="subtle">或使用这个链接添加账户：</p>
+          <p class="subtle" data-i18n="totp.linkHint">或使用这个链接添加账户：</p>
           <pre data-totp="uri"></pre>
           <div class="actions">
-            <button class="ghost" type="button" data-totp="copy-uri">复制链接</button>
+            <button class="ghost" type="button" data-totp="copy-uri" data-i18n="totp.copyLink">复制链接</button>
           </div>
         </div>
-        <label data-totp="code-field"><span data-totp="code-label">验证码或恢复码</span>
+        <label data-totp="code-field"><span data-totp="code-label"></span>
           <input data-totp="code" autocomplete="one-time-code" inputmode="numeric" maxlength="24" />
         </label>
-        <label data-totp="password-field" hidden>当前密码
+        <label data-totp="password-field" data-i18n="users.currentPassword" hidden>当前密码
           <input data-totp="password" type="password" autocomplete="current-password" maxlength="256" />
         </label>
         <div class="stack" data-totp="codes-block" hidden>
-          <p class="callout warn">恢复码只显示这一次。请保存到安全的地方；每个码只能用一次。</p>
+          <p class="callout warn" data-i18n="totp.codesOnce">恢复码只显示这一次。请保存到安全的地方；每个码只能用一次。</p>
           <pre data-totp="codes"></pre>
           <div class="actions">
-            <button class="ghost" type="button" data-totp="copy-codes">复制全部恢复码</button>
+            <button class="ghost" type="button" data-totp="copy-codes" data-i18n="totp.copyAll">复制全部恢复码</button>
           </div>
         </div>
         <p class="field-error" data-totp="error" hidden></p>
         <div class="modal-actions">
-          <button class="secondary" type="button" data-totp="cancel">取消</button>
-          <button type="submit" data-totp="submit">确认</button>
+          <button class="secondary" type="button" data-totp="cancel" data-i18n="common.cancel">取消</button>
+          <button type="submit" data-totp="submit"></button>
         </div>
       </form>`;
     document.body.append(dialog);
+    applyI18n(dialog);
 
     dialog.addEventListener("click", (event) => {
       if (event.target === dialog) closeDialog();
@@ -271,10 +298,10 @@ export function initTotpSettings() {
     dialog.querySelector("form").addEventListener("submit", submit);
     dialog.querySelector('[data-totp="cancel"]').addEventListener("click", closeDialog);
     dialog.querySelector('[data-totp="copy-uri"]').addEventListener("click", () => {
-      copyWithToast(dialogElements().uri.textContent, "链接已复制");
+      copyWithToast(dialogElements().uri.textContent, t("totp.linkCopied"));
     });
     dialog.querySelector('[data-totp="copy-codes"]').addEventListener("click", () => {
-      copyWithToast(dialogElements().codes.textContent, "恢复码已复制");
+      copyWithToast(dialogElements().codes.textContent, t("totp.codesCopied"));
     });
     return dialog;
   }
@@ -317,7 +344,7 @@ export function initTotpSettings() {
   function copyWithToast(value, message) {
     copyText(value)
       .then(() => toast(message))
-      .catch(() => toast("复制失败，请手动选择", { tone: "danger" }));
+      .catch(() => toast(t("totp.copyFailed"), { tone: "danger" }));
   }
 
   actions.addEventListener("click", (event) => {
@@ -331,14 +358,19 @@ export function initTotpSettings() {
     else if (action === "recovery") openDialog("recovery");
   });
 
+  const onLocale = () => {
+    if (status) render();
+    if (dialog?.open) closeDialog();
+  };
+  document.addEventListener("smsinbox:locale", onLocale);
+
   void load();
 
   return () => {
     disposed = true;
+    document.removeEventListener("smsinbox:locale", onLocale);
     closeDialog();
     dialog?.remove();
     dialog = null;
   };
 }
-
-

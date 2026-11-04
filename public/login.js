@@ -1,5 +1,8 @@
 import { api, safeNext, showNotice } from "./common.js";
+import { applyI18n, t } from "./i18n.js";
 import { takeFlash } from "./ui.js";
+
+applyI18n(document);
 
 const form = document.querySelector("#login-form");
 const error = document.querySelector("#login-error");
@@ -15,7 +18,6 @@ const totpCancel = document.querySelector("#totp-cancel");
 const alternatives = document.querySelector("#auth-alternatives");
 const params = new URLSearchParams(location.search);
 const next = safeNext(params.get("next"));
-const label = "登录";
 let ticket = "";
 let lockedUntil = 0;
 let countdownTimer = 0;
@@ -27,13 +29,13 @@ if (flash) showError(flash);
 // GitHub OAuth failures come back as /login?error=<code>: show the mapped
 // message once, then scrub the parameter so a refresh stays clean.
 const GITHUB_ERRORS = {
-  github_forbidden: "该 GitHub 账号无权登录本系统",
-  github_state: "登录状态已过期，请重试",
-  github_exchange: "GitHub 登录失败，请重试",
+  github_forbidden: "auth.githubForbidden",
+  github_state: "auth.githubState",
+  github_exchange: "auth.githubExchange",
 };
 const oauthError = params.get("error");
 if (oauthError && GITHUB_ERRORS[oauthError]) {
-  showError(GITHUB_ERRORS[oauthError]);
+  showError(t(GITHUB_ERRORS[oauthError]));
   params.delete("error");
   const query = params.toString();
   history.replaceState(null, "", `${location.pathname}${query ? `?${query}` : ""}${location.hash}`);
@@ -43,7 +45,9 @@ toggle.addEventListener("click", () => {
   const show = password.type === "password";
   password.type = show ? "text" : "password";
   toggle.setAttribute("aria-pressed", show ? "true" : "false");
-  toggle.setAttribute("aria-label", show ? "隐藏密码" : "显示密码");
+  const labelKey = show ? "auth.hidePassword" : "auth.showPassword";
+  toggle.setAttribute("data-i18n-attr", `aria-label:${labelKey}`);
+  toggle.setAttribute("aria-label", t(labelKey));
 });
 
 for (const field of [username, password]) {
@@ -82,13 +86,13 @@ form.addEventListener("submit", async (event) => {
   hideError();
   const usernameValue = username.value.trim();
   if (!usernameValue) {
-    showError("请输入用户名");
+    showError(t("auth.enterUsername"));
     username.focus();
     return;
   }
   const passwordValue = password.value;
   if (!passwordValue) {
-    showError("请输入密码");
+    showError(t("auth.enterPassword"));
     password.focus();
     return;
   }
@@ -120,7 +124,7 @@ form.addEventListener("submit", async (event) => {
     }
     location.assign(next);
   } catch {
-    showError("网络错误，请重试");
+    showError(t("auth.networkError"));
   } finally {
     setBusy(false);
   }
@@ -131,7 +135,7 @@ totpForm.addEventListener("submit", async (event) => {
   totpError.hidden = true;
   const code = totpCode.value.trim();
   if (!code) {
-    showTotpError("请输入验证码");
+    showTotpError(t("auth.enterCode"));
     return;
   }
   setTotpBusy(true);
@@ -142,9 +146,9 @@ totpForm.addEventListener("submit", async (event) => {
       body: JSON.stringify({ ticket, code }),
     });
     if (!result.response.ok) {
-      const message = String(result.data.error || "验证失败");
+      const message = String(result.data.error || t("auth.verifyFailed"));
       if (result.response.status === 401 && message.includes("过期")) {
-        backToPassword("验证已过期，请重新输入密码");
+        backToPassword(t("auth.codeExpired"));
         return;
       }
       showTotpError(loginMessage(result.response.status, message));
@@ -152,7 +156,7 @@ totpForm.addEventListener("submit", async (event) => {
     }
     location.assign(next);
   } catch {
-    showTotpError("网络错误，请重试");
+    showTotpError(t("auth.networkError"));
   } finally {
     setTotpBusy(false);
   }
@@ -173,13 +177,13 @@ function backToPassword(message) {
 
 function loginMessage(status, value) {
   // Keep the old wording working in case a proxy still serves the previous worker.
-  if (value === "用户名或密码错误") return "密码不正确";
-  if (value === "账号已停用") return "该账号已停用";
-  if (value === "验证码不正确") return "验证码或恢复码不正确";
-  if (value === "跨站请求被拒绝") return "请求被拒绝，请刷新页面后重试";
-  if (status === 403) return "请求被拒绝，请刷新页面后重试";
-  if (status === 401) return "密码不正确";
-  return value || "登录失败";
+  if (value === "用户名或密码错误") return t("auth.badPassword");
+  if (value === "账号已停用") return t("auth.accountDisabled");
+  if (value === "验证码不正确") return t("auth.badCode");
+  if (value === "跨站请求被拒绝") return t("auth.requestRejected");
+  if (status === 403) return t("auth.requestRejected");
+  if (status === 401) return t("auth.badPassword");
+  return value || t("auth.loginFailed");
 }
 
 function retryAfterSeconds(header) {
@@ -211,17 +215,17 @@ function startCountdown(seconds) {
 }
 
 function paintCountdown(seconds) {
-  showError(`尝试次数过多，请 ${waitText(seconds)}后再试`);
+  showError(t("auth.rateLimited", { wait: waitText(seconds) }));
   submit.disabled = true;
-  submit.textContent = `${seconds} 秒后可重试`;
+  submit.textContent = t("auth.retryIn", { n: seconds });
 }
 
 function waitText(seconds) {
   if (seconds >= 60) {
     const minutes = Math.ceil(seconds / 60);
-    return `${minutes} 分钟`;
+    return t("auth.waitMinutes", { n: minutes });
   }
-  return `${seconds} 秒`;
+  return t("auth.waitSeconds", { n: seconds });
 }
 
 function showError(message) {
@@ -248,14 +252,14 @@ function setBusy(busy) {
     const spinner = document.createElement("span");
     spinner.className = "spinner";
     spinner.setAttribute("aria-hidden", "true");
-    submit.append(spinner, document.createTextNode("登录中…"));
+    submit.append(spinner, document.createTextNode(t("auth.signingIn")));
     return;
   }
-  if (!locked) submit.textContent = label;
+  if (!locked) submit.textContent = t("auth.signIn");
 }
 
 function setTotpBusy(busy) {
   totpSubmit.disabled = busy;
   totpCode.disabled = busy;
-  totpSubmit.textContent = busy ? "验证中…" : "验证并登录";
+  totpSubmit.textContent = busy ? t("auth.verifying") : t("auth.verifySignIn");
 }

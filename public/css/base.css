@@ -6,6 +6,10 @@ html, body {
   min-height: 100dvh;
 }
 
+html[data-locale="en"]:not(.i18n-ready) body {
+  visibility: hidden;
+}
+
 html {
   background: var(--bg);
   /* Always reserve the scrollbar gutter: opening a drawer locks body

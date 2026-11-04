@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="robots" content="noindex, nofollow" />
-    <title>登录 · SMSinBox</title>
+    <title data-i18n="auth.documentTitle">登录 · SMSinBox</title>
     <link rel="icon" href="/logo.png" type="image/png" />
     <script src="/theme-boot.js"></script>
     <link rel="stylesheet" href="/style.css" />
@@ -23,7 +23,7 @@
            密码表单下方（用带「或」字的分隔线隔开），仅当服务端配置了
            GitHub OAuth 时由 login.js 显示，否则整块保持隐藏。 -->
       <form id="login-form" class="auth-form">
-        <label>用户名
+        <label data-i18n="auth.username">用户名
           <input
             id="username"
             name="username"
@@ -36,7 +36,7 @@
             autofocus
           />
         </label>
-        <label>密码
+        <label data-i18n="auth.password">密码
           <span class="password-field">
             <input
               id="password"
@@ -46,26 +46,26 @@
               maxlength="256"
               required
             />
-            <button id="password-toggle" class="icon-btn" type="button" aria-label="显示密码" aria-pressed="false">
+            <button id="password-toggle" class="icon-btn" type="button" aria-label="显示密码" data-i18n-attr="aria-label:auth.showPassword" aria-pressed="false">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-eye"/></svg>
             </button>
           </span>
         </label>
-        <button id="login-submit" type="submit">登录</button>
+        <button id="login-submit" type="submit" data-i18n="auth.signIn">登录</button>
       </form>
       <!-- 验证步骤：与密码共用同一张卡片，不新开页面。 -->
       <form id="totp-form" class="auth-form auth-step" hidden>
-        <h2 id="totp-title" class="auth-step-title">两步验证</h2>
+        <h2 id="totp-title" class="auth-step-title" data-i18n="auth.totp">两步验证</h2>
         <p id="totp-error" class="callout danger" role="alert" hidden></p>
-        <label>验证码
-          <input id="totp-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="24" placeholder="6 位验证码或恢复码" required />
+        <label data-i18n="auth.code">验证码
+          <input id="totp-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="24" placeholder="6 位验证码或恢复码" data-i18n-attr="placeholder:auth.codePlaceholder" required />
         </label>
-        <button id="totp-submit" type="submit">验证并登录</button>
-        <button id="totp-cancel" class="ghost" type="button">返回密码登录</button>
+        <button id="totp-submit" type="submit" data-i18n="auth.verifySignIn">验证并登录</button>
+        <button id="totp-cancel" class="ghost" type="button" data-i18n="auth.backToPassword">返回密码登录</button>
       </form>
       <div id="auth-alternatives" class="auth-alternatives" hidden>
-        <div class="auth-divider" role="separator"><span>或</span></div>
-        <a id="github-login" class="button secondary auth-github" href="/api/v1/auth/github/start?intent=login">
+        <div class="auth-divider" role="separator"><span data-i18n="auth.or">或</span></div>
+        <a id="github-login" class="button secondary auth-github" href="/api/v1/auth/github/start?intent=login" data-i18n="auth.githubLogin">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-github"/></svg>
           使用 GitHub 登录
         </a>
