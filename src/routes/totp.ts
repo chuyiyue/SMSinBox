@@ -17,6 +17,7 @@ import {
   enableTotp,
   findTotpTicket,
   findTotpUser,
+  getProfileUsername,
   loginRetryAfterSeconds,
   rateLimitRetryAfterSeconds,
   readRateLimitWindow,
@@ -99,11 +100,14 @@ export async function beginTotpSetup(request: Request, env: Env): Promise<Respon
   if (!sealed) return json({ ok: false, error: "内容加密密钥无效" }, 500);
   const now = Date.now();
   await setTotpPending(env.DB, user.id, sealed, now);
+  // The authenticator label follows the admin's current profile username
+  // (a live display setting), not the fixed login name.
+  const profileUsername = await getProfileUsername(env.DB);
   logInfo({ message: "totp_setup_started", user_id: user.id });
   return json({
     ok: true,
     secret,
-    otpauth_uri: totpUri(secret, record.username),
+    otpauth_uri: totpUri(secret, profileUsername || record.username),
     issuer: "SMSinBox",
     digits: TOTP_DIGITS,
     period: TOTP_PERIOD_SECONDS,

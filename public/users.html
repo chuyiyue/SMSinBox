@@ -46,6 +46,7 @@
                 <p id="account-error" class="callout danger" hidden></p>
                 <p id="account-status" class="callout ok" hidden></p>
 
+                <div class="account-pair">
                 <form id="profile-form" class="stack" novalidate>
                   <h3>用户名</h3>
                   <label>用户名
@@ -70,6 +71,7 @@
                   </div>
                   <p class="subtle">上传的图片会裁剪为正方形并缩小到 128×128。自定义头像优先于 GitHub 头像与按名生成的头像显示。</p>
                   <p id="avatar-error" class="field-error" hidden></p>
+                </div>
                 </div>
 
                 <form id="password-form" class="stack" novalidate>
@@ -125,6 +127,19 @@
                 <div class="actions">
                   <a id="github-bind" class="button secondary" href="/api/v1/auth/github/start?intent=bind" hidden>绑定 GitHub</a>
                   <button id="github-unbind" class="secondary" type="button" hidden>解绑</button>
+                </div>
+              </section>
+
+              <section id="features-panel" class="settings-section panel stack" aria-labelledby="features-title">
+                <h2 id="features-title">功能设置</h2>
+                <div class="feature-item stack">
+                  <h3>短信翻译</h3>
+                  <p class="subtle">开启后，新收到的非简体中文短信会自动翻译成简体中文，译文显示在收件箱列表和短信详情里。翻译由 Workers AI 完成。</p>
+                  <p id="translate-state" class="subtle">正在读取翻译设置…</p>
+                  <p id="translate-error" class="callout danger" hidden></p>
+                  <div class="actions">
+                    <button id="translate-toggle" class="secondary" type="button" disabled>开启短信翻译</button>
+                  </div>
                 </div>
               </section>
 

@@ -155,6 +155,25 @@
 }
 
 .avatar { grid-area: avatar; align-self: start; margin-top: 1px; }
+/* Row avatar content: a flag fills the circle; the platform fallback
+   icon sits centered at about 60% with the shared type-icon stroke. */
+.avatar .avatar-flag {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.avatar .avatar-type-icon {
+  width: 60%;
+  height: 60%;
+  color: var(--text-3);
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .sender-line { grid-area: sender; display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .unread-dot {
   width: 7px;
@@ -183,6 +202,19 @@
   border-radius: var(--r-pill);
   background: var(--bg-sunken);
   color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+.message-translated {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 1px 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: var(--r-pill);
+  background: var(--bg-sunken);
+  color: var(--text-2);
   font-size: var(--fs-xs);
   font-weight: 500;
 }
@@ -253,6 +285,39 @@
   line-height: 1.7;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* Body cards in the detail drawer: translation first, then the original.
+   Panel-style frame (border / radius / padding) sized for the drawer. */
+.message-card {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  padding: var(--space-3) var(--space-4);
+}
+.message-card-title {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.message-card-note {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+/* Feature settings: one block per feature inside the section; later
+   features divide from the previous one instead of crowding it. */
+.feature-item h3 { margin: 0; }
+.feature-item + .feature-item {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-4);
 }
 
 .message-detail-actions { padding-top: var(--space-1); }
@@ -499,6 +564,7 @@
     .ui-drawer--filters .ui-drawer-panel { animation: none; }
   }
   .message-device { display: none; }
+  .message-translated { display: none; }
   .time-end { display: none; }
   .time-inline { display: inline; margin-left: auto; }
   .chip-slot { justify-self: start; margin-top: var(--space-1); }
@@ -541,6 +607,18 @@
 
 .settings-section:target {
   box-shadow: 0 0 0 2px var(--accent-soft), var(--shadow-1);
+}
+
+/* Account panel: username and avatar halves sit side by side, each half
+   width, content left-aligned; they stack again on narrow screens. */
+.account-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5);
+  align-items: start;
+}
+@media (max-width: 767px) {
+  .account-pair { grid-template-columns: 1fr; }
 }
 
 /* Profile avatar upload preview: same circle treatment as the sidebar. */

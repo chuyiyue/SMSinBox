@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { copyBytes } from "../src/auth";
 import { errorText } from "../src/log";
@@ -586,6 +586,19 @@ describe("site consistency", () => {
     expect(settings).toContain("/api/v1/auth/totp/recovery");
     expect(settings).toContain("recovery_codes");
     expect(settings).not.toContain("console.log");
+    // Setup offers a scannable QR plus the otpauth link; the raw secret is
+    // never displayed, and the code field is labelled per mode.
+    expect(settings).toContain('data-totp="qr"');
+    expect(settings).toContain('data-totp="uri"');
+    expect(settings).toContain("复制链接");
+    expect(settings).not.toContain('data-totp="secret"');
+    expect(settings).not.toContain("复制密钥");
+    expect(settings).toContain("vendor/qrcode.mjs");
+    expect(settings).toContain('data-totp="code-label"');
+    expect(settings).toContain("codeLabel");
+    const components = readFileSync("public/css/components.css", "utf8");
+    expect(components).toContain("scrollbar-width: none");
+    expect(components).toContain(".totp-qr");
   });
 
   it("wires the GitHub login entry, binding panel, and custom avatar upload", () => {
@@ -637,6 +650,60 @@ describe("site consistency", () => {
     expect(common).toContain("avatar_url");
     expect(common.indexOf("avatar_data")).toBeLessThan(common.indexOf("avatar_url"));
     expect(common.indexOf("avatar_url")).toBeLessThan(common.indexOf("api.dicebear.com"));
+  });
+
+  it("wires the SMS translation toggle and the translated message display", () => {
+    const users = readFileSync("public/users.html", "utf8");
+    const usersJs = readFileSync("public/users.js", "utf8");
+    expect(users).toContain('id="features-panel"');
+    expect(users).toContain("功能设置");
+    expect(users).toContain("短信翻译");
+    expect(users).toContain("翻译由 Workers AI 完成");
+    expect(users).toContain('id="translate-toggle"');
+    expect(usersJs).toContain("/api/v1/me/preferences");
+    expect(usersJs).toContain('method: "PATCH"');
+    expect(usersJs).toContain("translate_enabled");
+    expect(usersJs).toContain("paintTranslate");
+
+    const inbox = readFileSync("public/inbox.js", "utf8");
+    expect(inbox).toContain("translated_content");
+    expect(inbox).toContain("source_lang");
+    expect(inbox).toContain("已翻译 · 来自");
+    expect(inbox).toContain("短信翻译");
+    expect(inbox).toContain('"zh-Hant": "繁体中文"');
+    expect(inbox).toContain("message-translated");
+    expect(inbox).toContain("message-card");
+
+    const css = readFileSync("public/css/pages.css", "utf8");
+    expect(css).toContain(".message-card {");
+    expect(css).toContain(".message-card-note");
+    expect(css).toContain(".message-translated {");
+  });
+
+  it("shows country flags or device platform icons as inbox row avatars", () => {
+    const inbox = readFileSync("public/inbox.js", "utf8");
+    expect(inbox).toContain("flagCountryForNumber");
+    expect(inbox).toContain("/flags/");
+    expect(inbox).toContain("sidebarDeviceIcon");
+    expect(inbox).toContain("state.devices.find");
+
+    // Every country the dial table can produce ships its flag file.
+    const tableStart = inbox.indexOf("DIAL_CODE_COUNTRIES");
+    const table = inbox.slice(tableStart, inbox.indexOf("];", tableStart));
+    const pairs = [...table.matchAll(/\["(\d+)", "([a-z]{2})"\]/g)];
+    expect(pairs.length).toBe(39);
+    for (const [, code, iso] of pairs) {
+      expect(existsSync(`public/flags/${iso}.svg`), `+${code} → public/flags/${iso}.svg`).toBe(true);
+    }
+    // Longest-prefix anchors: Hong Kong before any shorter rule, +1 is us.
+    expect(table).toContain('["852", "hk"]');
+    expect(table).toContain('["886", "tw"]');
+    expect(table).toContain('["358", "fi"]');
+    expect(table).toContain('["1", "us"]');
+
+    const css = readFileSync("public/css/pages.css", "utf8");
+    expect(css).toContain(".avatar .avatar-flag");
+    expect(css).toContain(".avatar .avatar-type-icon");
   });
 
   it("shortens log errors the same way everywhere", () => {

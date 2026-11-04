@@ -261,6 +261,24 @@ mark.code {
 
 dialog.modal.wide { width: min(560px, 100%); }
 
+/* Popup surfaces (modal dialogs, the detail drawer) keep scrolling but
+   never show a scrollbar. */
+dialog.modal, .modal, .ui-drawer-body { scrollbar-width: none; }
+dialog.modal::-webkit-scrollbar, .modal::-webkit-scrollbar,
+.ui-drawer-body::-webkit-scrollbar { display: none; }
+
+/* TOTP setup QR: white quiet-zone box so authenticator apps scan it
+   against any dialog background. */
+.totp-qr {
+  justify-self: center;
+  padding: 10px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  line-height: 0;
+}
+.totp-qr svg { width: 176px; height: 176px; }
+
 dialog.modal {
   position: fixed;
   inset: 0;

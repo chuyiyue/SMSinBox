@@ -19,6 +19,7 @@ import {
   toast,
 } from "./common.js";
 import { ensureDevices, getDevices, noteDeviceSeen, setActiveId } from "./device-store.js";
+import { sidebarDeviceIcon } from "./device-panel.js";
 import { registerView, syncShellHistory } from "./shell.js";
 import { isTyping } from "./ui.js";
 
@@ -425,16 +426,25 @@ function renderMessage(message) {
     device.textContent = message.device_name;
     senderLine.append(device);
   }
+  if (hasTranslation(message)) {
+    const tag = document.createElement("span");
+    tag.className = "message-translated";
+    tag.textContent = translatedTag(message);
+    senderLine.append(tag);
+  }
   const inlineTime = timeNode(message, "time-inline");
   senderLine.append(inlineTime);
   const preview = document.createElement("div");
   preview.className = "preview";
-  if (!unreadable(message)) renderContent(preview, previewText(message.content), message.code);
-  else preview.textContent = "这条短信无法解密";
+  if (!unreadable(message)) {
+    // The list prefers the translation; the original stays in the detail.
+    const previewSource = hasTranslation(message) ? message.translated_content : message.content;
+    renderContent(preview, previewText(previewSource), message.code);
+  } else preview.textContent = "这条短信无法解密";
   const slot = document.createElement("div");
   slot.className = "chip-slot";
   if (message.code && !unreadable(message)) slot.append(codeChip(message.code));
-  line.append(avatarNode(senderText), senderLine, timeNode(message, "time-end"), preview, slot);
+  line.append(avatarNode(message), senderLine, timeNode(message, "time-end"), preview, slot);
   article.append(line);
   article.addEventListener("click", (event) => {
     if (event.target.closest("button, a")) return;
@@ -486,23 +496,40 @@ function buildDetail(message) {
   } else {
     if (message.code) {
       const codeBlock = document.createElement("section");
-      codeBlock.className = "message-detail-block";
+      codeBlock.className = "message-card";
       const label = document.createElement("h3");
-      label.className = "message-detail-label";
+      label.className = "message-card-title";
       label.textContent = "验证码";
       codeBlock.append(label, CodeChip(message.code));
       wrap.append(codeBlock);
     }
-    const contentBlock = document.createElement("section");
-    contentBlock.className = "message-detail-block";
+    if (hasTranslation(message)) {
+      const translatedCard = document.createElement("section");
+      translatedCard.className = "message-card";
+      const translatedLabel = document.createElement("h3");
+      translatedLabel.className = "message-card-title";
+      translatedLabel.textContent = "短信翻译";
+      const translatedBody = document.createElement("p");
+      translatedBody.className = "content";
+      translatedBody.dir = "auto";
+      translatedBody.textContent = message.translated_content;
+      const translatedNote = document.createElement("p");
+      translatedNote.className = "message-card-note";
+      translatedNote.textContent = translatedTag(message);
+      translatedCard.append(translatedLabel, translatedBody, translatedNote);
+      wrap.append(translatedCard);
+    }
+    const contentCard = document.createElement("section");
+    contentCard.className = "message-card";
     const label = document.createElement("h3");
-    label.className = "message-detail-label";
+    label.className = "message-card-title";
     label.textContent = "短信正文";
     const content = document.createElement("p");
     content.className = "content";
+    content.dir = "auto";
     renderContent(content, message.content, message.code);
-    contentBlock.append(label, content);
-    wrap.append(contentBlock);
+    contentCard.append(label, content);
+    wrap.append(contentCard);
 
     const actions = document.createElement("div");
     actions.className = "actions message-detail-actions";
@@ -631,19 +658,51 @@ function showSkeleton() {
   list.append(loadingState({ count: 6 }));
 }
 
-function avatarNode(sender) {
+// Calling-code prefix → ISO country for the row avatar flag. Matching is
+// longest-prefix first, so +852 resolves to hk before any shorter rule
+// and +1 stays us. Only these countries ship a flag file in /flags.
+const DIAL_CODE_COUNTRIES = [
+  ["852", "hk"], ["886", "tw"], ["358", "fi"], ["353", "ie"], ["351", "pt"],
+  ["971", "ae"], ["972", "il"],
+  ["86", "cn"], ["44", "gb"], ["81", "jp"], ["82", "kr"], ["65", "sg"],
+  ["61", "au"], ["49", "de"], ["33", "fr"], ["39", "it"], ["34", "es"],
+  ["91", "in"], ["66", "th"], ["84", "vn"], ["62", "id"], ["60", "my"],
+  ["63", "ph"], ["31", "nl"], ["41", "ch"], ["46", "se"], ["47", "no"],
+  ["45", "dk"], ["48", "pl"], ["90", "tr"], ["55", "br"], ["52", "mx"],
+  ["27", "za"], ["64", "nz"], ["30", "gr"], ["43", "at"], ["32", "be"],
+  ["7", "ru"], ["1", "us"],
+];
+const DIAL_CODE_MAP = new Map(DIAL_CODE_COUNTRIES);
+
+function flagCountryForNumber(from) {
+  const text = String(from ?? "").trim();
+  if (!text.startsWith("+")) return null;
+  const digits = text.slice(1).replace(/\D/g, "");
+  for (const length of [3, 2, 1]) {
+    const hit = DIAL_CODE_MAP.get(digits.slice(0, length));
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function avatarNode(message) {
   const node = document.createElement("div");
   node.className = "avatar";
   node.setAttribute("aria-hidden", "true");
-  if (!sender || sender === "未知发件人" || /^\d+$/.test(sender)) {
-    node.innerHTML =
-      '<svg class="icon" viewBox="0 0 24 24"><use href="/icons.svg#icon-message-square"/></svg>';
+  const iso = flagCountryForNumber(message?.from_number);
+  if (iso) {
+    const img = document.createElement("img");
+    img.className = "avatar-flag";
+    img.src = `/flags/${iso}.svg`;
+    img.alt = "";
+    node.append(img);
     return node;
   }
-  let hash = 0;
-  for (const char of sender) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
-  node.dataset.tone = String((hash % 6) + 1);
-  node.textContent = [...sender][0] || "?";
+  // No country to infer (no + prefix, or an alphanumeric sender id):
+  // fall back to the platform icon of the device that received it.
+  const device = state.devices.find((item) => item.id === message?.device_id);
+  const icon = sidebarDeviceIcon(device);
+  node.innerHTML = `<svg class="avatar-type-icon" viewBox="0 0 24 24"><use href="/icons.svg#${icon}"/></svg>`;
   return node;
 }
 
@@ -660,6 +719,44 @@ function timeNode(message, extra) {
 
 function previewText(content) {
   return String(content || "").replace(/\s+/g, " ").trim();
+}
+
+// Source-language code → display name for the translation tag; codes the
+// map does not know fall back to the raw code.
+const LANG_NAMES = {
+  en: "英语",
+  ja: "日语",
+  ko: "韩语",
+  ru: "俄语",
+  uk: "乌克兰语",
+  th: "泰语",
+  ar: "阿拉伯语",
+  hi: "印地语",
+  el: "希腊语",
+  he: "希伯来语",
+  fr: "法语",
+  de: "德语",
+  es: "西班牙语",
+  it: "意大利语",
+  pt: "葡萄牙语",
+  nl: "荷兰语",
+  vi: "越南语",
+  id: "印尼语",
+  "zh-Hant": "繁体中文",
+};
+
+function langName(code) {
+  if (typeof code !== "string" || !code) return "";
+  return LANG_NAMES[code] || code;
+}
+
+function hasTranslation(message) {
+  return typeof message?.translated_content === "string" && message.translated_content.trim() !== "";
+}
+
+function translatedTag(message) {
+  const lang = langName(message?.source_lang);
+  return lang ? `已翻译 · 来自${lang}` : "已翻译";
 }
 
 function unreadable(message) {
