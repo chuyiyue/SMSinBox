@@ -866,18 +866,19 @@ export async function isDevicePinned(db: D1Database, userId: string, deviceId: s
 export async function listDeviceGroups(db: D1Database, userId: string): Promise<DeviceGroupView[]> {
   const result = await db
     .prepare(
-      `SELECT g.id, g.name, g.created_at, COUNT(d.id) AS device_count
+      `SELECT g.id, g.name, g.created_at, g.sort_order, COUNT(d.id) AS device_count
        FROM device_groups g
        LEFT JOIN devices d ON d.group_id = g.id AND d.user_id = g.user_id
        WHERE g.user_id = ?
        GROUP BY g.id
-       ORDER BY g.created_at ASC`,
+       ORDER BY g.sort_order ASC, g.created_at ASC`,
     )
     .bind(userId)
-    .all<{ id: string; name: string; created_at: number; device_count: number }>();
+    .all<{ id: string; name: string; created_at: number; sort_order: number; device_count: number }>();
   return result.results.map((row) => ({
     id: row.id,
     name: row.name,
+    sort_order: row.sort_order,
     created_at: row.created_at,
     device_count: Number(row.device_count ?? 0),
   }));
@@ -887,10 +888,58 @@ export async function createDeviceGroup(
   db: D1Database,
   group: { id: string; userId: string; name: string; createdAt: number },
 ): Promise<void> {
+  // New groups go last: one past the current maximum sort_order.
+  const max = await db
+    .prepare("SELECT MAX(sort_order) AS max_order FROM device_groups WHERE user_id = ?")
+    .bind(group.userId)
+    .first<{ max_order: number | null }>();
   await db
-    .prepare("INSERT INTO device_groups (id, user_id, name, created_at) VALUES (?, ?, ?, ?)")
-    .bind(group.id, group.userId, group.name, group.createdAt)
+    .prepare("INSERT INTO device_groups (id, user_id, name, created_at, sort_order) VALUES (?, ?, ?, ?, ?)")
+    .bind(group.id, group.userId, group.name, group.createdAt, (max?.max_order ?? -1) + 1)
     .run();
+}
+
+// Swaps a group with its neighbour in the owner's ordering. Returns false
+// when the group is unknown or already at that end of the list.
+export async function moveDeviceGroup(
+  db: D1Database,
+  userId: string,
+  groupId: string,
+  direction: "up" | "down",
+): Promise<boolean> {
+  const groups = await listDeviceGroups(db, userId);
+  const index = groups.findIndex((group) => group.id === groupId);
+  if (index < 0) return false;
+  const otherIndex = direction === "up" ? index - 1 : index + 1;
+  if (otherIndex < 0 || otherIndex >= groups.length) return false;
+  const reordered = groups.slice();
+  const [moved] = reordered.splice(index, 1);
+  reordered.splice(otherIndex, 0, moved!);
+  // Renumber the whole list by position: small N, and it also repairs
+  // ties left by rows that predate the ordering column.
+  await db.batch(
+    reordered.map((group, position) =>
+      db
+        .prepare("UPDATE device_groups SET sort_order = ? WHERE id = ? AND user_id = ?")
+        .bind(position, group.id, userId),
+    ),
+  );
+  return true;
+}
+
+export async function updateDevicePlatform(
+  db: D1Database,
+  userId: string,
+  deviceId: string,
+  platform: string,
+): Promise<boolean> {
+  const owned = await findDeviceForUser(db, userId, deviceId);
+  if (!owned) return false;
+  await db
+    .prepare("UPDATE devices SET platform = ? WHERE id = ? AND user_id = ?")
+    .bind(platform, deviceId, userId)
+    .run();
+  return true;
 }
 
 export async function findDeviceGroup(

@@ -132,8 +132,7 @@
 
 /* Collapsed rail: center icons, hide labels and the device list. */
 :root[data-sidebar="collapsed"] .brand-name,
-:root[data-sidebar="collapsed"] .nav-label,
-:root[data-sidebar="collapsed"] .sidebar-label {
+:root[data-sidebar="collapsed"] .nav-label {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -154,21 +153,6 @@
   padding-top: 12px;
   border-top: 1px solid var(--border);
   overflow: auto;
-}
-
-.sidebar-label-row {
-  display: flex;
-  align-items: center;
-  margin: 0 12px 6px;
-}
-
-.sidebar-label {
-  margin: 0;
-  padding: 2px 12px;
-  color: var(--text-3);
-  font-size: var(--fs-xs);
-  letter-spacing: 0.06em;
-  line-height: 26px;
 }
 
 .device-list { display: grid; gap: 2px; }
@@ -545,7 +529,7 @@
   .sidebar { width: 64px; padding-left: 2px; padding-right: 2px; }
   .main { margin-left: 64px; }
   .sidebar-brand-row { gap: 0; padding: 2px 0 0; }
-  .brand-name, .nav-label, .sidebar-label, .sidebar-devices, .btn-label {
+  .brand-name, .nav-label, .sidebar-devices, .btn-label {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -612,7 +596,6 @@
   :root[data-sidebar="collapsed"] .brand { justify-content: flex-start; padding: 0; }
   :root[data-sidebar="collapsed"] .brand-name,
   :root[data-sidebar="collapsed"] .nav-label,
-  :root[data-sidebar="collapsed"] .sidebar-label,
   :root[data-sidebar="collapsed"] .account-name,
   :root[data-sidebar="collapsed"] .account-logout {
     position: static;

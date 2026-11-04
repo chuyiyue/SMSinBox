@@ -7,12 +7,13 @@ import {
   api,
   flashLabel,
   isUnauthorized,
+  mountSelect,
   openModal,
   selectContents,
   toast,
 } from "./common.js";
 import { deviceStateOf, getDevices, noteDeviceSeen, refreshDevices } from "./device-store.js";
-import { addFact, describeDevice, isStale, presenceDot, presenceLabel, pushConfirm } from "./device-panel.js";
+import { addFact, describeDevice, DEVICE_TYPES, deviceTypeOf, isStale, presenceDot, presenceLabel, pushConfirm } from "./device-panel.js";
 
 function emitDevicesChanged() {
   document.dispatchEvent(new CustomEvent("smsinbox:devices-changed"));
@@ -47,14 +48,21 @@ export function openDeviceDetail(device, entry = null) {
   back.addEventListener("click", closeDeviceDetail);
   const text = document.createElement("div");
   text.className = "device-detail-heading";
+  const titleRow = document.createElement("div");
+  titleRow.className = "device-detail-title-row";
+  const view = describeDevice(device, entry?.message || null);
+  const typeIcon = document.createElement("span");
+  typeIcon.setAttribute("aria-hidden", "true");
+  typeIcon.innerHTML = `<svg class="device-type-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#${view.platform.icon}"/></svg>`;
   const title = document.createElement("h2");
   title.className = "ui-drawer-title";
   title.textContent = String(device?.name || "未命名设备");
+  titleRow.append(typeIcon.firstChild, title);
   const meta = document.createElement("p");
   meta.className = "device-detail-meta-line";
   const presence = deviceStateOf(device);
-  meta.textContent = `${presenceLabel(presence)} · ${describeDevice(device, entry?.message || null).platformBadge}`;
-  text.append(title, meta);
+  meta.textContent = `${presenceLabel(presence)} · ${view.platformBadge}`;
+  text.append(titleRow, meta);
   head.append(back, text);
 
   const body = document.createElement("div");
@@ -346,7 +354,24 @@ function buildAdvancedPanel(device) {
   });
   renameSection.append(renameTitle, renameForm);
 
-  // Save and delete share one row, half width each (Roye); the save button
+  // Device type (OS): changing the picker applies immediately, like the
+  // pin and group actions. A later report still wins over this choice.
+  const typeSection = document.createElement("section");
+  typeSection.className = "stack";
+  const typeTitle = document.createElement("h3");
+  typeTitle.textContent = "设备类型";
+  const typeField = mountSelect({
+    value: deviceTypeOf(device?.platform)?.value ?? "other",
+    ariaLabel: "设备类型",
+    options: DEVICE_TYPES.map((type) => ({ value: type.value, label: type.label, icon: type.icon })),
+    onChange: (next) => void submitDeviceType(device, next),
+  });
+  const typeNote = document.createElement("p");
+  typeNote.className = "subtle";
+  typeNote.textContent = "短信上报的类型与它不一致时，会按上报的类型显示。";
+  typeSection.append(typeTitle, typeField.root, typeNote);
+
+  // Save and delete stack vertically, one per row (Roye); the save button
   // stays bound to the rename form via its form attribute.
   const actions = document.createElement("div");
   actions.className = "device-advanced-actions";
@@ -360,8 +385,28 @@ function buildAdvancedPanel(device) {
   remove.textContent = "删除设备";
   remove.addEventListener("click", () => removeDevice(device));
   actions.append(save, remove);
-  panel.append(renameSection, actions);
+  panel.append(renameSection, typeSection, actions);
   return panel;
+}
+
+async function submitDeviceType(device, platform) {
+  try {
+    const result = await api(`/api/v1/devices/${encodeURIComponent(device.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ platform }),
+    });
+    if (!result.response.ok) {
+      toast(result.data?.error || "更改设备类型失败", { tone: "danger" });
+      return;
+    }
+    device.platform = platform;
+    await refreshDevices().catch(() => {});
+    emitDevicesChanged();
+    toast("设备类型已更新");
+  } catch (error) {
+    if (isUnauthorized(error)) return;
+    toast("更改设备类型失败", { tone: "danger" });
+  }
 }
 
 async function submitDeviceRename(device, input, save, errorBox) {

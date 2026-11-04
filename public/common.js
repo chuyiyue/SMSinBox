@@ -18,7 +18,7 @@ import {
   takeFlash,
   toast,
 } from "./ui.js";
-import { selectSidebarDevices } from "./device-panel.js";
+import { selectSidebarDevices, sidebarDeviceIcon } from "./device-panel.js";
 
 export { api, isUnauthorized, openEventStream } from "./api-client.js";
 export { mountSelect, openHelp, openMenu, openModal, passwordScore, generatePassword, selectContents, toast } from "./ui.js";
@@ -226,7 +226,7 @@ export function renderSidebarDevices(devices, activeId = getActiveId()) {
     // The id only lives in the data attribute; text and title stay human.
     button.classList.toggle("is-active", row.id === active);
     button.title = row.name;
-    paintLabel(button, row.name);
+    paintLabel(button, row.name, row.device);
     paintState(button, row.device);
     const current = buttons();
     if (current[index] !== button) box.insertBefore(button, current[index] || box.querySelector(".sidebar-empty"));
@@ -421,7 +421,7 @@ function deviceButton(id) {
   );
 }
 
-function paintLabel(button, name) {
+function paintLabel(button, name, device) {
   let title = button.querySelector(".device-name");
   if (!title) {
     button.replaceChildren();
@@ -429,17 +429,21 @@ function paintLabel(button, name) {
     dot.className = "ui-status-dot";
     dot.setAttribute("aria-hidden", "true");
     const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    icon.setAttribute("class", "icon");
+    icon.setAttribute("class", "icon device-type-icon");
     icon.setAttribute("viewBox", "0 0 24 24");
     icon.setAttribute("aria-hidden", "true");
     const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-    use.setAttribute("href", "/icons.svg#icon-smartphone");
+    use.setAttribute("href", `/icons.svg#${sidebarDeviceIcon(device)}`);
     icon.append(use);
     title = document.createElement("span");
     title.className = "device-name";
     const state = document.createElement("span");
     state.className = "device-state";
     button.append(dot, icon, title, state);
+  } else {
+    // Keep the type icon current when the stored type changes.
+    const use = button.querySelector(".device-type-icon use");
+    if (use) use.setAttribute("href", `/icons.svg#${sidebarDeviceIcon(device)}`);
   }
   if (title.textContent !== name) title.textContent = name;
 }

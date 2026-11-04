@@ -45,6 +45,7 @@ import {
   isDevicePinned,
   listApiTokens,
   listDeviceGroups,
+  moveDeviceGroup,
   renameApiToken,
   renameDeviceGroup,
   setDeviceGroup,
@@ -73,6 +74,7 @@ import {
   setProfileUsername,
   touchDevice,
   updateDeviceName,
+  updateDevicePlatform,
   updateApiTokenDisabled,
   updateApiTokenRevoked,
   updatePasswordHash,
@@ -270,6 +272,11 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
     if (method === "GET") return deviceGroups(request, env);
     if (method === "POST") return createDeviceGroupEndpoint(request, env);
     return methodNotAllowed("GET, POST");
+  }
+  const deviceGroupMove = /^\/api\/v1\/device-groups\/([^/]+)\/move$/.exec(path);
+  if (deviceGroupMove?.[1]) {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return moveDeviceGroupEndpoint(request, env, deviceGroupMove[1]);
   }
   const deviceGroupMatch = /^\/api\/v1\/device-groups\/([^/]+)$/.exec(path);
   if (deviceGroupMatch?.[1]) {
@@ -1047,11 +1054,12 @@ async function renameDevice(request: Request, env: Env, rawId: string): Promise<
     body.value && typeof body.value === "object" && !Array.isArray(body.value)
       ? (body.value as Record<string, unknown>)
       : {};
-  // The same PATCH carries the rename and/or the group assignment; at
-  // least one of the two must be present.
+  // The same PATCH carries the rename, the group assignment and/or the
+  // device-type change; at least one of the three must be present.
   const hasName = "name" in record;
   const hasGroup = "group_id" in record;
-  if (!hasName && !hasGroup) return json({ ok: false, error: "没有要更新的内容" }, 400);
+  const hasPlatform = "platform" in record;
+  if (!hasName && !hasGroup && !hasPlatform) return json({ ok: false, error: "没有要更新的内容" }, 400);
   let name: string | undefined;
   if (hasName) {
     name = typeof record.name === "string" ? record.name.trim() : "";
@@ -1076,7 +1084,21 @@ async function renameDevice(request: Request, env: Env, rawId: string): Promise<
     if (!grouped) return json({ ok: false, error: "设备或分组不存在" }, 404);
     logInfo({ message: "device_group_set", device_id: id, user_id: user.id, group_id: groupId });
   }
-  return json({ ok: true, id, ...(name !== undefined ? { name } : {}), ...(groupId !== undefined ? { group_id: groupId } : {}) });
+  let platform: string | undefined;
+  if (hasPlatform) {
+    platform = canonicalPlatform(record.platform) ?? undefined;
+    if (!platform) return json({ ok: false, error: "设备类型无效" }, 400);
+    const updated = await updateDevicePlatform(env.DB, user.id, id, platform);
+    if (!updated) return json({ ok: false, error: "设备不存在" }, 404);
+    logInfo({ message: "device_platform_set", device_id: id, user_id: user.id, platform });
+  }
+  return json({
+    ok: true,
+    id,
+    ...(name !== undefined ? { name } : {}),
+    ...(groupId !== undefined ? { group_id: groupId } : {}),
+    ...(platform !== undefined ? { platform } : {}),
+  });
 }
 
 async function setDevicePin(request: Request, env: Env, rawId: string, pin: boolean): Promise<Response> {
@@ -1145,6 +1167,26 @@ async function renameDeviceGroupEndpoint(request: Request, env: Env, rawId: stri
   if (!renamed) return json({ ok: false, error: "分组不存在" }, 404);
   logInfo({ message: "device_group_renamed", group_id: id, user_id: user.id });
   return json({ ok: true, id, name: parsed });
+}
+
+async function moveDeviceGroupEndpoint(request: Request, env: Env, rawId: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const id = decodePart(rawId);
+  if (!id || !UUID_RE.test(id)) return json({ ok: false, error: "分组不存在" }, 404);
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const direction =
+    body.value && typeof body.value === "object" && !Array.isArray(body.value)
+      ? (body.value as Record<string, unknown>).direction
+      : null;
+  if (direction !== "up" && direction !== "down") {
+    return json({ ok: false, error: "方向无效" }, 400);
+  }
+  const moved = await moveDeviceGroup(env.DB, user.id, id, direction);
+  if (!moved) return json({ ok: false, error: "分组不存在或已在该方向的尽头" }, 400);
+  logInfo({ message: "device_group_moved", group_id: id, user_id: user.id, direction });
+  return json({ ok: true, id, direction });
 }
 
 async function removeDeviceGroup(request: Request, env: Env, rawId: string): Promise<Response> {
@@ -1267,7 +1309,30 @@ function readProfileUsername(value: unknown): { username: string } | { error: st
   return { username };
 }
 
-const PLATFORMS = new Set(["ios", "android", "other"]);
+// Device types are operating systems. Aliases cover what reporters and
+// older clients send (an iPhone reports "iphone", routers ran OpenWrt,
+// the retired phone/computer presets fold into "other").
+const PLATFORMS = new Set(["ios", "android", "macos", "windows", "linux", "openwrt", "other"]);
+const PLATFORM_ALIASES: Record<string, string> = {
+  iphone: "ios",
+  ipad: "ios",
+  apple: "ios",
+  mac: "macos",
+  osx: "macos",
+  darwin: "macos",
+  win: "windows",
+  router: "openwrt",
+  phone: "other",
+  computer: "other",
+};
+
+function canonicalPlatform(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  const resolved = PLATFORM_ALIASES[normalized] ?? normalized;
+  return PLATFORMS.has(resolved) ? resolved : null;
+}
 
 function readDeviceBody(value: unknown): { name: string; platform: string } | { error: string } {
   if (!value || typeof value !== "object" || Array.isArray(value)) return { error: "请求体无效" };
@@ -1281,10 +1346,10 @@ function readDeviceBody(value: unknown): { name: string; platform: string } | { 
 function readPlatform(value: unknown): string {
   if (value === undefined || value === null) return "other";
   if (typeof value !== "string") return "other";
+  const canonical = canonicalPlatform(value);
+  if (canonical) return canonical;
   const normalized = value.trim().toLowerCase();
   if (!normalized) return "other";
-  if (normalized === "iphone" || normalized === "ipad" || normalized === "apple") return "ios";
-  if (PLATFORMS.has(normalized)) return normalized;
   return /^[a-z0-9_-]{1,16}$/.test(normalized) ? normalized : "other";
 }
 

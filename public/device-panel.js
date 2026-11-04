@@ -37,45 +37,74 @@ export function pushConfirm(action, name) {
   return null;
 }
 
+// Device types are operating systems (Roye: classify by OS, labels all in
+// English), each with its own small icon in the sprite. The stored
+// platform value is one of these keys; older values (phone / computer /
+// router presets and OS aliases) fold into the same list.
+export const DEVICE_TYPES = [
+  { value: "android", label: "Android", icon: "icon-type-android" },
+  { value: "ios", label: "iOS", icon: "icon-type-ios" },
+  { value: "macos", label: "macOS", icon: "icon-type-macos" },
+  { value: "windows", label: "Windows", icon: "icon-type-windows" },
+  { value: "linux", label: "Linux", icon: "icon-type-linux" },
+  { value: "openwrt", label: "OpenWrt", icon: "icon-type-openwrt" },
+  { value: "other", label: "Other", icon: "icon-type-other" },
+];
+
+const TYPE_BY_VALUE = new Map(DEVICE_TYPES.map((type) => [type.value, type]));
+const TYPE_ALIASES = {
+  iphone: "ios",
+  ipad: "ios",
+  apple: "ios",
+  mac: "macos",
+  osx: "macos",
+  darwin: "macos",
+  win: "windows",
+  router: "openwrt",
+  phone: "other",
+  computer: "other",
+};
+
+export function deviceTypeOf(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (!text) return null;
+  return TYPE_BY_VALUE.get(TYPE_ALIASES[text] ?? text) ?? null;
+}
+
 export function platformFromReport(value) {
   const text = String(value ?? "").trim();
-  if (!text) return { key: "unknown", label: "尚未上报" };
-  if (/^ios$/i.test(text)) return { key: "ios", label: "iOS" };
-  if (/^android$/i.test(text)) return { key: "android", label: "Android" };
-  return { key: "reported", label: text };
+  if (!text) return { key: "unknown", label: "尚未上报", icon: "icon-type-other" };
+  const type = deviceTypeOf(text);
+  if (type) return { key: type.value, label: type.label, icon: type.icon };
+  return { key: "reported", label: text, icon: "icon-type-other" };
 }
 
 export function platformBadge(platform) {
-  if (platform?.key === "ios") return "iOS";
-  if (platform?.key === "android") return "Android";
-  if (platform?.key === "preset") return platform.label;
-  if (platform?.key === "reported") return "其他";
-  return "尚未上报";
+  if (!platform || platform.key === "unknown") return "尚未上报";
+  if (platform.key === "reported") return "Other";
+  return platform.label;
 }
 
 export function platformDetail(platform) {
-  if (platform?.key === "ios") return "iOS";
-  if (platform?.key === "android") return "Android";
-  if (platform?.key === "preset") return platform.label;
-  if (platform?.key === "reported") return platform.label;
-  return "尚未上报";
+  if (!platform || platform.key === "unknown") return "尚未上报";
+  return platform.label;
 }
 
-// The platform chosen when the device was created. It is only a starting
-// point: once a message reports a device type, the report wins (see
-// describeDevice). "other"/empty means no preselection was made.
-const PRESET_PLATFORM_LABELS = {
-  phone: "手机",
-  computer: "电脑",
-  router: "路由器",
-};
-
+// The type chosen for the device (at creation, or later in the detail
+// drawer's advanced settings). It is only a starting point: once a
+// message reports a device type, the report wins (see describeDevice).
 export function platformFromPreselect(value) {
-  const text = String(value ?? "").trim().toLowerCase();
-  if (text === "ios") return { key: "ios", label: "iOS" };
-  if (text === "android") return { key: "android", label: "Android" };
-  if (PRESET_PLATFORM_LABELS[text]) return { key: "preset", label: PRESET_PLATFORM_LABELS[text] };
-  return null;
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const type = deviceTypeOf(text);
+  if (type) return { key: type.value, label: type.label, icon: type.icon };
+  return { key: "reported", label: text, icon: "icon-type-other" };
+}
+
+// The sidebar only knows the stored platform (no message data), so its
+// per-device icon comes from the preselected type alone.
+export function sidebarDeviceIcon(device) {
+  return deviceTypeOf(device?.platform)?.icon ?? "icon-type-other";
 }
 
 // The sidebar device list is a plain capped list: the owner's pinned

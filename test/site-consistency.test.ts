@@ -200,10 +200,11 @@ describe("site consistency", () => {
     const boot = readFileSync("public/sidebar-boot.js", "utf8");
     const css = readFileSync("public/css/shell.css", "utf8");
     expect(boot).toContain('row.className = "sidebar-brand-row"');
-    expect(css).toMatch(/\.sidebar-label-row \{[\s\S]*?margin: 0 12px 6px;/);
-    // The device section header is a plain label now (no collapse toggle):
-    // it keeps the same inset as the device rows below it.
-    expect(css).toMatch(/\.sidebar-label \{[\s\S]*?padding: 2px 12px;/);
+    // The device section has no header row at all (Roye): no 设备 label,
+    // no container for it, no collapse toggle — just the list.
+    expect(boot).not.toContain("sidebar-label");
+    expect(boot).not.toContain("sidebar-devices-title");
+    expect(css).not.toContain(".sidebar-label");
     expect(css).not.toContain(".sidebar-section-toggle");
     // No add-device shortcut in the sidebar: adding happens on the devices
     // page.
@@ -229,6 +230,21 @@ describe("site consistency", () => {
     expect(css).toContain(":root[data-sidebar=\"collapsed\"] .brand:hover .brand-expand");
     expect(css).toMatch(/:root\[data-sidebar="collapsed"\] \.sidebar-footer \{ margin-top: auto;/);
     expect(readFileSync("public/icons.svg", "utf8")).toContain('id="icon-panel-left"');
+  });
+
+  it("keeps the device page actions in the body toolbar beside the tabs", () => {
+    const html = readFileSync("public/devices.html", "utf8");
+    const topbar = html.slice(html.indexOf('<header class="topbar">'), html.indexOf("</header>"));
+    // New-group / add-device live in the page, aligned with the view tabs;
+    // the topbar keeps only chrome (menu, theme, refresh).
+    expect(topbar).not.toContain('id="add-device"');
+    expect(topbar).not.toContain('id="add-group"');
+    expect(html).toContain('class="devices-toolbar"');
+    expect(html).toContain('class="devices-actions"');
+    const toolbar = html.slice(html.indexOf('class="devices-toolbar"'), html.indexOf('class="devices-section"'));
+    expect(toolbar).toContain('id="dtab-list"');
+    expect(toolbar).toContain('id="add-group"');
+    expect(toolbar).toContain('id="add-device"');
   });
 
   it("shares one aligned top-right cluster and shows no count next to add buttons", () => {

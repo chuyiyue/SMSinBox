@@ -10,9 +10,22 @@ export function pushActions(push: string | null | undefined): PushAction[];
 export function pushConfirm(action: string, name?: string | null): string | null;
 
 export interface PlatformView {
-  key: "unknown" | "ios" | "android" | "reported" | "preset";
+  key: "unknown" | "ios" | "android" | "macos" | "windows" | "linux" | "openwrt" | "other" | "reported";
   label: string;
+  icon: string;
 }
+
+export interface DeviceType {
+  value: string;
+  label: string;
+  icon: string;
+}
+
+export const DEVICE_TYPES: DeviceType[];
+
+export function deviceTypeOf(value: unknown): DeviceType | null;
+
+export function sidebarDeviceIcon(device: { platform?: string | null } | null | undefined): string;
 
 export function platformFromReport(value: unknown): PlatformView;
 
