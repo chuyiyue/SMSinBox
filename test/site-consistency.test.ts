@@ -245,6 +245,9 @@ describe("site consistency", () => {
     expect(toolbar).toContain('id="dtab-list"');
     expect(toolbar).toContain('id="add-group"');
     expect(toolbar).toContain('id="add-device"');
+    // The actions belong to the list tab; the guide tab hides them.
+    const js = readFileSync("public/devices.js", "utf8");
+    expect(js).toContain("actions.hidden = guide");
   });
 
   it("keeps the API page action in the body toolbar beside the tabs", () => {
