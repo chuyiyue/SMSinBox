@@ -247,7 +247,7 @@ function markActiveNav(path) {
   // account button, which carries the current-page state instead.
   const account = document.querySelector(".account-btn");
   if (account) {
-    const on = path === "/users.html";
+    const on = path === "/users";
     account.classList.toggle("active", on);
     if (on) account.setAttribute("aria-current", "page");
     else account.removeAttribute("aria-current");

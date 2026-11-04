@@ -24,14 +24,35 @@ describe("site consistency", () => {
       expect(navHrefs(html)).toEqual([]);
       expect(html).toContain('class="app-layout"');
       expect(html).toContain('class="sidebar"');
-      expect(html).toContain('id="sidebar-devices"');
       expect(html).toContain('src="/registry.js"');
       expect(html).toContain('src="/sidebar-boot.js"');
       expect(html).toContain('class="topbar"');
       expect(html).toContain('placeholder="搜索正文、号码或验证码"');
-      expect(html).toContain('src="/logo.png"');
-      expect(html).toContain("SMSinBox");
     }
+  });
+
+  it("renders the sidebar from one shared definition, not per-page copies", () => {
+    const boot = readFileSync("public/sidebar-boot.js", "utf8");
+    expect(boot).toContain("SIDEBAR_CHROME");
+    expect(boot).toContain("renderSidebarChrome()");
+    expect(boot).toContain('src="/logo.png"');
+    expect(boot).toContain("SMSinBox");
+    expect(boot).toContain('id="sidebar-devices"');
+    expect(boot).toContain('id="sidebar-devices-toggle"');
+    for (const file of pages) {
+      const html = readFileSync(file, "utf8");
+      // Pages carry only the empty aside shell; the chrome is boot-rendered.
+      expect(html, file).not.toContain('class="brand"');
+      expect(html, file).not.toContain("account-btn");
+      expect(html, file).not.toContain("sidebar-devices-toggle");
+    }
+    // Controls inside the swapped .main are delegated from the document:
+    // a direct binding dies with the node on the first in-app navigation,
+    // which is what made the mobile menu button stop responding.
+    const common = readFileSync("public/common.js", "utf8");
+    expect(common).toContain('target.closest("#menu-toggle")');
+    expect(common).toContain('target.closest("[data-theme-toggle]")');
+    expect(common).not.toMatch(/toggle\?\.addEventListener\("click"/);
   });
 
   it("styles the signed-out pages the same way", () => {
@@ -233,13 +254,12 @@ describe("site consistency", () => {
     const registry = readFileSync("public/registry.js", "utf8");
     expect(registry).toContain('key: "users", title: "系统管理"');
     expect(registry).not.toContain('title: "用户"');
-    for (const file of pages) {
-      const html = readFileSync(file, "utf8");
-      // The admin entry now lives in the shared sidebar footer, not a mobile sheet.
-      expect(html).toContain('<a class="account-btn" href="/users.html"');
-      expect(html).toContain('aria-label="系统管理"');
-      expect(html).toContain('<span class="account-name btn-label" id="sidebar-account-name">管理员</span>');
-    }
+    // The admin entry lives in the shared sidebar footer rendered by
+    // sidebar-boot.js, not in per-page markup or a mobile sheet.
+    const boot = readFileSync("public/sidebar-boot.js", "utf8");
+    expect(boot).toContain('<a class="account-btn" href="/users.html"');
+    expect(boot).toContain('aria-label="系统管理"');
+    expect(boot).toContain('<span class="account-name btn-label" id="sidebar-account-name">管理员</span>');
   });
 
   it("drives the sidebar avatar from the profile username's GitHub avatar", () => {
@@ -292,9 +312,11 @@ describe("site consistency", () => {
     expect(shell).toContain("SMSINBOX_MODULES");
     expect(shell).not.toContain('"/devices.html": "/devices.js"');
     expect(shell).not.toContain('"/users.html": "/users.js"');
-    // ...and re-marks the account button as the current entry on /users.html.
+    // ...and re-marks the account button as the current entry on /users,
+    // compared against the canonical (extensionless) path like the boot.
     expect(shell).toContain('document.querySelector(".account-btn")');
-    expect(shell).toContain('path === "/users.html"');
+    expect(shell).toContain('path === "/users"');
+    expect(shell).not.toContain('path === "/users.html"');
 
     // No page hardcodes nav links or a noscript fallback any more.
     for (const file of pages) {

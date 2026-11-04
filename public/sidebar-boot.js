@@ -24,7 +24,44 @@
   initSidebarChrome();
   paintCachedDevices();
 
+  // The sidebar chrome is defined ONCE here and rendered into every page's
+  // empty <aside>: no per-page copies to drift apart. The markup below is
+  // the single source for the brand, nav shell, device section, and the
+  // account footer; renderNav() then fills the nav from the registry.
+  var SIDEBAR_CHROME =
+    '<a class="brand" href="/">' +
+    '<span class="mark" aria-hidden="true"><img src="/logo.png" width="18" height="18" alt="" /></span>' +
+    '<span class="brand-name">SMSinBox</span>' +
+    "</a>" +
+    '<nav class="sidebar-nav" aria-label="主导航"></nav>' +
+    '<div class="sidebar-devices" aria-labelledby="sidebar-devices-title">' +
+    '<div class="sidebar-label-row">' +
+    '<button type="button" class="sidebar-section-toggle ghost" id="sidebar-devices-toggle" aria-expanded="true" aria-controls="sidebar-devices" title="收起设备列表" aria-label="收起设备列表">' +
+    '<svg class="icon chevron" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-chevron-down"/></svg>' +
+    '<span class="sidebar-label" id="sidebar-devices-title">设备</span>' +
+    "</button>" +
+    "</div>" +
+    '<div id="sidebar-devices" class="device-list"></div>' +
+    "</div>" +
+    '<div class="sidebar-footer">' +
+    '<a class="account-btn" href="/users.html" title="系统管理" aria-label="系统管理">' +
+    '<span class="account-avatar" id="sidebar-avatar" aria-hidden="true">管</span>' +
+    '<span class="account-name btn-label" id="sidebar-account-name">管理员</span>' +
+    "</a>" +
+    '<button class="account-logout ghost" type="button" data-logout title="退出登录" aria-label="退出登录">' +
+    '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-log-out"/></svg>' +
+    '<span class="btn-label">退出登录</span>' +
+    "</button>" +
+    "</div>";
+
+  function renderSidebarChrome() {
+    var aside = document.querySelector(".sidebar");
+    if (!aside || aside.querySelector(".brand")) return;
+    aside.innerHTML = SIDEBAR_CHROME;
+  }
+
   function initSidebarChrome() {
+    renderSidebarChrome();
     renderNav();
     markAccountEntry();
     var collapsed = readCollapsed();

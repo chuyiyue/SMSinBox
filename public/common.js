@@ -247,25 +247,23 @@ export function initShell(options = {}) {
   applyTheme(currentTheme());
   const flash = takeFlash();
   if (flash) toast(flash, { tone: "danger" });
-  const toggle = document.querySelector("#menu-toggle");
-  const backdrop = document.querySelector("#sidebar-backdrop");
-  toggle?.addEventListener("click", () => {
-    if (document.querySelector("#sidebar")?.classList.contains("is-open")) closeSidebar();
-    else openSidebar();
-  });
-  backdrop?.addEventListener("click", closeSidebar);
   document.querySelector("#sidebar")?.addEventListener("click", (event) => {
     if (event.target.closest("a[href]")) closeSidebar();
   });
-  for (const button of document.querySelectorAll("[data-theme-toggle]")) {
-    button.addEventListener("click", () => cycleTheme());
-  }
-  for (const button of document.querySelectorAll("[data-help]")) {
-    button.addEventListener("click", openHelp);
-  }
   document.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
     if (!target) return;
+    // The shell replaces .main (topbar included) on every in-app
+    // navigation, so controls living there MUST be handled by delegation:
+    // a listener bound to the node itself dies with the swapped-out copy
+    // and the button goes dead on every later page.
+    if (target.closest("#menu-toggle")) {
+      if (document.querySelector("#sidebar")?.classList.contains("is-open")) closeSidebar();
+      else openSidebar();
+    }
+    if (target.closest("#sidebar-backdrop")) closeSidebar();
+    if (target.closest("[data-theme-toggle]")) cycleTheme();
+    if (target.closest("[data-help]")) openHelp();
     if (target.closest("#refresh")) shellHooks.onRefresh?.();
     if (target.closest("#search-toggle")) openSearch();
   });
