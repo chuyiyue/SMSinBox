@@ -14,6 +14,7 @@ import {
   mountSelect,
   openDrawer,
   openEventStream,
+  openModal,
   receivedStamp,
   renderContent,
   toast,
@@ -48,10 +49,13 @@ const state = {
   selectedId: "",
   range: "all",
   read: loadReadSet(),
+  manageMode: false,
+  checked: new Set(),
 };
 
 let filters;
 let rangeButtons;
+let manageButton;
 let list;
 let summary;
 let errorBox;
@@ -76,6 +80,11 @@ function startView() {
   const token = viewToken;
   resetInbox();
   filters = document.querySelector("#filters");
+  manageButton = document.querySelector("#manage-toggle");
+  manageButton.addEventListener("click", () => {
+    onManageToggle().catch(showError);
+  });
+  paintManageButton();
   list = document.querySelector("#list");
   summary = document.querySelector("#summary");
   errorBox = document.querySelector("#inbox-error");
@@ -191,6 +200,8 @@ function resetInbox() {
   state.listGen += 1;
   state.selectedId = "";
   state.range = "all";
+  state.manageMode = false;
+  state.checked.clear();
   messages.clear();
 }
 
@@ -444,19 +455,127 @@ function renderMessage(message) {
   const slot = document.createElement("div");
   slot.className = "chip-slot";
   if (message.code && !unreadable(message)) slot.append(codeChip(message.code));
-  line.append(avatarNode(message), senderLine, timeNode(message, "time-end"), preview, slot);
+  line.append(state.manageMode ? rowSelectNode(message) : avatarNode(message), senderLine, timeNode(message, "time-end"), preview, slot);
   article.append(line);
   article.addEventListener("click", (event) => {
+    if (state.manageMode) {
+      // The checkbox itself toggles through its own change event; other
+      // row clicks flip it here. The detail drawer never opens in manage mode.
+      if (event.target.closest("input, button, a")) return;
+      toggleRowSelection(article, message);
+      return;
+    }
     if (event.target.closest("button, a")) return;
     openMessage(article, message);
   });
   article.addEventListener("keydown", (event) => {
-    if (event.target.closest("button, a")) return;
+    if (event.target.closest("button, a, input")) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
+    if (state.manageMode) {
+      toggleRowSelection(article, message);
+      return;
+    }
     openMessage(article, message);
   });
   return article;
+}
+
+// Manage mode swaps every row's avatar slot for a checkbox. The toggle
+// button next to the range segments is the only way in and out: with
+// nothing checked it reads 管理 and exits, with a selection it turns
+// into a red 删除（N） that deletes through the shared confirm dialog.
+function rowSelectNode(message) {
+  const node = document.createElement("div");
+  node.className = "avatar message-select";
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.className = "message-check";
+  input.checked = state.checked.has(message.id);
+  input.setAttribute("aria-label", "选择这条短信");
+  input.addEventListener("change", () => {
+    if (input.checked) state.checked.add(message.id);
+    else state.checked.delete(message.id);
+    paintManageButton();
+  });
+  node.append(input);
+  return node;
+}
+
+function toggleRowSelection(article, message) {
+  const on = !state.checked.has(message.id);
+  if (on) state.checked.add(message.id);
+  else state.checked.delete(message.id);
+  const input = article.querySelector(".message-check");
+  if (input) input.checked = on;
+  paintManageButton();
+}
+
+function repaintRowSlots() {
+  for (const row of list.querySelectorAll(".message-row")) {
+    const message = messages.get(row.id.replace(/^msg-/, ""));
+    if (!message) continue;
+    const line = row.querySelector(".message-row-line");
+    const current = line?.querySelector(".avatar");
+    if (!line || !current) continue;
+    current.replaceWith(state.manageMode ? rowSelectNode(message) : avatarNode(message));
+  }
+}
+
+function paintManageButton() {
+  if (!manageButton) return;
+  const count = state.checked.size;
+  const deleting = state.manageMode && count > 0;
+  manageButton.textContent = deleting ? `删除（${count}）` : "管理";
+  manageButton.classList.toggle("danger", deleting);
+  manageButton.setAttribute("aria-pressed", String(state.manageMode));
+}
+
+function exitManageMode() {
+  state.manageMode = false;
+  state.checked.clear();
+  repaintRowSlots();
+  paintManageButton();
+}
+
+async function onManageToggle() {
+  if (!state.manageMode) {
+    state.manageMode = true;
+    state.checked.clear();
+    repaintRowSlots();
+    paintManageButton();
+    return;
+  }
+  if (state.checked.size === 0) {
+    exitManageMode();
+    return;
+  }
+  const ids = [...state.checked];
+  const confirmed = await openModal({
+    title: "删除短信",
+    body: `确定要删除选中的 ${ids.length} 条短信吗？删除后不可恢复。`,
+    confirmLabel: "删除",
+    danger: true,
+  });
+  if (!confirmed) return;
+  const outcome = await requestDeleteMessages(ids);
+  if (!outcome.ok) {
+    toast(outcome.error, { tone: "danger" });
+    return;
+  }
+  exitManageMode();
+  state.page = 1;
+  await loadMessages().catch(showError);
+  toast(`已删除 ${outcome.deleted} 条`);
+}
+
+async function requestDeleteMessages(ids) {
+  const result = await api("/api/v1/messages/delete", {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+  if (!result.response.ok) return { ok: false, error: result.data?.error || "删除失败" };
+  return { ok: true, deleted: result.data?.deleted ?? ids.length };
 }
 
 function openMessage(article, message) {
@@ -497,18 +616,15 @@ function buildDetail(message) {
     if (message.code) {
       const codeBlock = document.createElement("section");
       codeBlock.className = "message-card";
-      const label = document.createElement("h3");
-      label.className = "message-card-title";
-      label.textContent = "验证码";
-      codeBlock.append(label, CodeChip(message.code));
+      codeBlock.append(
+        cardHead("验证码", cardCopyButton("复制验证码", message.code, `验证码 ${message.code} 已复制`)),
+        CodeChip(message.code),
+      );
       wrap.append(codeBlock);
     }
     if (hasTranslation(message)) {
       const translatedCard = document.createElement("section");
       translatedCard.className = "message-card";
-      const translatedLabel = document.createElement("h3");
-      translatedLabel.className = "message-card-title";
-      translatedLabel.textContent = "短信翻译";
       const translatedBody = document.createElement("p");
       translatedBody.className = "content";
       translatedBody.dir = "auto";
@@ -516,39 +632,80 @@ function buildDetail(message) {
       const translatedNote = document.createElement("p");
       translatedNote.className = "message-card-note";
       translatedNote.textContent = translatedTag(message);
-      translatedCard.append(translatedLabel, translatedBody, translatedNote);
+      translatedCard.append(
+        cardHead("短信翻译", cardCopyButton("复制译文", message.translated_content, "译文已复制")),
+        translatedBody,
+        translatedNote,
+      );
       wrap.append(translatedCard);
     }
     const contentCard = document.createElement("section");
     contentCard.className = "message-card";
-    const label = document.createElement("h3");
-    label.className = "message-card-title";
-    label.textContent = "短信正文";
     const content = document.createElement("p");
     content.className = "content";
     content.dir = "auto";
     renderContent(content, message.content, message.code);
-    contentCard.append(label, content);
+    contentCard.append(
+      cardHead("短信正文", cardCopyButton("复制原文", message.content, "原文已复制")),
+      content,
+    );
     wrap.append(contentCard);
-
-    const actions = document.createElement("div");
-    actions.className = "actions message-detail-actions";
-    const full = document.createElement("button");
-    full.type = "button";
-    full.className = "secondary";
-    full.textContent = "复制全文";
-    full.addEventListener("click", async (event) => {
-      event.stopPropagation();
-      const copied = await flashLabel(full, message.content || "", "复制全文");
-      if (copied) toast("短信全文已复制");
-      else toast("复制失败，请手动复制", { tone: "danger" });
-    });
-    actions.append(full);
-    wrap.append(actions);
   }
+
+  const del = document.createElement("button");
+  del.type = "button";
+  del.className = "danger message-detail-delete";
+  del.textContent = "删除这条短信";
+  del.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    const confirmed = await openModal({
+      title: "删除短信",
+      body: "确定要删除这条短信吗？删除后不可恢复。",
+      confirmLabel: "删除",
+      danger: true,
+    });
+    if (!confirmed) return;
+    const outcome = await requestDeleteMessages([message.id]);
+    if (!outcome.ok) {
+      toast(outcome.error, { tone: "danger" });
+      return;
+    }
+    state.checked.delete(message.id);
+    paintManageButton();
+    closeDrawer();
+    state.page = 1;
+    await loadMessages().catch(showError);
+    toast(`已删除 ${outcome.deleted} 条`);
+  });
+  wrap.append(del);
 
   wrap.append(rawJsonFold(message));
   return wrap;
+}
+
+function cardHead(title, copyButton) {
+  const head = document.createElement("div");
+  head.className = "message-card-head";
+  const label = document.createElement("h3");
+  label.className = "message-card-title";
+  label.textContent = title;
+  head.append(label);
+  if (copyButton) head.append(copyButton);
+  return head;
+}
+
+function cardCopyButton(label, value, doneText) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "ghost message-card-copy";
+  button.textContent = label;
+  button.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    const copied = await flashLabel(button, value || "", label);
+    if (copied) toast(doneText);
+    else toast("复制失败，请手动复制", { tone: "danger" });
+  });
+  return button;
 }
 
 function detailRow(label, value) {

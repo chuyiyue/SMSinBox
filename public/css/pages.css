@@ -32,6 +32,19 @@
 .filters .filter-range {
   flex: 0 0 auto;
   min-width: min-content;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* The manage/delete toggle sits right outside the range segments at the
+   bar's shared control height. Bare button = black; .danger (added once
+   a selection exists) turns it into the red delete action. */
+.manage-toggle {
+  flex: none;
+  height: 40px;
+  min-height: 40px;
+  white-space: nowrap;
 }
 
 /* One control height across the whole bar — search box included — so
@@ -155,6 +168,14 @@
 }
 
 .avatar { grid-area: avatar; align-self: start; margin-top: 1px; }
+/* Manage mode: the avatar slot holds the row checkbox, centered in the
+   same 36px circle footprint. */
+.avatar .message-check {
+  width: 20px;
+  min-height: 20px;
+  margin: 0;
+  cursor: pointer;
+}
 /* Row avatar content: a flag fills the circle; the platform fallback
    icon sits centered at about 60% with the shared type-icon stroke. */
 .avatar .avatar-flag {
@@ -323,6 +344,23 @@
   color: var(--text-3);
   font-size: var(--fs-xs);
 }
+/* Card header row: the small title on the left, the card's own ghost
+   copy button on the right. */
+.message-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.message-card-copy {
+  flex: none;
+  min-height: 28px;
+  padding: 2px 8px;
+  font-size: var(--fs-xs);
+}
+/* Full-width red delete at the foot of the detail drawer, as wide as
+   the body card above it. */
+.message-detail-delete { width: 100%; }
 
 /* Feature settings: one block per feature inside the section; later
    features divide from the previous one instead of crowding it. */
@@ -331,8 +369,6 @@
   border-top: 1px solid var(--border);
   padding-top: var(--space-4);
 }
-
-.message-detail-actions { padding-top: var(--space-1); }
 
 /* min-width: 0 lets the grid item shrink to the drawer instead of sizing
    to the pre's longest line, so the code block scrolls inside its own box. */

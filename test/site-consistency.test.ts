@@ -754,6 +754,47 @@ describe("site consistency", () => {
     expect(css).toContain(".avatar .avatar-logo");
   });
 
+  it("wires manual message deletion into the inbox manage mode and detail drawer", () => {
+    const html = readFileSync("public/index.html", "utf8");
+    const inbox = readFileSync("public/inbox.js", "utf8");
+    const css = readFileSync("public/css/pages.css", "utf8");
+
+    // The manage toggle sits in the range group, right outside the
+    // 全部 / 今天 / 近 7 天 segments.
+    expect(html).toMatch(/data-range="7d"[\s\S]*?<\/div>\s*<button id="manage-toggle" class="manage-toggle" type="button" aria-pressed="false">管理<\/button>/);
+    expect(css).toContain(".manage-toggle");
+
+    // Manage mode: rows swap the avatar slot for a checkbox and row
+    // clicks toggle instead of opening the drawer; the toggle button
+    // turns into the red delete once anything is checked.
+    expect(inbox).toContain("rowSelectNode(message)");
+    expect(inbox).toContain('input.className = "message-check"');
+    expect(inbox).toContain("toggleRowSelection(article, message)");
+    expect(inbox).toContain("state.manageMode ? rowSelectNode(message) : avatarNode(message)");
+    expect(inbox).toContain("paintManageButton()");
+    expect(inbox).toContain('manageButton.classList.toggle("danger", deleting)');
+    expect(inbox).toContain("删除（${count}）");
+    expect(css).toContain(".avatar .message-check");
+
+    // Both delete flows share the confirm dialog and the delete endpoint.
+    expect(inbox).toContain('"/api/v1/messages/delete"');
+    expect(inbox).toContain("requestDeleteMessages(ids)");
+    expect(inbox).toContain("requestDeleteMessages([message.id])");
+    expect(inbox).toContain("删除后不可恢复");
+
+    // Detail cards carry their own copy buttons; the old standalone
+    // copy-full action is gone and a full-width danger delete sits in
+    // its place.
+    expect(inbox).toContain('cardCopyButton("复制验证码"');
+    expect(inbox).toContain('cardCopyButton("复制译文"');
+    expect(inbox).toContain('cardCopyButton("复制原文"');
+    expect(inbox).not.toContain("复制全文");
+    expect(inbox).toContain('"danger message-detail-delete"');
+    expect(inbox).toContain("删除这条短信");
+    expect(css).toContain(".message-card-head");
+    expect(css).toContain(".message-detail-delete");
+  });
+
   it("shortens log errors the same way everywhere", () => {
     expect(errorText(new Error("x".repeat(200)))).toHaveLength(180);
     expect(errorText(new Error("短"))).toBe("短");
