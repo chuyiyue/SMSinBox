@@ -39,6 +39,9 @@ describe("site consistency", () => {
     expect(boot).toContain("SMSinBox");
     expect(boot).toContain('id="sidebar-devices"');
     expect(boot).toContain('id="sidebar-devices-toggle"');
+    // The boot IIFE must invoke initSidebarChrome() only after the
+    // SIDEBAR_CHROME assignment has executed (var hoisting trap).
+    expect(boot.indexOf("initSidebarChrome();")).toBeGreaterThan(boot.indexOf("var SIDEBAR_CHROME"));
     for (const file of pages) {
       const html = readFileSync(file, "utf8");
       // Pages carry only the empty aside shell; the chrome is boot-rendered.

@@ -21,9 +21,6 @@
   });
   window.SMSINBOX_NAV = NAV_ITEMS;
 
-  initSidebarChrome();
-  paintCachedDevices();
-
   // The sidebar chrome is defined ONCE here and rendered into every page's
   // empty <aside>: no per-page copies to drift apart. The markup below is
   // the single source for the brand, nav shell, device section, and the
@@ -342,4 +339,9 @@
       return "";
     }
   }
+
+  // Runs last on purpose: the calls above this comment only declare, so by
+  // the time initSidebarChrome() executes, SIDEBAR_CHROME is assigned.
+  initSidebarChrome();
+  paintCachedDevices();
 })();
