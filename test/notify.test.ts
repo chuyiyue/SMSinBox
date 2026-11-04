@@ -4,6 +4,7 @@ import {
   channelFromRow,
   defaultDeps,
   deliverChannels,
+  mergeChannelConfig,
   parseChannelInput,
   recordPushResults,
   redactConfig,
@@ -327,6 +328,30 @@ describe("notification text and config", () => {
     }
     expect(parseChannelInput({ kind: "notifyx", api_key: "" }).ok).toBe(false);
     expect(parseChannelInput({ kind: "notifyx", api_key: "has space" }).ok).toBe(false);
+
+    const withChannel = parseChannelInput({ kind: "notifyx", api_key: "nxkey1234567890", channel: "ios" });
+    expect(withChannel.ok).toBe(true);
+    if (withChannel.ok) {
+      expect(withChannel.config).toEqual({ api_key: "nxkey1234567890", channel: "ios" });
+      expect(redactConfig(withChannel.kind, withChannel.config)).toEqual({ api_key: "****7890", channel: "ios" });
+    }
+    expect(parseChannelInput({ kind: "notifyx", api_key: "nxkey1234567890", channel: "bad channel!" }).ok).toBe(false);
+    const channelCalls: Array<{ url: string }> = [];
+    const channelResults = await deliverChannels(
+      [channel({ kind: "notifyx", config: { api_key: "nxkey1234567890", channel: "ios" } })],
+      { title: "标题", text: "正文内容" },
+      {
+        fetch: async (input) => {
+          channelCalls.push({ url: String(input) });
+          return new Response(JSON.stringify({ success: true }), { status: 200 });
+        },
+        openSmtp: async () => {
+          throw new Error("unused");
+        },
+      },
+    );
+    expect(channelResults[0]?.ok).toBe(true);
+    expect(channelCalls[0]?.url).toBe("https://www.notifyx.cn/api/v1/send/nxkey1234567890?channel=ios");
 
     const calls: Array<{ url: string; body: string }> = [];
     const results = await deliverChannels(
@@ -871,6 +896,60 @@ describe("notification API", () => {
 
     expect(channelFromRow(row({ note: "备注" }))?.note).toBe("备注");
     expect(channelFromRow(row())?.note).toBe("");
+  });
+
+  it("updates channel config via PATCH, keeping secrets left blank", async () => {
+    const headers = { cookie: "smsinbox_session=sms_session_token_value", "content-type": "application/json" };
+    const id = "11111111-1111-4111-8111-111111111111";
+    const stored = row({ id, config: JSON.stringify({ bot_token: TOKEN, chat_id: "42" }) });
+    const configWrites: unknown[][] = [];
+    const db = {
+      prepare(sql: string) {
+        const statement = {
+          args: [] as unknown[],
+          bind(...args: unknown[]) { statement.args = args; return statement; },
+          async first() { return sql.includes("notify_channels") ? stored : sessionUser(); },
+          async all() { return { results: [] }; },
+          async run() {
+            if (sql.includes("SET config")) configWrites.push(statement.args);
+            return { meta: { changes: 1 } };
+          },
+        };
+        return statement;
+      },
+    } as unknown as D1Database;
+    const patched = await handleApi(
+      new Request(`https://sms.example/api/v1/notifications/${id}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ config: { bot_token: "", chat_id: "99" } }),
+      }),
+      authedEnv(db),
+    );
+    expect(patched.status).toBe(200);
+    const body = await patched.json() as { channel: { config: { bot_token: string; chat_id: string } } };
+    expect(body.channel.config.chat_id).toBe("99");
+    expect(body.channel.config.bot_token).toBe("****6789");
+    expect(configWrites).toHaveLength(1);
+    expect(JSON.parse(String(configWrites[0]?.[0]))).toEqual({ bot_token: TOKEN, chat_id: "99" });
+  });
+
+  it("mergeChannelConfig keeps blank secrets, replaces plain fields and prunes stale email modes", () => {
+    const telegram = channelFromRow(row({ config: JSON.stringify({ bot_token: TOKEN, chat_id: "42" }) })) as StoredChannel;
+    expect(mergeChannelConfig(telegram, { bot_token: "", chat_id: "99" })).toEqual({
+      ok: true,
+      config: { bot_token: TOKEN, chat_id: "99" },
+    });
+    const smtp = channelFromRow(row({
+      kind: "email",
+      config: JSON.stringify({ to: "you@example.com", from: "sms@example.com", smtp_host: "smtp.example.com", smtp_port: 465, smtp_username: "sms@example.com", smtp_password: "pw" }),
+    })) as StoredChannel;
+    expect(mergeChannelConfig(smtp, { to: "you@example.com", from: "sms@example.com", resend_api_key: "re_AbC123456789" })).toEqual({
+      ok: true,
+      config: { to: "you@example.com", from: "sms@example.com", resend_api_key: "re_AbC123456789" },
+    });
+    const hook = channelFromRow(row({ kind: "webhook", config: JSON.stringify({ url: "https://example.com/hook" }) })) as StoredChannel;
+    expect(mergeChannelConfig(hook, { url: "not a url" }).ok).toBe(false);
   });
 
   it("lists stored channels without the bot token", async () => {
