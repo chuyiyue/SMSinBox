@@ -160,14 +160,14 @@
 /* Ellipsis row under the capped sidebar device list: links to the full
    device list on the devices page. */
 .sidebar .device-more {
-  display: block;
-  padding: 2px 12px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 12px;
   border-radius: var(--r-sm);
   color: var(--text-3);
   font-size: var(--fs-md);
   line-height: 1.4;
-  letter-spacing: 0.2em;
-  text-align: center;
   text-decoration: none;
 }
 
