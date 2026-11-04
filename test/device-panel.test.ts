@@ -130,7 +130,10 @@ describe("shortcut version status", () => {
 
 describe("devices page", () => {
   const html = readFileSync("public/devices.html", "utf8");
-  const js = readFileSync("public/devices.js", "utf8");
+  // The detail drawer lives in device-detail.js (shared by every page);
+  // the devices page's behavior spans both files.
+  const js =
+    readFileSync("public/devices.js", "utf8") + "\n" + readFileSync("public/device-detail.js", "utf8");
   const css = readFileSync("public/style.css", "utf8");
   const pagesCss = readFileSync("public/css/pages.css", "utf8");
 

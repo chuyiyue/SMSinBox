@@ -27,7 +27,14 @@ describe("site consistency", () => {
       expect(html).toContain('src="/registry.js"');
       expect(html).toContain('src="/sidebar-boot.js"');
       expect(html).toContain('class="topbar"');
-      expect(html).toContain('placeholder="搜索正文、号码或验证码"');
+      // The message search box belongs to the inbox only; the other pages'
+      // topbars do not carry it (Roye, 2026-11-04).
+      if (file === "public/index.html") {
+        expect(html).toContain('placeholder="搜索正文、号码或验证码"');
+      } else {
+        expect(html).not.toContain("topbar-search");
+        expect(html).not.toContain('id="search-toggle"');
+      }
     }
   });
 
@@ -235,7 +242,9 @@ describe("site consistency", () => {
 
   it("gives the devices page a guide tab and keeps the guide out of device cards", () => {
     const html = readFileSync("public/devices.html", "utf8");
-    const js = readFileSync("public/devices.js", "utf8");
+    // The detail drawer moved to the shared device-detail.js module.
+    const js =
+      readFileSync("public/devices.js", "utf8") + "\n" + readFileSync("public/device-detail.js", "utf8");
     expect(html).toContain('id="dtab-guide"');
     expect(html).toContain("接入指引");
     expect(html).toContain('id="dpanel-guide"');
@@ -344,7 +353,7 @@ describe("site consistency", () => {
     const sprite = readFileSync("public/icons.svg", "utf8");
     const defined = new Set([...sprite.matchAll(/<symbol id="(icon-[a-z-]+)"/g)].map((m) => m[1]));
     const referenced = new Set();
-    const sources = [...pages, "public/login.html", "public/registry.js", "public/sidebar-boot.js", "public/common.js", "public/inbox.js", "public/devices.js", "public/notify.js"];
+    const sources = [...pages, "public/login.html", "public/registry.js", "public/sidebar-boot.js", "public/common.js", "public/ui.js", "public/inbox.js", "public/devices.js", "public/device-detail.js", "public/notify.js"];
     for (const file of sources) {
       const text = readFileSync(file, "utf8");
       for (const m of text.matchAll(/icons\.svg#(icon-[a-z-]+)/g)) referenced.add(m[1]);

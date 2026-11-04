@@ -58,6 +58,7 @@ import {
   recordLoginFailure,
   replaceDevicePushToken,
   revokeDevicePush,
+  rotateApiToken,
   setNotifyChannelEnabled,
   setProfileUsername,
   touchDevice,
@@ -244,6 +245,11 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
   if (tokenRevokeMatch?.[1]) {
     if (method !== "POST") return methodNotAllowed("POST");
     return revokeApiTokenEndpoint(request, env, tokenRevokeMatch[1]);
+  }
+  const tokenRotateMatch = /^\/api\/v1\/api-tokens\/([^/]+)\/rotate$/.exec(path);
+  if (tokenRotateMatch?.[1]) {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return rotateApiTokenEndpoint(request, env, tokenRotateMatch[1]);
   }
   const tokenDeleteMatch = /^\/api\/v1\/api-tokens\/([^/]+)$/.exec(path);
   if (tokenDeleteMatch?.[1]) {
@@ -751,9 +757,13 @@ async function updateDevicePush(request: Request, env: Env, rawId: string): Prom
 }
 
 function newPushToken(): string {
-  const bytes = new Uint8Array(32);
+  // 32 lowercase hex characters (a hyphenless UUID, 128 bits of entropy):
+  // no prefix and no base64url symbols — some devices/apps reject "_"/"-"
+  // in the ingest URL (Roye, 2026-11-04). Legacy psh_ tokens keep working
+  // until rotated; see PUSH_TOKEN_PATTERN in routes/sms.ts.
+  const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
-  return `psh_${bytesToBase64Url(bytes)}`;
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function ingestUrl(request: Request, pushToken: string): string {
@@ -1288,6 +1298,25 @@ async function revokeApiTokenEndpoint(request: Request, env: Env, id: string): P
   if (!updated) return json({ ok: false, error: "未找到 Token" }, 404);
   logInfo({ message: "api_token_revoked", token_id: id, user_id: auth.id });
   return json({ ok: true });
+}
+
+// Rotation supersedes revocation in the UI (Roye, 2026-11-04): the token
+// row keeps its identity and permissions, only the secret is replaced.
+async function rotateApiTokenEndpoint(request: Request, env: Env, id: string): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
+  const auth = await requireUser(request, env);
+  if (auth instanceof Response) return auth;
+  const randomBytes = crypto.getRandomValues(new Uint8Array(24));
+  const plaintext = `smsx_${bytesToBase64Url(randomBytes)}`;
+  const tokenPrefix = `${plaintext.slice(0, 10)}...`;
+  const updated = await rotateApiToken(env.DB, auth.id, id, {
+    tokenHash: await sha256Hex(plaintext),
+    tokenPrefix,
+    tokenEnc: await sealSecret(env, plaintext),
+  });
+  if (!updated) return json({ ok: false, error: "未找到 Token" }, 404);
+  logInfo({ message: "api_token_rotated", token_id: id, user_id: auth.id });
+  return json({ ok: true, token: plaintext });
 }
 
 async function deleteApiTokenEndpoint(request: Request, env: Env, id: string): Promise<Response> {

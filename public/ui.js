@@ -1,9 +1,15 @@
 const THEME_KEY = "smsinbox-theme";
 const THEME_ORDER = ["system", "light", "dark"];
 const THEME_LABEL = {
-  system: "主题：跟随系统",
+  system: "主题：自动",
   light: "主题：浅色",
   dark: "主题：深色",
+};
+// One icon per mode (Roye): auto = contrast, light = sun, dark = moon.
+const THEME_ICON = {
+  system: "/icons.svg#icon-contrast",
+  light: "/icons.svg#icon-sun",
+  dark: "/icons.svg#icon-moon",
 };
 
 let menuNode = null;
@@ -26,6 +32,8 @@ export function applyTheme(theme) {
     if (label) label.textContent = THEME_LABEL[next];
     else button.textContent = THEME_LABEL[next];
     button.setAttribute("aria-label", THEME_LABEL[next]);
+    const use = button.querySelector("use");
+    if (use) use.setAttribute("href", THEME_ICON[next]);
   }
 }
 
@@ -417,4 +425,16 @@ export function generatePassword() {
   const bytes = new Uint8Array(20);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("");
+}
+
+// Select a node's contents (used by the credential code blocks so a click
+// readies the value for copying). Moved here from devices.js so the shared
+// device detail drawer can use it on any page.
+export function selectContents(node) {
+  const selection = window.getSelection();
+  if (!selection) return;
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  selection.removeAllRanges();
+  selection.addRange(range);
 }

@@ -20,7 +20,7 @@ import {
 } from "./ui.js";
 
 export { api, isUnauthorized, openEventStream } from "./api-client.js";
-export { mountSelect, openHelp, openMenu, openModal, passwordScore, generatePassword, toast } from "./ui.js";
+export { mountSelect, openHelp, openMenu, openModal, passwordScore, generatePassword, selectContents, toast } from "./ui.js";
 
 const URL_RE = /https?:\/\/[^\s<>"']+/gi;
 
@@ -298,7 +298,16 @@ export function initShell(options = {}) {
     const id = button.getAttribute("data-device-id") || "";
     setActiveId(id);
     closeSidebar();
-    followAppLink(id ? `/devices.html#dev-${encodeURIComponent(id)}` : "/devices.html");
+    // The sidebar is the quick path: pop the detail drawer right here, on
+    // whatever page is showing, instead of navigating to the devices page.
+    const device = id ? getDevices().find((item) => item.id === id) : null;
+    if (!device) {
+      followAppLink("/devices.html");
+      return;
+    }
+    void import("./device-detail.js")
+      .then((detail) => detail.openDeviceDetail(device))
+      .catch(() => followAppLink(`/devices.html#dev-${encodeURIComponent(id)}`));
   });
   void renderSidebarProfile().catch(() => {});
 }

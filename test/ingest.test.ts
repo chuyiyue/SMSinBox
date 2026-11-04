@@ -861,7 +861,7 @@ describe("push ingest", () => {
     expect(created.token.split(".")).toHaveLength(3);
     expect(created.token_type).toBe("Bearer");
     expect(created.token_expires_at).toBeGreaterThan(NOW);
-    expect(created.push_url).toMatch(/^https:\/\/sms\.example\/api\/v1\/ingest\/psh_[A-Za-z0-9_-]{20,}$/);
+    expect(created.push_url).toMatch(/^https:\/\/sms\.example\/api\/v1\/ingest\/[0-9a-f]{32}$/);
     expect(created.device).toMatchObject({ push: "active", platform: "android" });
     const secret = created.push_url.split("/").pop() ?? "";
     expect(harness.state.devices[0]?.push_token_hash).toBe(await sha256Hex(secret));
@@ -1024,7 +1024,9 @@ describe("push ingest", () => {
       `https://sms.example/api/v1/ingest/${"psh_" + "a".repeat(300)}`,
       "https://sms.example/api/v1/ingest/psh_short",
       `https://sms.example/api/v1/ingest/psh_${"a".repeat(12)}+bad`,
-      `https://sms.example/api/v1/ingest/${"a".repeat(32)}`,
+      // 32 chars but not hex: malformed under the current secret format too
+      // (a bare 32-char hex string would be a well-formed unknown secret).
+      `https://sms.example/api/v1/ingest/${"g".repeat(32)}`,
       `https://sms.example/api/v1/ingest/${secret}/extra`,
     ];
     for (const url of malformed) {

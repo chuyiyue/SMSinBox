@@ -25,14 +25,17 @@ import { buildRawPayload, parseSmsPayload } from "../parse";
 import type { DeviceRecord } from "../types";
 
 const INGEST_PREFIX = "/api/v1/ingest/";
-const PUSH_TOKEN_PATTERN = /^psh_[A-Za-z0-9_-]+$/;
+// Legacy secrets are "psh_" + base64url; current secrets are 32 lowercase
+// hex characters (symbol-free). Both stay valid until the device rotates.
+const PUSH_TOKEN_PATTERN = /^(?:psh_[A-Za-z0-9_-]+|[0-9a-f]{32})$/;
 
 export function buildTestSms(nonce: string): string {
   return `SMSinBox 测试短信。验证码 654321。序号 ${nonce}`;
 }
 
-// Reject before hashing. The charset is the psh_ prefix plus base64url, and the
-// length cap matches readBearer so a huge path never becomes a SHA-256 input.
+// Reject before hashing. The charset is either the legacy psh_ base64url
+// shape or the current 32-hex shape, and the length cap matches readBearer
+// so a huge path never becomes a SHA-256 input.
 export function readIngestSecret(pathname: string): string | null {
   if (!pathname.startsWith(INGEST_PREFIX)) return null;
   const raw = pathname.slice(INGEST_PREFIX.length);
