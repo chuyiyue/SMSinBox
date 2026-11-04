@@ -31,6 +31,8 @@
    `wrangler.jsonc` 里的 `database_id` 可以留空，Wrangler 按数据库名绑定；部署时若提示找不到数据库，再把创建输出的 UUID 填回 `d1_databases`。
 3. 想好下面变量表里必填项的值（随机密钥可用 `openssl rand -base64 32` 生成）。
 
+数据库迁移按文件名顺序执行（`0001_init.sql` 到 `0016_notify_channel_note.sql`，其中 `0005_device_push.sql` 起设备改用专属推送链接）。三种方案都是先迁移、再部署 Worker，顺序反了新代码会读不到新列。
+
 ### 变量总表
 
 | 变量 | 类型 | 必填 | 默认 | 用途 |
