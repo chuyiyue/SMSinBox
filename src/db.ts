@@ -225,11 +225,18 @@ export async function deleteUserCascade(db: D1Database, userId: string): Promise
 
 export async function createSession(
   db: D1Database,
-  session: { id: string; userId: string; expiresAt: number; createdAt: number },
+  session: {
+    id: string;
+    userId: string;
+    expiresAt: number;
+    createdAt: number;
+    userAgent?: string | null;
+    ip?: string | null;
+  },
 ): Promise<void> {
   await db
-    .prepare("INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)")
-    .bind(session.id, session.userId, session.expiresAt, session.createdAt)
+    .prepare("INSERT INTO sessions (id, user_id, expires_at, created_at, user_agent, ip) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(session.id, session.userId, session.expiresAt, session.createdAt, session.userAgent ?? null, session.ip ?? null)
     .run();
 }
 
@@ -253,7 +260,7 @@ export async function deleteSession(db: D1Database, sessionHash: string): Promis
 export async function listUserSessions(db: D1Database, userId: string, now: number): Promise<ListedSession[]> {
   const result = await db
     .prepare(
-      `SELECT id, created_at, expires_at
+      `SELECT id, created_at, expires_at, user_agent, ip
        FROM sessions
        WHERE user_id = ? AND expires_at > ?
        ORDER BY created_at DESC, id ASC`,

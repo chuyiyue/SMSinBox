@@ -69,6 +69,7 @@ import { recognizeCode } from "../code-recognition";
 import { clientAddress, isCrossSite, json, readCookie, readLimitedBytes, rejectsSensitiveWrite } from "../http";
 import { errorText, logError, logInfo } from "../log";
 import { issueSession, publicUser, requireUser } from "../session";
+import { parseUserAgent } from "../user-agent";
 import {
   beginTotpSetup,
   disableTotp,
@@ -482,12 +483,19 @@ async function sessions(request: Request, env: Env): Promise<Response> {
   const rows = await listUserSessions(env.DB, user.id, now);
   return json({
     ok: true,
-    sessions: rows.map((row) => ({
-      id: row.id,
-      created_at: row.created_at,
-      expires_at: row.expires_at,
-      current: row.id === user.session_id,
-    })),
+    sessions: rows.map((row) => {
+      const info = parseUserAgent(row.user_agent);
+      return {
+        id: row.id,
+        created_at: row.created_at,
+        expires_at: row.expires_at,
+        current: row.id === user.session_id,
+        browser: info.browser,
+        os: info.os,
+        device: info.device,
+        ip: row.ip ?? null,
+      };
+    }),
   });
 }
 

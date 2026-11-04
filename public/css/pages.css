@@ -27,11 +27,6 @@
   min-width: 0;
 }
 
-.filters .segmented {
-  width: 100%;
-  min-width: 220px;
-}
-
 .filter-label {
   color: var(--text-3);
   font-size: var(--fs-xs);
@@ -238,7 +233,9 @@
 .end-note, .sentinel { text-align: center; color: var(--text-3); font-size: var(--fs-sm); padding: 16px; }
 .chips:empty { display: none; }
 
-.devices { display: grid; gap: 12px; }
+/* Cards size to their own content: expanding one card must not stretch
+   its row-mates into tall empty panels. */
+.devices { display: grid; gap: 12px; align-items: start; }
 
 .device, .record {
   display: grid;
@@ -304,6 +301,9 @@
   gap: var(--space-3);
   align-items: start;
 }
+
+/* The empty state centers on the page, not inside one grid column. */
+.channel-grid .empty-state { grid-column: 1 / -1; }
 
 .channel-card {
   display: grid;
@@ -469,8 +469,6 @@
   .session-row { align-items: stretch; flex-direction: column; }
   .session-row button { width: 100%; }
 
-  .settings { grid-template-columns: 1fr; }
-  .settings-nav { display: none; }
   .settings-section {
     padding: var(--space-4);
     border: 1px solid var(--border);
@@ -482,44 +480,12 @@
 .setting-item-title { font-weight: 600; }
 .setting-item-desc, .setting-item-arrow { display: none; }
 
-/* System management: settings-center layout (left anchors, right config). */
+/* System management: a single column of sections, no in-page menu. */
 .settings {
   display: grid;
-  grid-template-columns: 196px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 24px;
   align-items: start;
-}
-
-.settings-nav {
-  position: sticky;
-  top: calc(var(--topbar-height) + 16px);
-  display: grid;
-  gap: 2px;
-  padding: 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-1);
-}
-
-.settings-nav a {
-  display: flex;
-  align-items: center;
-  min-height: 36px;
-  padding: 0 12px;
-  border-radius: var(--r-sm);
-  color: var(--text-2);
-  text-decoration: none;
-  font-size: var(--fs-sm);
-}
-
-.settings-nav a:hover { background: var(--surface-hover); color: var(--text); }
-
-.settings-nav a.is-active,
-.settings-nav a[aria-current="true"] {
-  background: var(--accent-soft);
-  color: var(--accent-text);
-  font-weight: 600;
 }
 
 .settings-body {
@@ -539,10 +505,6 @@
   box-shadow: 0 0 0 2px var(--accent-soft), var(--shadow-1);
 }
 
-
-@media (min-width: 640px) and (max-width: 1023px) {
-  .settings { grid-template-columns: 176px minmax(0, 1fr); gap: 16px; }
-}
 
 @media (prefers-reduced-motion: reduce) {
   .message-row.is-fresh { animation: none; }

@@ -208,6 +208,13 @@ describe("site consistency", () => {
     expect(js).not.toContain('"access", "接入配置"');
     expect(js).not.toMatch(/access\.append\(buildApiConfig/);
     expect(js).toMatch(/panels\.append\(overview, messages, push, advanced\)/);
+    // The expanded card body is facts + actions only, and the API config is
+    // built exactly once (its definition plus the page-guide call).
+    expect(js).toContain("body.append(facts, actions);");
+    expect(js.split("buildApiConfig()").length - 1).toBe(2);
+    // Expanding one card must not stretch its grid row-mates.
+    const pagesCss = readFileSync("public/css/pages.css", "utf8");
+    expect(pagesCss).toMatch(/\.devices \{[^}]*align-items: start;/);
   });
 
   it("labels the admin entry as system management on every page", () => {
@@ -349,7 +356,11 @@ describe("site consistency", () => {
     expect(js).not.toContain("initMobileSettingsNav");
     expect(js).not.toContain("mobileSection");
     const css = readFileSync("public/css/pages.css", "utf8");
-    expect(css).toContain(".settings-nav { display: none; }");
+    // The in-page settings menu is gone entirely: sections stack in one
+    // column with no anchor nav in the markup, styles, or script.
+    expect(css).not.toContain(".settings-nav");
+    expect(html).not.toContain("settings-nav");
+    expect(js).not.toContain("initSettingsNav");
     expect(css).not.toContain(".settings-section.is-visible");
     expect(css).not.toMatch(/\.settings-section\s*\{[^}]*display:\s*none/);
   });

@@ -716,18 +716,6 @@ function renderDevice(device, entry) {
   actions.className = "actions device-actions";
   actions.append(testButton(device));
 
-  const setupFold = buildSetupFold();
-  const guide = document.createElement("button");
-  guide.type = "button";
-  guide.className = "secondary";
-  guide.textContent = "安装说明";
-  guide.addEventListener("click", (event) => {
-    event.stopPropagation();
-    setupFold.open = true;
-    setupFold.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  });
-  actions.append(guide);
-
   const more = document.createElement("button");
   more.type = "button";
   more.className = "secondary device-more";
@@ -751,7 +739,7 @@ function renderDevice(device, entry) {
     note.textContent = "很久没有收到短信";
     body.append(note);
   }
-  body.append(facts, actions, buildApiConfig(), setupFold);
+  body.append(facts, actions);
   row.append(head, body);
   return row;
 }

@@ -399,9 +399,11 @@ dialog.modal::backdrop { background: var(--overlay); }
 .strength[data-score="3"] i:nth-child(-n + 3),
 .strength[data-score="4"] i:nth-child(-n + 4) { background: var(--accent-button); }
 
-.segmented { display: flex; padding: 3px; gap: 3px; background: var(--bg-sunken); border-radius: var(--r-md); }
+/* Segments size to their labels (widths may differ); labels never wrap. */
+.segmented { display: inline-flex; padding: 3px; gap: 3px; background: var(--bg-sunken); border-radius: var(--r-md); }
 .segment {
-  flex: 1;
+  flex: 0 0 auto;
+  white-space: nowrap;
   min-height: 34px;
   background: transparent;
   color: var(--text-2);
@@ -415,14 +417,14 @@ dialog.modal::backdrop { background: var(--overlay); }
 .kind-card {
   display: grid;
   gap: 4px;
-  justify-items: start;
+  justify-items: center;
   min-height: 84px;
   padding: 12px;
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border-strong);
   border-radius: var(--r-md);
-  text-align: left;
+  text-align: center;
 }
 .kind-card:hover { background: var(--surface-hover); border-color: var(--accent); }
 .kind-card strong { font-weight: 600; }

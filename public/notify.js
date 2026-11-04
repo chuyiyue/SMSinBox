@@ -558,14 +558,10 @@ function retryState(message) {
 }
 
 function emptyChannels() {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.textContent = "添加渠道";
-  button.addEventListener("click", openCreate);
+  // No add button here: the topbar already carries the page's 添加渠道.
   return emptyState({
     title: "还没有推送渠道",
     text: "短信入库后，可以推到 Telegram、企业微信、Bark、飞书、钉钉或邮箱。",
-    actions: [button],
   });
 }
 

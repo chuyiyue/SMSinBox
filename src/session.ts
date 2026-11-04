@@ -7,7 +7,7 @@ import {
   sha256Hex,
 } from "./auth";
 import { createSession, deleteSession, findSessionUser } from "./db";
-import { isCrossSite, json, readCookie } from "./http";
+import { clientAddress, isCrossSite, json, readCookie } from "./http";
 import type { SessionUser } from "./types";
 
 export type ActiveUser = SessionUser & { session_id: string };
@@ -41,11 +41,14 @@ export async function issueSession(
 ): Promise<Response> {
   const token = randomToken();
   const now = Date.now();
+  const userAgent = request.headers.get("user-agent")?.slice(0, 512) || null;
   await createSession(env.DB, {
     id: await sha256Hex(token),
     userId: user.id,
     expiresAt: now + SESSION_TTL_SECONDS * 1000,
     createdAt: now,
+    userAgent,
+    ip: clientAddress(request),
   });
   const headers = new Headers();
   headers.set("set-cookie", sessionCookieHeader(token, requestIsSecure(request), SESSION_TTL_SECONDS));
