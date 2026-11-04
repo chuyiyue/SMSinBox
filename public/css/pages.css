@@ -261,7 +261,9 @@
    to the pre's longest line, so the code block scrolls inside its own box. */
 .message-raw { background: var(--bg-sunken); min-width: 0; }
 .message-raw summary { color: var(--text-2); font-size: var(--fs-sm); }
-.message-raw .code-block { max-height: 280px; max-width: 100%; margin-top: var(--space-2); overflow: auto; }
+/* No height cap: the block grows with the JSON and the drawer stays
+   the only vertical scroller — no nested scrollbar inside the fold. */
+.message-raw .code-block { max-width: 100%; margin-top: var(--space-2); overflow-x: auto; overflow-y: visible; }
 
 .end-note, .sentinel { text-align: center; color: var(--text-3); font-size: var(--fs-sm); padding: 16px; }
 .chips:empty { display: none; }
