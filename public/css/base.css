@@ -6,7 +6,13 @@ html, body {
   min-height: 100dvh;
 }
 
-html { background: var(--bg); }
+html {
+  background: var(--bg);
+  /* Always reserve the scrollbar gutter: opening a drawer locks body
+     scrolling, and without the reserved gutter the page would jump
+     sideways by the scrollbar's width every time. */
+  scrollbar-gutter: stable;
+}
 
 body {
   background: var(--bg);

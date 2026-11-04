@@ -422,7 +422,9 @@ function renderChannel(channel) {
   nameNode.textContent = name;
   const hintText = document.createElement("span");
   hintText.className = "channel-hint";
-  hintText.textContent = meta?.hint || "";
+  // The owner's remark replaces the generic kind description under
+  // the channel title when one is set (Roye).
+  hintText.textContent = channel.note || meta?.hint || "";
   title.append(nameNode, hintText);
   head.append(badge, title, enabledDot(channel.enabled));
 
@@ -461,14 +463,7 @@ function renderChannel(channel) {
   remove.addEventListener("click", () => removeChannel(channel));
   actions.append(edit, testButton, toggle, remove);
 
-  if (channel.note) {
-    const note = document.createElement("p");
-    note.className = "channel-note";
-    note.textContent = channel.note;
-    row.append(head, masked, note, test, actions);
-  } else {
-    row.append(head, masked, test, actions);
-  }
+  row.append(head, masked, test, actions);
   return row;
 }
 

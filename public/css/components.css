@@ -324,10 +324,12 @@ dialog.modal::backdrop { background: var(--overlay); }
    itself reads as the switch — solid black enables, white disables.
    The hover rules need the extra specificity to beat the base
    button:hover background. */
-.btn-enable { background: var(--accent-button); color: var(--on-accent); border-color: transparent; }
-.btn-enable:hover { background: var(--accent-button-hover); }
-.btn-disable { background: var(--surface); color: var(--text); border-color: var(--border-strong); }
-.btn-disable:hover { background: var(--surface-hover); }
+/* The toggle pair is named by the action on the label: 启用 is the
+   quiet (empty) button, 禁用 is the black one (Roye). */
+.btn-enable { background: var(--surface); color: var(--text); border-color: var(--border-strong); }
+.btn-enable:hover { background: var(--surface-hover); }
+.btn-disable { background: var(--accent-button); color: var(--on-accent); border-color: transparent; }
+.btn-disable:hover { background: var(--accent-button-hover); }
 
 /* Custom select (ui.js mountSelect): a form-styled toggle + menu, so no
    picker ever falls back to browser-default chrome. */
@@ -379,6 +381,10 @@ dialog.modal::backdrop { background: var(--overlay); }
 }
 
 .toast a { color: inherit; font-weight: 600; }
+/* Long messages (URLs, error text) wrap in full instead of running off
+   the toast's edge: the text span may shrink and break anywhere. */
+.toast > span { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.toast > a, .toast > .toast-close { flex: none; }
 .toast.is-danger { background: var(--danger); color: var(--on-danger); }
 .toast-close {
   min-height: 28px;

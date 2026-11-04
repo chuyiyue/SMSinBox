@@ -282,6 +282,70 @@ describe("site consistency", () => {
     expect(pagesCss).toMatch(/\.devices \{[^}]*align-items: start;/);
   });
 
+  it("imports every shared helper the device drawer calls", () => {
+    // Regression: the drawer rendered messages through CodeChip and
+    // formatTime without importing either, so any device with at
+    // least one message failed the whole panel with "load failed".
+    const detail = readFileSync("public/device-detail.js", "utf8");
+    expect(detail).toMatch(/import \{[^}]*\bCodeChip\b[^}]*\} from "\.\/common\.js";/s);
+    expect(detail).toMatch(/import \{[^}]*\bformatTime\b[^}]*\} from "\.\/common\.js";/s);
+    expect(detail).toContain("chipWrap.append(CodeChip(message.code));");
+  });
+
+  it("page modules import every shared helper they call", () => {
+    // Plain-JS page modules get no tsc import checking, so a helper
+    // used without an import only fails at runtime. Scan for it.
+    const sharedFiles = [
+      "public/common.js",
+      "public/ui.js",
+      "public/device-panel.js",
+      "public/device-store.js",
+    ];
+    const exported = new Set<string>();
+    for (const file of sharedFiles) {
+      for (const m of readFileSync(file, "utf8").matchAll(
+        /export (?:function|const|class) (\w+)/g,
+      )) {
+        exported.add(m[1]);
+      }
+    }
+    const pages = [
+      "public/inbox.js",
+      "public/devices.js",
+      "public/device-detail.js",
+      "public/notify.js",
+      "public/api-mcp.js",
+      "public/users.js",
+      "public/shell.js",
+      "public/sidebar-boot.js",
+      "public/login.js",
+      "public/totp-settings.js",
+    ];
+    for (const page of pages) {
+      // Strip comments first: sidebar-boot documents the shared helpers
+      // it mirrors inline, and a mention is not a call.
+      const src = readFileSync(page, "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/(^|[^:])\/\/.*$/gm, "$1");
+      const imported = new Set<string>();
+      for (const m of src.matchAll(/import \{([\s\S]*?)\} from/g)) {
+        for (const part of m[1].split(",")) {
+          const name = part.trim().split(" as ").pop()?.trim();
+          if (name) imported.add(name);
+        }
+      }
+      const local = new Set(
+        [...src.matchAll(/(?:function|const|let|var|class) (\w+)/g)].map((m) => m[1]),
+      );
+      for (const name of exported) {
+        const used = new RegExp(`(?<![.\\w$])${name}\\s*\\(`).test(src);
+        if (used && !imported.has(name) && !local.has(name)) {
+          throw new Error(`${page} calls ${name}() without importing it`);
+        }
+      }
+    }
+  });
+
   it("labels the admin entry as system management on every page", () => {
     // The admin nav entry is defined once in the registry with this title.
     const registry = readFileSync("public/registry.js", "utf8");
