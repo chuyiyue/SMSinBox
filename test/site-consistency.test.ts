@@ -247,6 +247,22 @@ describe("site consistency", () => {
     expect(toolbar).toContain('id="add-device"');
   });
 
+  it("keeps the API page action in the body toolbar beside the tabs", () => {
+    const html = readFileSync("public/api-mcp.html", "utf8");
+    const topbar = html.slice(html.indexOf('<header class="topbar">'), html.indexOf("</header>"));
+    // New-token lives in the page toolbar aligned with the section tabs;
+    // the topbar keeps only chrome (menu, theme, refresh).
+    expect(topbar).not.toContain('id="add-token"');
+    expect(html).toContain('class="api-toolbar"');
+    expect(html).toContain('class="api-actions"');
+    const toolbar = html.slice(html.indexOf('class="api-toolbar"'), html.indexOf('id="page-error"'));
+    expect(toolbar).toContain('id="tab-token"');
+    expect(toolbar).toContain('id="add-token"');
+    // The button belongs to the tokens tab only.
+    const js = readFileSync("public/api-mcp.js", "utf8");
+    expect(js).toContain('addToken.hidden = name !== "tokens"');
+  });
+
   it("keeps the notify page actions in the body toolbar beside the tabs", () => {
     const html = readFileSync("public/notify.html", "utf8");
     const js = readFileSync("public/notify.js", "utf8");

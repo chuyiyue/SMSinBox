@@ -14,14 +14,7 @@ export function extractCode(content: string): string | null {
   if (keywords.length === 0) return null;
 
   const candidates: Array<{ code: string; distance: number; index: number }> = [];
-  for (const match of text.matchAll(/\d{4,8}/g)) {
-    const index = match.index;
-    if (index === undefined) continue;
-    const code = match[0];
-    if (index > 0 && isAsciiDigit(text[index - 1]!)) continue;
-    const end = index + code.length;
-    if (end < text.length && isAsciiDigit(text[end]!)) continue;
-
+  const consider = (code: string, index: number, end: number) => {
     let distance = Number.POSITIVE_INFINITY;
     for (const keyword of keywords) {
       let gap: number;
@@ -31,11 +24,33 @@ export function extractCode(content: string): string | null {
       if (gap < distance) distance = gap;
     }
     if (distance <= CODE_WINDOW) candidates.push({ code, distance, index });
+  };
+  for (const match of text.matchAll(/\d{4,8}/g)) {
+    const index = match.index;
+    if (index === undefined) continue;
+    const code = match[0];
+    if (index > 0 && isAsciiDigit(text[index - 1]!)) continue;
+    const end = index + code.length;
+    if (end < text.length && isAsciiDigit(text[end]!)) continue;
+    consider(code, index, end);
+  }
+  // Grouped codes ("613-408", "613 408"): two short digit runs joined by
+  // one separator count as one code with the separator dropped. The
+  // guards keep date chains like 2026-10-31 from matching: a group may
+  // not be preceded by a digit or a digit-hyphen pair, nor followed by
+  // another hyphen-digit group.
+  for (const match of text.matchAll(/(?<!\d)(?<!\d-)(\d{2,4})[- ](\d{2,4})(?!\d)(?!-\d)/g)) {
+    const index = match.index;
+    if (index === undefined) continue;
+    consider(match[1]! + match[2]!, index, index + match[0].length);
   }
 
   const preferred = candidates.filter((candidate) => !isLikelyYear(candidate.code) || candidate.distance <= 1);
   if (preferred.length === 0) return null;
-  preferred.sort((left, right) => left.distance - right.distance || right.index - left.index);
+  preferred.sort(
+    (left, right) =>
+      left.distance - right.distance || right.index - left.index || right.code.length - left.code.length,
+  );
   return preferred[0]?.code ?? null;
 }
 

@@ -319,19 +319,35 @@ const AVATAR_DATA_LIMIT = 400 * 1024;
 
 // Center-crop to a square and shrink to at most 128×128; if the exported
 // data URL is still too large, step down in size and quality until it fits.
+// Decoding prefers createImageBitmap: an <img> fed with a blob: URL is
+// subject to the page's CSP, the bitmap decoder is not.
 async function fileToAvatarDataUrl(file) {
-  const url = URL.createObjectURL(file);
+  let source = null;
+  let cleanup = () => {};
   try {
-    const img = await new Promise((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => resolve(image);
-      image.onerror = () => reject(new Error("图片读取失败，请换一张试试"));
-      image.src = url;
-    });
-    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    if (typeof createImageBitmap === "function") {
+      try {
+        source = await createImageBitmap(file);
+      } catch {
+        source = null;
+      }
+    }
+    if (!source) {
+      const url = URL.createObjectURL(file);
+      cleanup = () => URL.revokeObjectURL(url);
+      source = await new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error("图片读取失败，请换一张试试"));
+        image.src = url;
+      });
+    }
+    const width = source.naturalWidth ?? source.width;
+    const height = source.naturalHeight ?? source.height;
+    const side = Math.min(width, height);
     if (!side) throw new Error("图片读取失败，请换一张试试");
-    const sx = (img.naturalWidth - side) / 2;
-    const sy = (img.naturalHeight - side) / 2;
+    const sx = (width - side) / 2;
+    const sy = (height - side) / 2;
     for (const size of [128, 96, 64]) {
       const canvas = document.createElement("canvas");
       canvas.width = size;
@@ -339,7 +355,7 @@ async function fileToAvatarDataUrl(file) {
       const ctx = canvas.getContext("2d");
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, size, size);
-      ctx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
+      ctx.drawImage(source, sx, sy, side, side, 0, 0, size, size);
       for (const quality of [0.85, 0.7, 0.55]) {
         const dataUrl = canvas.toDataURL("image/jpeg", quality);
         if (dataUrl.length <= AVATAR_DATA_LIMIT) return dataUrl;
@@ -347,7 +363,8 @@ async function fileToAvatarDataUrl(file) {
     }
     throw new Error("图片压缩后仍过大，请换一张更小的图片");
   } finally {
-    URL.revokeObjectURL(url);
+    cleanup();
+    if (source && typeof source.close === "function") source.close();
   }
 }
 

@@ -658,8 +658,12 @@ describe("code recognition on ingest", () => {
       waitCtx().ctx,
     );
     // Let the request actually reach the AI call first: body reads and
-    // WebCrypto need real event-loop turns that fake timers do not drive.
-    for (let i = 0; i < 100 && run.mock.calls.length === 0; i++) {
+    // WebCrypto finish on thread-pool tasks that fake timers do not
+    // drive. Poll on a wall-clock budget, not a fixed turn count — a
+    // turn budget drains instantly on a busy CI runner while the pool
+    // is still working (only setTimeout is faked, so Date.now is real).
+    const deadline = Date.now() + 5000;
+    while (run.mock.calls.length === 0 && Date.now() < deadline) {
       await new Promise((resolve) => setImmediate(resolve));
     }
     expect(run).toHaveBeenCalledTimes(1);

@@ -342,6 +342,10 @@ function switchTab(name) {
   for (const panel of document.querySelectorAll("[data-panel]")) {
     panel.hidden = panel.dataset.panel !== name;
   }
+  // Creating a token only applies to the tokens tab; the button sits in
+  // the toolbar beside the tabs and follows the active tab.
+  const addToken = document.querySelector("#add-token");
+  if (addToken) addToken.hidden = name !== "tokens";
 }
 
 registerView("/api-mcp.html", start);
