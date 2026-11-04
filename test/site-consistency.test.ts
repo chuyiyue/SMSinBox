@@ -734,7 +734,7 @@ describe("site consistency", () => {
     const tableStart = inbox.indexOf("SENDER_LOGOS");
     const table = inbox.slice(tableStart, inbox.indexOf("];", tableStart));
     const slugs = [...table.matchAll(/\["([a-z0-9]+)", \[/g)].map((match) => match[1]);
-    expect(slugs.length).toBe(34);
+    expect(slugs.length).toBe(39);
     for (const slug of slugs) {
       expect(existsSync(`public/logos/${slug}.svg`), `public/logos/${slug}.svg`).toBe(true);
     }
