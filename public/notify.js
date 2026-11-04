@@ -1,4 +1,4 @@
-import { api, emptyState, errorState, formatTime, initShell, isUnauthorized, loadNav, logout, openModal, showNotice, statusDot, toast } from "./common.js";
+import { api, emptyState, errorState, formatDateTime, formatTime, initShell, isUnauthorized, loadNav, logout, openModal, showNotice, statusDot, toast } from "./common.js";
 import { registerView } from "./shell.js";
 
 const MAX_CHANNELS = 10;
@@ -50,11 +50,18 @@ let list;
 let dialog;
 let kindStep;
 let addButton;
+let historyList;
+let historyError;
+let historyMore;
+let historyEnd;
 let view;
 let viewFields;
 let selectedKind = "telegram";
 let emailMode = "webhook";
 let viewToken = 0;
+let historyOffset = 0;
+let historyTotal = 0;
+let historyLoading = false;
 const lastTest = new Map();
 
 function startView() {
@@ -73,17 +80,25 @@ function startView() {
   view = document.querySelector("#notify-view");
   viewFields = document.querySelector("#notify-view-fields");
   addButton = document.querySelector("#add-channel");
+  historyList = document.querySelector("#notify-history-list");
+  historyError = document.querySelector("#notify-history-error");
+  historyMore = document.querySelector("#notify-history-more");
+  historyEnd = document.querySelector("#notify-history-end");
+  historyOffset = 0;
+  historyTotal = 0;
+  historyLoading = false;
   lastTest.clear();
   renderKindGrid();
   wirePageTabs();
   initShell({
     onLogout: () => logout().catch(() => setError("退出失败")),
-    onRefresh: () => loadChannels().catch((error) => {
+    onRefresh: () => (document.querySelector("#npanel-history").hidden ? loadChannels() : loadHistory(true)).catch((error) => {
       if (isUnauthorized(error)) return;
       setError("加载推送渠道失败");
     }),
   });
   addButton.addEventListener("click", openCreate);
+  historyMore.addEventListener("click", () => loadHistory(false));
   document.querySelector("#notify-close").addEventListener("click", () => dialog.close());
   document.querySelector("#notify-back").addEventListener("click", () => showKindStep());
   document.querySelector("#notify-view-close").addEventListener("click", () => dialog.close());
@@ -105,26 +120,134 @@ function startView() {
   };
 }
 
-// 添加渠道 belongs to 系统推送. The external tab is a placeholder, so the
-// button hides while that panel is showing.
+// 添加渠道 belongs to 系统推送; history and the external placeholder hide it.
 function wirePageTabs() {
   const systemTab = document.querySelector("#ntab-system");
   const externalTab = document.querySelector("#ntab-external");
+  const historyTab = document.querySelector("#ntab-history");
   const systemPanel = document.querySelector("#npanel-system");
   const externalPanel = document.querySelector("#npanel-external");
-  if (!systemTab || !externalTab || !systemPanel || !externalPanel || !addButton) return;
+  const historyPanel = document.querySelector("#npanel-history");
+  if (!systemTab || !externalTab || !historyTab || !systemPanel || !externalPanel || !historyPanel || !addButton) return;
   const activate = (name) => {
-    const external = name === "external";
-    systemTab.classList.toggle("is-active", !external);
-    systemTab.setAttribute("aria-selected", external ? "false" : "true");
-    externalTab.classList.toggle("is-active", external);
-    externalTab.setAttribute("aria-selected", external ? "true" : "false");
-    systemPanel.hidden = external;
-    externalPanel.hidden = !external;
-    addButton.hidden = external;
+    const activeTab = name === "system" ? systemTab : name === "external" ? externalTab : historyTab;
+    const activePanel = name === "system" ? systemPanel : name === "external" ? externalPanel : historyPanel;
+    for (const [tab, panel] of [
+      [systemTab, systemPanel],
+      [externalTab, externalPanel],
+      [historyTab, historyPanel],
+    ]) {
+      const active = tab === activeTab;
+      tab.classList.toggle("is-active", active);
+      tab.setAttribute("aria-selected", active ? "true" : "false");
+      panel.hidden = !active;
+    }
+    addButton.hidden = name !== "system";
+    if (activePanel === historyPanel) loadHistory(true);
   };
   systemTab.addEventListener("click", () => activate("system"));
   externalTab.addEventListener("click", () => activate("external"));
+  historyTab.addEventListener("click", () => activate("history"));
+}
+
+async function loadHistory(reset = true) {
+  if (historyLoading) return;
+  historyLoading = true;
+  const token = viewToken;
+  if (reset) {
+    historyOffset = 0;
+    historyTotal = 0;
+    historyList.replaceChildren();
+    historyList.textContent = "加载中…";
+    historyMore.hidden = true;
+    historyEnd.hidden = true;
+  }
+  historyError.hidden = true;
+  try {
+    const result = await api(`/api/v1/notify/history?limit=50&offset=${reset ? 0 : historyOffset}`);
+    if (token !== viewToken) return;
+    if (!result.response.ok) {
+      showHistoryError(reset);
+      return;
+    }
+    const items = Array.isArray(result.data.items) ? result.data.items : [];
+    historyTotal = Number(result.data.total) || 0;
+    if (reset) historyList.replaceChildren();
+    if (reset && items.length === 0) {
+      historyList.append(emptyState({
+        text: "还没有推送记录。短信推送到渠道后会记在这里。",
+      }));
+    } else {
+      for (const item of items) historyList.append(renderPushLog(item));
+    }
+    historyOffset += items.length;
+    const hasMore = historyOffset < historyTotal;
+    historyMore.hidden = !hasMore;
+    historyEnd.hidden = hasMore || historyOffset === 0;
+  } catch (error) {
+    if (isUnauthorized(error)) return;
+    showHistoryError(reset);
+  } finally {
+    if (token === viewToken) historyLoading = false;
+  }
+}
+
+function showHistoryError(reset) {
+  historyError.replaceChildren(errorState({
+    message: "加载推送历史失败",
+    onRetry: () => loadHistory(reset),
+  }));
+  historyError.hidden = false;
+  historyMore.hidden = true;
+  historyEnd.hidden = true;
+  if (reset) historyList.replaceChildren();
+}
+
+function renderPushLog(item) {
+  const meta = KINDS.find((kind) => kind.kind === item.channel_kind);
+  const row = document.createElement("article");
+  row.className = "push-history-item";
+
+  const heading = document.createElement("div");
+  heading.className = "push-history-heading";
+  const channel = document.createElement("div");
+  channel.className = "push-history-channel";
+  const name = document.createElement("strong");
+  name.className = "push-history-name";
+  name.textContent = item.channel_name || meta?.label || item.channel_kind;
+  const kind = document.createElement("span");
+  kind.className = "push-history-kind";
+  kind.textContent = meta?.label || item.channel_kind;
+  channel.append(name, kind);
+  const time = document.createElement("time");
+  time.className = "push-history-time";
+  const timestamp = Number(item.created_at);
+  time.textContent = formatDateTime(timestamp);
+  if (Number.isFinite(timestamp)) time.dateTime = new Date(timestamp).toISOString();
+  heading.append(channel, time);
+
+  const badges = document.createElement("div");
+  badges.className = "push-history-badges";
+  const source = document.createElement("span");
+  source.className = "push-history-source";
+  source.textContent = item.source === "test" ? "测试" : "短信";
+  const status = document.createElement("span");
+  status.className = `push-history-status ${item.ok ? "is-ok" : "is-failed"}`;
+  status.textContent = item.ok ? "成功" : "失败";
+  badges.append(source, status);
+
+  const preview = document.createElement("p");
+  preview.className = "push-history-preview";
+  preview.textContent = item.preview || "";
+  row.append(heading, badges, preview);
+  if (!item.ok && item.error) {
+    const error = document.createElement("p");
+    error.className = "push-history-error-text";
+    error.textContent = [...String(item.error)].slice(0, 100).join("");
+    error.title = item.error;
+    row.append(error);
+  }
+  return row;
 }
 
 function renderKindGrid() {

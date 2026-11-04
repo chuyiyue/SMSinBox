@@ -24,6 +24,7 @@
 - `0014_device_pins_groups.sql`
 - `0015_device_group_order.sql`
 - `0016_notify_channel_note.sql`
+- `0018_push_logs.sql`
 
 `0005_device_push.sql` 只追加 `push_token_hash`、`push_revoked_at` 和唯一索引。它不改已有 `token_hash`，不改短信，不删行。SQLite 的唯一索引允许多个 NULL，还没签发推送链接的旧设备可以共存。
 
@@ -49,7 +50,9 @@
 
 `0016_notify_channel_note.sql` 只给 `notify_channels` 追加 `note`（渠道备注，创建时可填、之后可改）。还没跑过 `0016` 时不要部署这份 Worker。
 
-新 Worker 会读取推送列和 TOTP 列。数据库还没跑过 `0005` / `0007` / `0008` / `0009` / `0010` / `0011` / `0012` / `0013` / `0014` 时不要部署这份 Worker。旧 Worker 不读这些列，所以先迁移再部署是安全的。
+`0018_push_logs.sql` 新建 `push_logs` 表，保留系统推送渠道的短信发送与测试发送结果快照；历史按用户和时间索引，并按 `RETENTION_DAYS` 与短信一同清理。还没跑过 `0018` 时不要部署这份 Worker。
+
+新 Worker 会读取推送列和 TOTP 列。数据库还没跑过 `0005` / `0007` / `0008` / `0009` / `0010` / `0011` / `0012` / `0013` / `0014` / `0018` 时不要部署这份 Worker。旧 Worker 不读这些列，所以先迁移再部署是安全的。
 
 ## 已在本地完成
 

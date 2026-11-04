@@ -32,9 +32,11 @@ const EXPECTED_MIGRATIONS = [
   "0014_device_pins_groups.sql",
   "0015_device_group_order.sql",
   "0016_notify_channel_note.sql",
+  "0018_push_logs.sql",
 ];
 const TABLES = [
   "api_tokens",
+  "push_logs",
   "schema_meta",
   "totp_tickets",
   "totp_recovery_codes",
@@ -284,7 +286,7 @@ describe("release migrations", () => {
 
     // The worker under test reads the later additive columns, so finish the
     // schema before exercising login on the legacy rows.
-    await applyFiles(["0006_single_user.sql", "0007_totp.sql", "0008_device_identity.sql", "0009_api_tokens.sql", "0010_message_code_source.sql", "0011_session_client_info.sql", "0012_device_push_secret.sql", "0013_api_token_secret.sql", "0014_device_pins_groups.sql", "0015_device_group_order.sql", "0016_notify_channel_note.sql"]);
+    await applyFiles(["0006_single_user.sql", "0007_totp.sql", "0008_device_identity.sql", "0009_api_tokens.sql", "0010_message_code_source.sql", "0011_session_client_info.sql", "0012_device_push_secret.sql", "0013_api_token_secret.sql", "0014_device_pins_groups.sql", "0015_device_group_order.sql", "0016_notify_channel_note.sql", "0018_push_logs.sql"]);
     const migrated = await env.DB.prepare("PRAGMA table_info(devices)").all<{ name: string; dflt_value: unknown }>();
     expect(migrated.results.map((column) => column.name)).toEqual([
       "id",
@@ -1679,7 +1681,28 @@ describe("release storage edges", () => {
     env.CONTENT_KEY = "";
   }, 20_000);
 
-  it("purges expired messages, sessions, and rate rows without removing the device", async () => {
+  it("lists authenticated push history newest first with pagination and a total", async () => {
+    await resetSchema();
+    const login = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
+    const cookie = sessionCookie(login);
+    const session = await expectStatus(login, 200);
+    const userId = String((session.user as { id: string }).id);
+    for (const [id, createdAt] of [["history-old", 100], ["history-new", 300], ["history-middle", 200]]) {
+      await runSql(
+        env.DB,
+        "INSERT INTO push_logs (id, user_id, channel_name, channel_kind, source, preview, ok, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [id, userId, "Bark", "bark", "sms", id, 1, createdAt],
+      );
+    }
+
+    const page = await expectStatus(await call("/api/v1/notify/history?limit=2&offset=1", {}, cookie), 200);
+    expect(page.total).toBe(3);
+    expect((page.items as Array<{ id: string; ok: boolean }>).map((item) => item.id))
+      .toEqual(["history-middle", "history-old"]);
+    expect((page.items as Array<{ ok: boolean }>).every((item) => item.ok)).toBe(true);
+  }, 20_000);
+
+  it("purges expired messages and push logs, sessions, and rate rows without removing the device", async () => {
     env.CONTENT_KEY = "";
     const login = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
     const cookie = sessionCookie(login);
@@ -1706,6 +1729,14 @@ describe("release storage edges", () => {
     );
     const now = Date.now();
     await runSql(env.DB, "UPDATE messages SET created_at = ? WHERE id = ?", [now - 100 * 24 * 60 * 60 * 1000, String(old.id)]);
+    await runSql(env.DB,
+      "INSERT INTO push_logs (id, user_id, channel_name, channel_kind, source, preview, ok, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      ["expired-push-log", userId, "Bark", "bark", "sms", "old", 1, now - 100 * 24 * 60 * 60 * 1000],
+    );
+    await runSql(env.DB,
+      "INSERT INTO push_logs (id, user_id, channel_name, channel_kind, source, preview, ok, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      ["fresh-push-log", userId, "Bark", "bark", "sms", "fresh", 1, now],
+    );
     await runSql(env.DB, "INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)", [
       "expired-session-hash",
       userId,
@@ -1723,6 +1754,8 @@ describe("release storage edges", () => {
 
     expect(await countOf("SELECT COUNT(*) AS total FROM messages WHERE id = ?", [String(old.id)])).toBe(0);
     expect(await countOf("SELECT COUNT(*) AS total FROM messages WHERE id = ?", [String(fresh.id)])).toBe(1);
+    expect(await countOf("SELECT COUNT(*) AS total FROM push_logs WHERE id = ?", ["expired-push-log"])).toBe(0);
+    expect(await countOf("SELECT COUNT(*) AS total FROM push_logs WHERE id = ?", ["fresh-push-log"])).toBe(1);
     expect(await countOf("SELECT COUNT(*) AS total FROM sessions WHERE id = ?", ["expired-session-hash"])).toBe(0);
     expect(await countOf("SELECT COUNT(*) AS total FROM rate_limits WHERE token_hash = ?", ["old-rate-hash"])).toBe(0);
     expect(await countOf("SELECT COUNT(*) AS total FROM devices WHERE id = ?", [deviceId])).toBe(1);

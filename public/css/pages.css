@@ -404,6 +404,57 @@
 
 .channel-test-empty { color: var(--text-3); }
 
+.push-history-list { display: grid; gap: 10px; }
+.push-history-item {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.push-history-heading,
+.push-history-channel,
+.push-history-badges { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.push-history-heading { justify-content: space-between; flex-wrap: wrap; }
+.push-history-channel { flex-wrap: wrap; }
+.push-history-name { overflow-wrap: anywhere; }
+.push-history-kind,
+.push-history-source,
+.push-history-status {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+}
+.push-history-kind,
+.push-history-source { background: var(--bg-sunken); color: var(--text-2); }
+.push-history-time { color: var(--text-3); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.push-history-status.is-ok { background: var(--success-soft); color: var(--success-text); }
+.push-history-status.is-failed { background: var(--danger-soft); color: var(--danger-text); }
+.push-history-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.push-history-error-text {
+  overflow: hidden;
+  margin: 0;
+  color: var(--danger-text);
+  font-size: var(--fs-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.push-history-end { margin: 16px 0; color: var(--text-3); font-size: var(--fs-sm); text-align: center; }
+#notify-history-more { display: block; margin: 16px auto; }
+#notify-history-more[hidden] { display: none; }
+
 /* Channel card actions: one 2x2 grid, one button family — edit/test on
    the first row, the enable/disable state toggle and delete below. */
 .channel-actions-grid {

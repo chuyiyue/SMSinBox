@@ -192,6 +192,7 @@ async function storeSms(
   });
   scheduleNotify(ctx, () =>
     notifyStoredSms(env, device.user_id, {
+      messageId: id,
       from: parsed.sms.from,
       content: parsed.sms.content,
       code,

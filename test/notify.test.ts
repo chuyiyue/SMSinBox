@@ -473,6 +473,7 @@ describe("delivery", () => {
       ],
     }));
     const results = await notifyStoredSms(env, "user-1", {
+      messageId: "sms-123",
       from: "10086",
       content: "验证码 123456",
       code: "123456",
@@ -663,6 +664,240 @@ describe("notification API", () => {
     const body = await response.json() as { channels: Array<{ config: { bot_token: string } }> };
     expect(body.channels[0]?.config.bot_token).toBe("****6789");
     expect(JSON.stringify(body)).not.toContain(TOKEN);
+  });
+
+  it("lists push history newest first with pagination and boolean outcomes", async () => {
+    const calls: Array<{ sql: string; args: unknown[] }> = [];
+    const entries = [
+      { id: "new", created_at: 20, channel_name: "主力", channel_kind: "bark", source: "sms", message_id: "sms-2", sender: "10086", preview: "new", ok: 1, error: null },
+      { id: "old", created_at: 10, channel_name: "备用", channel_kind: "email", source: "test", message_id: null, sender: null, preview: "old", ok: 0, error: "failed" },
+    ];
+    const db = {
+      prepare(sql: string) {
+        let args: unknown[] = [];
+        const statement = {
+          bind(...values: unknown[]) {
+            args = values;
+            return statement;
+          },
+          async first() {
+            if (sql.includes("FROM sessions s")) return sessionUser();
+            if (sql.includes("COUNT(*) AS total FROM push_logs")) return { total: 7 };
+            return null;
+          },
+          async all() {
+            calls.push({ sql, args });
+            return { results: entries };
+          },
+          async run() {
+            return { meta: { changes: 1 } };
+          },
+        };
+        return statement;
+      },
+    } as unknown as D1Database;
+    const response = await handleApi(
+      new Request("https://sms.example/api/v1/notify/history?limit=2&offset=1", {
+        headers: { cookie: "smsinbox_session=sms_session_token_value" },
+      }),
+      authedEnv(db),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json() as { ok: boolean; total: number; items: Array<{ id: string; ok: boolean }> };
+    expect(body).toMatchObject({
+      ok: true,
+      total: 7,
+      items: [{ id: "new", ok: true }, { id: "old", ok: false }],
+    });
+    expect(calls[0]?.sql).toContain("ORDER BY created_at DESC");
+    expect(calls[0]?.args).toEqual(["user-1", 2, 1]);
+  });
+
+  it("records test-send outcomes with channel snapshots", async () => {
+    const stored: unknown[][] = [];
+    const bark = row({
+      kind: "bark",
+      note: "备用 Bark",
+      config: JSON.stringify({ device_key: "abcd1234", server: "https://api.day.app" }),
+    });
+    const db = {
+      prepare(sql: string) {
+        let args: unknown[] = [];
+        const statement = {
+          bind(...values: unknown[]) {
+            args = values;
+            return statement;
+          },
+          async first() {
+            if (sql.includes("FROM sessions s")) return sessionUser();
+            if (sql.includes("FROM notify_channels")) return bark;
+            return null;
+          },
+          async all() {
+            return { results: [] };
+          },
+          async run() {
+            stored.push(args);
+            return { meta: { changes: 1 } };
+          },
+        };
+        return statement;
+      },
+    } as unknown as D1Database;
+    vi.stubGlobal("fetch", async () => Response.json({ code: 200 }));
+    try {
+      const response = await handleApi(
+        new Request("https://sms.example/api/v1/notifications/11111111-1111-4111-8111-111111111111/test", {
+          method: "POST",
+          headers: {
+            cookie: "smsinbox_session=sms_session_token_value",
+            "content-type": "application/json",
+          },
+          body: "{}",
+        }),
+        authedEnv(db),
+      );
+      expect(response.status).toBe(200);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(stored).toHaveLength(1);
+    expect(stored[0]?.slice(1, 8)).toEqual([
+      "user-1",
+      bark.id,
+      "备用 Bark",
+      "bark",
+      "test",
+      null,
+      null,
+    ]);
+    expect(stored[0]?.[8]).toBe("这是一条测试通知，不包含短信内容。");
+    expect(stored[0]?.[9]).toBe(1);
+    expect(stored[0]?.[10]).toBeNull();
+  });
+});
+
+describe("push history recording", () => {
+  it("stores successful and failed SMS results with safe snapshot fields", async () => {
+    const stored: unknown[][] = [];
+    const rows = [
+      row({
+        kind: "bark",
+        note: "主要渠道",
+        config: JSON.stringify({ device_key: "abcd1234", server: "https://api.day.app" }),
+      }),
+      row({
+        id: "22222222-2222-4222-8222-222222222222",
+        kind: "bark",
+        note: "备用渠道",
+        config: JSON.stringify({ device_key: "efgh5678", server: "https://api.day.app" }),
+      }),
+    ];
+    const db = {
+      prepare() {
+        let args: unknown[] = [];
+        const statement = {
+          bind(...values: unknown[]) {
+            args = values;
+            return statement;
+          },
+          async first() {
+            return null;
+          },
+          async all() {
+            return { results: rows };
+          },
+          async run() {
+            stored.push(args);
+            return { meta: { changes: 1 } };
+          },
+        };
+        return statement;
+      },
+    } as unknown as D1Database;
+    let attempts = 0;
+    const results = await notifyStoredSms(authedEnv(db), "user-1", {
+      messageId: "sms-123",
+      from: "10086",
+      content: "验证码 123456",
+      code: "123456",
+      deviceName: "pixel",
+      receivedAt: 1_700_000_000_000,
+    }, {
+      fetch: async () => {
+        attempts += 1;
+        if (attempts === 1) return Response.json({ code: 200 });
+        throw new Error("provider key=private");
+      },
+      openSmtp: async () => {
+        throw new Error("unused");
+      },
+    });
+    expect(results.map((result) => result.ok)).toEqual([true, false]);
+    expect(stored).toHaveLength(2);
+    expect(stored[0]?.slice(1, 8)).toEqual([
+      "user-1",
+      rows[0]?.id,
+      "主要渠道",
+      "bark",
+      "sms",
+      "sms-123",
+      "10086",
+    ]);
+    expect(stored[0]?.[8]).toContain("验证码 123456");
+    expect(stored[0]?.[9]).toBe(1);
+    expect(stored[0]?.[10]).toBeNull();
+    expect(stored[1]?.[3]).toBe("备用渠道");
+    expect(stored[1]?.[9]).toBe(0);
+    expect(stored[1]?.[10]).toBe("provider key=***");
+  });
+
+  it("logs history-write failures without changing delivery results", async () => {
+    const channelRow = row({
+      kind: "bark",
+      config: JSON.stringify({ device_key: "abcd1234", server: "https://api.day.app" }),
+    });
+    const db = {
+      prepare() {
+        const statement = {
+          bind() {
+            return statement;
+          },
+          async first() {
+            return null;
+          },
+          async all() {
+            return { results: [channelRow] };
+          },
+          async run() {
+            throw new Error("database unavailable");
+          },
+        };
+        return statement;
+      },
+    } as unknown as D1Database;
+    const errors: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((line) => errors.push(String(line)));
+    try {
+      const results = await notifyStoredSms(authedEnv(db), "user-1", {
+        messageId: "sms-123",
+        from: "10086",
+        content: "短信正文",
+        code: null,
+        deviceName: "pixel",
+        receivedAt: 1_700_000_000_000,
+      }, {
+        fetch: async () => Response.json({ code: 200 }),
+        openSmtp: async () => {
+          throw new Error("unused");
+        },
+      });
+      expect(results).toEqual([{ id: channelRow.id, kind: "bark", ok: true }]);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(errors.join("")).toContain("push_log_insert_failed");
+    expect(errors.join("")).toContain("database unavailable");
   });
 });
 

@@ -1,4 +1,4 @@
-import { listNotifyChannels } from "./db";
+import { insertPushLogs, listNotifyChannels, type PushLogInput } from "./db";
 import { logError, logInfo } from "./log";
 import { openSmtpSocket, sendSmtp, type LineSocket } from "./smtp";
 import type { NotifyChannelRow } from "./types";
@@ -195,6 +195,7 @@ export async function notifyStoredSms(
   env: Env,
   userId: string,
   input: {
+    messageId: string;
     from: string;
     content: string;
     code: string | null;
@@ -209,7 +210,53 @@ export async function notifyStoredSms(
     const channel = channelFromRow(row);
     if (channel) channels.push(channel);
   }
-  return deliverChannels(channels, renderNotification(input), deps);
+  const payload = renderNotification(input);
+  const results = await deliverChannels(channels, payload, deps);
+  await recordPushResults(env, userId, "sms", payload, channels, results, input.messageId, input.from);
+  return results;
+}
+
+export async function recordPushResults(
+  env: Env,
+  userId: string,
+  source: "sms" | "test",
+  payload: NotifyText,
+  channels: StoredChannel[],
+  results: NotifyResult[],
+  messageId: string | null,
+  sender: string | null,
+): Promise<void> {
+  try {
+    const channelsById = new Map(channels.map((channel) => [channel.id, channel]));
+    const now = Date.now();
+    const logs: PushLogInput[] = [];
+    for (const result of results) {
+      const channel = channelsById.get(result.id);
+      if (!channel) continue;
+      logs.push({
+        id: crypto.randomUUID(),
+        userId,
+        channelId: channel.id,
+        channelName: channel.note || channel.kind,
+        channelKind: result.kind,
+        source,
+        messageId,
+        sender,
+        preview: boundedText(payload.text, 500),
+        ok: result.ok,
+        error: result.ok ? null : boundedText(scrub(result.error || "发送失败"), 300),
+        createdAt: now,
+      });
+    }
+    if (logs.length === 0) return;
+    await insertPushLogs(env.DB, logs);
+  } catch (error) {
+    logError({
+      message: "push_log_insert_failed",
+      user_id: userId,
+      error: scrub(error instanceof Error ? error.message : "unknown"),
+    });
+  }
 }
 
 export function scheduleNotify(
@@ -645,4 +692,10 @@ function truncate(value: string, maxChars: number): string {
   const chars = [...value];
   if (chars.length <= maxChars) return value;
   return `${chars.slice(0, maxChars).join("")}…`;
+}
+
+function boundedText(value: string, maxChars: number): string {
+  const chars = [...value];
+  if (chars.length <= maxChars) return value;
+  return `${chars.slice(0, maxChars - 1).join("")}…`;
 }
