@@ -1175,6 +1175,24 @@ export async function updateApiTokenRevoked(db: D1Database, userId: string, toke
   return (result.meta.changes ?? 0) > 0;
 }
 
+// Rotation replaces the secret in place: same id, name, permissions and
+// scope; the old secret stops working immediately. A revoked token is
+// revived (revoked_at cleared); a disabled token stays disabled.
+export async function rotateApiToken(
+  db: D1Database,
+  userId: string,
+  tokenId: string,
+  values: { tokenHash: string; tokenPrefix: string; tokenEnc: string | null },
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      "UPDATE api_tokens SET token_hash = ?, token_prefix = ?, token_enc = ?, revoked_at = NULL WHERE id = ? AND user_id = ?",
+    )
+    .bind(values.tokenHash, values.tokenPrefix, values.tokenEnc, tokenId, userId)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
 export async function deleteApiToken(db: D1Database, userId: string, tokenId: string): Promise<boolean> {
   const result = await db
     .prepare("DELETE FROM api_tokens WHERE id = ? AND user_id = ?")

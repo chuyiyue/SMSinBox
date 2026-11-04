@@ -590,14 +590,14 @@ function renderTokenList(tokens) {
       actions.append(enableBtn);
     }
 
-    if (token.status !== "revoked") {
-      const revokeBtn = document.createElement("button");
-      revokeBtn.className = "danger ghost";
-      revokeBtn.type = "button";
-      revokeBtn.textContent = "撤销";
-      revokeBtn.addEventListener("click", () => revokeToken(token));
-      actions.append(revokeBtn);
-    }
+    // Rotation replaces revocation (Roye): same row, fresh secret. It is
+    // offered for every token — rotating a revoked one revives it.
+    const rotateBtn = document.createElement("button");
+    rotateBtn.className = "ghost";
+    rotateBtn.type = "button";
+    rotateBtn.textContent = "轮换";
+    rotateBtn.addEventListener("click", () => rotateToken(token));
+    actions.append(rotateBtn);
 
     const deleteBtn = document.createElement("button");
     deleteBtn.className = "danger ghost";
@@ -811,23 +811,23 @@ function startTokenRename(token, titleArea) {
   input.select();
 }
 
-async function revokeToken(token) {
+async function rotateToken(token) {
   const confirmed = await openModal({
-    title: "撤销 Token",
-    body: `确定要撤销 "${token.name}" 吗？撤销后，该 Token 的后续请求将立即失败，且无法重新启用。`,
-    confirmLabel: "撤销凭证",
+    title: "轮换 Token",
+    body: `确定要轮换 "${token.name}" 吗？轮换后会生成新的 Token 值，旧值立即失效；名称、权限和设备范围不变。`,
+    confirmLabel: "轮换",
     danger: true,
   });
   if (!confirmed) return;
 
-  const result = await api(`/api/v1/api-tokens/${encodeURIComponent(token.id)}/revoke`, {
+  const result = await api(`/api/v1/api-tokens/${encodeURIComponent(token.id)}/rotate`, {
     method: "POST",
   });
   if (!result.response.ok) {
-    showError(result.data?.error || "撤销失败");
+    showError(result.data?.error || "轮换失败");
     return;
   }
-  toast("Token 已撤销");
+  toast("Token 已轮换，新值已生效");
   await loadTokens();
 }
 

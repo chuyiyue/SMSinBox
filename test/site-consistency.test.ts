@@ -27,7 +27,14 @@ describe("site consistency", () => {
       expect(html).toContain('src="/registry.js"');
       expect(html).toContain('src="/sidebar-boot.js"');
       expect(html).toContain('class="topbar"');
-      expect(html).toContain('placeholder="搜索正文、号码或验证码"');
+      // The message search box belongs to the inbox only; the other pages'
+      // topbars do not carry it (Roye, 2026-11-04).
+      if (file === "public/index.html") {
+        expect(html).toContain('placeholder="搜索正文、号码或验证码"');
+      } else {
+        expect(html).not.toContain("topbar-search");
+        expect(html).not.toContain('id="search-toggle"');
+      }
     }
   });
 
