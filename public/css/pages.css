@@ -312,6 +312,14 @@
   font-size: var(--fs-xs);
 }
 
+/* Feature settings: one block per feature inside the section; later
+   features divide from the previous one instead of crowding it. */
+.feature-item h3 { margin: 0; }
+.feature-item + .feature-item {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-4);
+}
+
 .message-detail-actions { padding-top: var(--space-1); }
 
 /* min-width: 0 lets the grid item shrink to the drawer instead of sizing

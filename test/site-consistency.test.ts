@@ -642,7 +642,8 @@ describe("site consistency", () => {
   it("wires the SMS translation toggle and the translated message display", () => {
     const users = readFileSync("public/users.html", "utf8");
     const usersJs = readFileSync("public/users.js", "utf8");
-    expect(users).toContain('id="translate-panel"');
+    expect(users).toContain('id="features-panel"');
+    expect(users).toContain("功能设置");
     expect(users).toContain("短信翻译");
     expect(users).toContain("翻译由 Workers AI 完成");
     expect(users).toContain('id="translate-toggle"');

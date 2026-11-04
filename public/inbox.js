@@ -496,9 +496,9 @@ function buildDetail(message) {
   } else {
     if (message.code) {
       const codeBlock = document.createElement("section");
-      codeBlock.className = "message-detail-block";
+      codeBlock.className = "message-card";
       const label = document.createElement("h3");
-      label.className = "message-detail-label";
+      label.className = "message-card-title";
       label.textContent = "验证码";
       codeBlock.append(label, CodeChip(message.code));
       wrap.append(codeBlock);
