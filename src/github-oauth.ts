@@ -1,12 +1,13 @@
 import { bytesToHex } from "./auth";
 
-// Optional Worker vars/secrets. Missing any one of them disables GitHub login
-// entirely; password login does not read these.
+// Optional Worker secrets. Missing either disables GitHub login
+// entirely. The admin username is shared with password login: the
+// existing ADMIN_USERNAME secret doubles as the GitHub admin login
+// (compared case-insensitively) once the two GH_ secrets are set.
 declare global {
   interface Env {
     GH_CLIENT_ID?: string;
     GH_CLIENT_SECRET?: string;
-    ADMIN_GH_USERNAME?: string;
   }
 }
 
@@ -23,7 +24,7 @@ export type GithubSettings = { clientId: string; clientSecret: string; adminUser
 export function githubSettings(env: Env): GithubSettings | null {
   const clientId = env.GH_CLIENT_ID?.trim() ?? "";
   const clientSecret = env.GH_CLIENT_SECRET?.trim() ?? "";
-  const adminUsername = env.ADMIN_GH_USERNAME?.trim() ?? "";
+  const adminUsername = env.ADMIN_USERNAME?.trim() ?? "";
   if (!clientId || !clientSecret || !adminUsername) return null;
   return { clientId, clientSecret, adminUsername };
 }

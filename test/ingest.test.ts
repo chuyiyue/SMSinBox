@@ -663,7 +663,14 @@ describe("code recognition on ingest", () => {
       await new Promise((resolve) => setImmediate(resolve));
     }
     expect(run).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(4000);
+    // Advance in steps, flushing real event-loop turns between them:
+    // after the fake timeout fires, the ingest continues through real
+    // async work (crypto, storage promises) that one big advance can
+    // starve — that starvation is what made this test flaky under load.
+    for (let t = 0; t < 4000; t += 100) {
+      await vi.advanceTimersByTimeAsync(100);
+      await new Promise((resolve) => setImmediate(resolve));
+    }
     const response = await pending;
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ ok: true, code: null });
