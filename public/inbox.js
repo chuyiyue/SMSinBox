@@ -19,6 +19,7 @@ import {
   toast,
 } from "./common.js";
 import { ensureDevices, getDevices, noteDeviceSeen, setActiveId } from "./device-store.js";
+import { sidebarDeviceIcon } from "./device-panel.js";
 import { registerView, syncShellHistory } from "./shell.js";
 import { isTyping } from "./ui.js";
 
@@ -443,7 +444,7 @@ function renderMessage(message) {
   const slot = document.createElement("div");
   slot.className = "chip-slot";
   if (message.code && !unreadable(message)) slot.append(codeChip(message.code));
-  line.append(avatarNode(senderText), senderLine, timeNode(message, "time-end"), preview, slot);
+  line.append(avatarNode(message), senderLine, timeNode(message, "time-end"), preview, slot);
   article.append(line);
   article.addEventListener("click", (event) => {
     if (event.target.closest("button, a")) return;
@@ -657,19 +658,51 @@ function showSkeleton() {
   list.append(loadingState({ count: 6 }));
 }
 
-function avatarNode(sender) {
+// Calling-code prefix → ISO country for the row avatar flag. Matching is
+// longest-prefix first, so +852 resolves to hk before any shorter rule
+// and +1 stays us. Only these countries ship a flag file in /flags.
+const DIAL_CODE_COUNTRIES = [
+  ["852", "hk"], ["886", "tw"], ["358", "fi"], ["353", "ie"], ["351", "pt"],
+  ["971", "ae"], ["972", "il"],
+  ["86", "cn"], ["44", "gb"], ["81", "jp"], ["82", "kr"], ["65", "sg"],
+  ["61", "au"], ["49", "de"], ["33", "fr"], ["39", "it"], ["34", "es"],
+  ["91", "in"], ["66", "th"], ["84", "vn"], ["62", "id"], ["60", "my"],
+  ["63", "ph"], ["31", "nl"], ["41", "ch"], ["46", "se"], ["47", "no"],
+  ["45", "dk"], ["48", "pl"], ["90", "tr"], ["55", "br"], ["52", "mx"],
+  ["27", "za"], ["64", "nz"], ["30", "gr"], ["43", "at"], ["32", "be"],
+  ["7", "ru"], ["1", "us"],
+];
+const DIAL_CODE_MAP = new Map(DIAL_CODE_COUNTRIES);
+
+function flagCountryForNumber(from) {
+  const text = String(from ?? "").trim();
+  if (!text.startsWith("+")) return null;
+  const digits = text.slice(1).replace(/\D/g, "");
+  for (const length of [3, 2, 1]) {
+    const hit = DIAL_CODE_MAP.get(digits.slice(0, length));
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function avatarNode(message) {
   const node = document.createElement("div");
   node.className = "avatar";
   node.setAttribute("aria-hidden", "true");
-  if (!sender || sender === "未知发件人" || /^\d+$/.test(sender)) {
-    node.innerHTML =
-      '<svg class="icon" viewBox="0 0 24 24"><use href="/icons.svg#icon-message-square"/></svg>';
+  const iso = flagCountryForNumber(message?.from_number);
+  if (iso) {
+    const img = document.createElement("img");
+    img.className = "avatar-flag";
+    img.src = `/flags/${iso}.svg`;
+    img.alt = "";
+    node.append(img);
     return node;
   }
-  let hash = 0;
-  for (const char of sender) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
-  node.dataset.tone = String((hash % 6) + 1);
-  node.textContent = [...sender][0] || "?";
+  // No country to infer (no + prefix, or an alphanumeric sender id):
+  // fall back to the platform icon of the device that received it.
+  const device = state.devices.find((item) => item.id === message?.device_id);
+  const icon = sidebarDeviceIcon(device);
+  node.innerHTML = `<svg class="avatar-type-icon" viewBox="0 0 24 24"><use href="/icons.svg#${icon}"/></svg>`;
   return node;
 }
 

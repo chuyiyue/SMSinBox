@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { copyBytes } from "../src/auth";
 import { errorText } from "../src/log";
@@ -664,6 +664,32 @@ describe("site consistency", () => {
     expect(css).toContain(".message-card {");
     expect(css).toContain(".message-card-note");
     expect(css).toContain(".message-translated {");
+  });
+
+  it("shows country flags or device platform icons as inbox row avatars", () => {
+    const inbox = readFileSync("public/inbox.js", "utf8");
+    expect(inbox).toContain("flagCountryForNumber");
+    expect(inbox).toContain("/flags/");
+    expect(inbox).toContain("sidebarDeviceIcon");
+    expect(inbox).toContain("state.devices.find");
+
+    // Every country the dial table can produce ships its flag file.
+    const tableStart = inbox.indexOf("DIAL_CODE_COUNTRIES");
+    const table = inbox.slice(tableStart, inbox.indexOf("];", tableStart));
+    const pairs = [...table.matchAll(/\["(\d+)", "([a-z]{2})"\]/g)];
+    expect(pairs.length).toBe(39);
+    for (const [, code, iso] of pairs) {
+      expect(existsSync(`public/flags/${iso}.svg`), `+${code} → public/flags/${iso}.svg`).toBe(true);
+    }
+    // Longest-prefix anchors: Hong Kong before any shorter rule, +1 is us.
+    expect(table).toContain('["852", "hk"]');
+    expect(table).toContain('["886", "tw"]');
+    expect(table).toContain('["358", "fi"]');
+    expect(table).toContain('["1", "us"]');
+
+    const css = readFileSync("public/css/pages.css", "utf8");
+    expect(css).toContain(".avatar .avatar-flag");
+    expect(css).toContain(".avatar .avatar-type-icon");
   });
 
   it("shortens log errors the same way everywhere", () => {
