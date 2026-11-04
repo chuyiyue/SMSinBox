@@ -685,7 +685,12 @@
   .message-device { display: none; }
   .message-translated { display: none; }
   .time-end { display: none; }
-  .time-inline { display: inline; margin-left: auto; }
+  /* The inline time shares the sender's flex line: keep it on one line
+     and let the sender (min-width: 0 + ellipsis) absorb the squeeze.
+     Without this, a long sender wraps the timestamp into 2-3 stacked
+     lines — in English both the sender and the date string are longer,
+     so most rows with named senders broke. */
+  .time-inline { display: inline; margin-left: auto; white-space: nowrap; flex: none; font-variant-numeric: tabular-nums; }
   .chip-slot { justify-self: start; margin-top: var(--space-1); }
   .device-facts { grid-template-columns: 1fr; }
   .system-facts { grid-template-columns: 1fr; }
@@ -1111,6 +1116,15 @@
 
 /* The detail drawer lays out its own spacing; the strip adds none. */
 .device-detail-tabs { margin: 0; }
+
+/* English tab labels are far longer than the Chinese ones, so inside the
+   device detail panel the four tabs no longer fit the strip and the last
+   one was clipped mid-word ("Advance…"). In English only, tighten the
+   tab padding and let the panel strip wrap to a second row instead of
+   hiding a tab. The Chinese layout is untouched: its labels fit on one
+   row at the standard padding, so neither rule ever takes effect. */
+html[lang="en"] .device-detail-tabs { flex-wrap: wrap; }
+html[lang="en"] .device-detail-tabs .tab { padding: 0 10px; }
 
 .config-sample { display: grid; gap: 12px; }
 .config-sample .subtle { margin: 0; }
