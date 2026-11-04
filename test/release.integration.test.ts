@@ -554,7 +554,11 @@ describe("release journey", () => {
   });
 
   it("serves the package.json version on the system info endpoint", async () => {
-    expect((await call("/api/v1/system/info")).status).toBe(401);
+    // Anonymous callers only learn whether GitHub login is enabled (the
+    // login page needs it pre-login); version details need the session.
+    const anon = await expectStatus(await call("/api/v1/system/info"), 200);
+    expect(anon).toMatchObject({ ok: true, github_enabled: false });
+    expect(anon).not.toHaveProperty("version");
     const info = await expectStatus(await call("/api/v1/system/info", {}, state.cookie), 200);
     expect(info).toMatchObject({ ok: true, version: pkg.version, runtime: "Cloudflare Workers + D1" });
   });

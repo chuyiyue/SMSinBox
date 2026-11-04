@@ -19,9 +19,9 @@
       </a>
       <h1 class="auth-title">SMSinBox</h1>
       <p id="login-error" class="callout danger auth-error" role="alert" hidden></p>
-      <!-- 登录方式列表：本版只有「密码」一项。将来的第三方 OAuth 与通行密钥
-           作为同一列表的新项渲染在密码表单下方（用带「或」字的分隔线隔开），
-           目前只留插槽，不渲染任何不可用按钮。 -->
+      <!-- 登录方式列表：密码是第一项；GitHub 登录作为同一列表的新项渲染在
+           密码表单下方（用带「或」字的分隔线隔开），仅当服务端配置了
+           GitHub OAuth 时由 login.js 显示，否则整块保持隐藏。 -->
       <form id="login-form" class="auth-form">
         <label>密码
           <span class="password-field">
@@ -62,7 +62,13 @@
         <button id="totp-submit" type="submit">验证并登录</button>
         <button id="totp-cancel" class="ghost" type="button">返回密码登录</button>
       </form>
-      <div id="auth-alternatives" class="auth-alternatives" hidden></div>
+      <div id="auth-alternatives" class="auth-alternatives" hidden>
+        <div class="auth-divider" role="separator"><span>或</span></div>
+        <a id="github-login" class="button secondary auth-github" href="/api/v1/auth/github/start?intent=login">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-github"/></svg>
+          使用 GitHub 登录
+        </a>
+      </div>
     </main>
     <script type="module" src="/login.js"></script>
   </body>

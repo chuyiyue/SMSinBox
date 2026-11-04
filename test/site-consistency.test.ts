@@ -459,6 +459,57 @@ describe("site consistency", () => {
     expect(settings).not.toContain("console.log");
   });
 
+  it("wires the GitHub login entry, binding panel, and custom avatar upload", () => {
+    const login = readFileSync("public/login.html", "utf8");
+    const loginJs = readFileSync("public/login.js", "utf8");
+    // The GitHub entry is a plain navigation link (no fetch), rendered in
+    // the alternatives slot and shown only when the server enables OAuth.
+    expect(login).toContain('id="auth-alternatives"');
+    expect(login).toContain('id="github-login"');
+    expect(login).toContain('href="/api/v1/auth/github/start?intent=login"');
+    expect(login).toContain("/icons.svg#icon-github");
+    expect(login).toContain("使用 GitHub 登录");
+    expect(loginJs).toContain("/api/v1/system/info");
+    expect(loginJs).toContain("github_enabled");
+    for (const code of ["github_forbidden", "github_state", "github_exchange"]) {
+      expect(loginJs).toContain(code);
+    }
+    expect(loginJs).toContain("该 GitHub 账号无权登录本系统");
+    expect(loginJs).toContain("history.replaceState");
+
+    const users = readFileSync("public/users.html", "utf8");
+    const usersJs = readFileSync("public/users.js", "utf8");
+    expect(users).toContain('id="github-panel"');
+    expect(users).toContain('id="github-bind"');
+    expect(users).toContain('href="/api/v1/auth/github/start?intent=bind"');
+    expect(users).toContain('id="github-unbind"');
+    expect(users).toContain('id="github-avatar"');
+    expect(users).toContain('id="github-login-name"');
+    expect(usersJs).toContain("/api/v1/auth/github/unbind");
+    expect(usersJs).toContain("github_enabled");
+    expect(usersJs).toContain("GitHub 已绑定");
+    expect(usersJs).not.toContain("window.confirm");
+
+    // Custom avatar upload lives in the account panel: file picker,
+    // canvas export bounded to 400 KB, upload + delete endpoints.
+    expect(users).toContain('id="avatar-preview"');
+    expect(users).toContain('id="avatar-file"');
+    expect(users).toContain('accept="image/*"');
+    expect(users).toContain('id="avatar-remove"');
+    expect(usersJs).toContain("/api/v1/auth/avatar");
+    expect(usersJs).toContain('method: "DELETE"');
+    expect(usersJs).toContain("toDataURL");
+    expect(usersJs).toContain("400 * 1024");
+
+    // Sidebar avatar priority: uploaded avatar, then the bound GitHub
+    // avatar, then the existing name-based chain.
+    const common = readFileSync("public/common.js", "utf8");
+    expect(common).toContain("avatar_data");
+    expect(common).toContain("avatar_url");
+    expect(common.indexOf("avatar_data")).toBeLessThan(common.indexOf("avatar_url"));
+    expect(common.indexOf("avatar_url")).toBeLessThan(common.indexOf("api.dicebear.com"));
+  });
+
   it("shortens log errors the same way everywhere", () => {
     expect(errorText(new Error("x".repeat(200)))).toHaveLength(180);
     expect(errorText(new Error("短"))).toBe("短");

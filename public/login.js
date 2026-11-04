@@ -11,14 +11,32 @@ const totpError = document.querySelector("#totp-error");
 const totpCode = document.querySelector("#totp-code");
 const totpSubmit = document.querySelector("#totp-submit");
 const totpCancel = document.querySelector("#totp-cancel");
-const next = safeNext(new URLSearchParams(location.search).get("next"));
+const alternatives = document.querySelector("#auth-alternatives");
+const params = new URLSearchParams(location.search);
+const next = safeNext(params.get("next"));
 const label = "登录";
 let ticket = "";
 let lockedUntil = 0;
 let countdownTimer = 0;
+let githubEnabled = false;
 
 const flash = takeFlash();
 if (flash) showError(flash);
+
+// GitHub OAuth failures come back as /login?error=<code>: show the mapped
+// message once, then scrub the parameter so a refresh stays clean.
+const GITHUB_ERRORS = {
+  github_forbidden: "该 GitHub 账号无权登录本系统",
+  github_state: "登录状态已过期，请重试",
+  github_exchange: "GitHub 登录失败，请重试",
+};
+const oauthError = params.get("error");
+if (oauthError && GITHUB_ERRORS[oauthError]) {
+  showError(GITHUB_ERRORS[oauthError]);
+  params.delete("error");
+  const query = params.toString();
+  history.replaceState(null, "", `${location.pathname}${query ? `?${query}` : ""}${location.hash}`);
+}
 
 toggle.addEventListener("click", () => {
   const show = password.type === "password";
@@ -39,6 +57,20 @@ try {
   if (existing.response.ok) location.replace(next);
 } catch {
   // A network hiccup must not stop the password form from working.
+}
+
+// The GitHub button appears only when the server reports OAuth configured
+// (github_enabled); a missing field or failed read keeps it hidden.
+try {
+  const config = await api("/api/v1/system/info", { allowUnauthorized: true });
+  githubEnabled = Boolean(config.response.ok && config.data.github_enabled);
+} catch {
+  githubEnabled = false;
+}
+paintAlternatives();
+
+function paintAlternatives() {
+  if (alternatives) alternatives.hidden = !(githubEnabled && !form.hidden);
 }
 
 form.addEventListener("submit", async (event) => {
@@ -70,6 +102,7 @@ form.addEventListener("submit", async (event) => {
     if (result.data.totp_required && result.data.ticket) {
       ticket = String(result.data.ticket);
       form.hidden = true;
+      if (alternatives) alternatives.hidden = true;
       totpForm.hidden = false;
       totpError.hidden = true;
       totpCode.value = "";
@@ -124,6 +157,7 @@ function backToPassword(message) {
   totpCode.value = "";
   totpError.hidden = true;
   form.hidden = false;
+  paintAlternatives();
   if (message) showError(message);
   password.focus();
 }

@@ -1,3 +1,4 @@
+import { pickDesignatedUser } from "../admin-user";
 import {
   bytesToBase64Url,
   hashPassword,
@@ -80,7 +81,17 @@ import { dedupHash } from "../dedup";
 import { recognizeCode } from "../code-recognition";
 import { clientAddress, isCrossSite, json, readCookie, readLimitedBytes, rejectsSensitiveWrite } from "../http";
 import { errorText, logError, logInfo } from "../log";
-import { issueSession, publicUser, requireUser } from "../session";
+import { findRequestSession, issueSession, publicUser, requireSensitiveUser, requireUser } from "../session";
+import { githubSettings } from "../github-oauth";
+import {
+  authMeExtras,
+  deleteAvatar,
+  githubCallback,
+  githubConfig,
+  githubStart,
+  githubUnbind,
+  uploadAvatar,
+} from "./github";
 import { parseUserAgent } from "../user-agent";
 import {
   beginTotpSetup,
@@ -139,6 +150,27 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
   if (path === "/api/v1/auth/profile") {
     if (method !== "POST") return methodNotAllowed("POST");
     return updateProfile(request, env);
+  }
+  if (path === "/api/v1/auth/config") {
+    if (method !== "GET") return methodNotAllowed("GET");
+    return githubConfig(env);
+  }
+  if (path === "/api/v1/auth/github/start") {
+    if (method !== "GET") return methodNotAllowed("GET");
+    return githubStart(request, env);
+  }
+  if (path === "/api/v1/auth/github/callback") {
+    if (method !== "GET") return methodNotAllowed("GET");
+    return githubCallback(request, env);
+  }
+  if (path === "/api/v1/auth/github/unbind") {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return githubUnbind(request, env);
+  }
+  if (path === "/api/v1/auth/avatar") {
+    if (method === "POST") return uploadAvatar(request, env);
+    if (method === "DELETE") return deleteAvatar(request, env);
+    return methodNotAllowed("POST, DELETE");
   }
   if (path === "/api/v1/auth/password") {
     if (method !== "POST") return methodNotAllowed("POST");
@@ -396,16 +428,6 @@ async function findMatchingUser(
   return null;
 }
 
-function pickDesignatedUser(users: UserRecord[], adminUsername: string): UserRecord | null {
-  if (adminUsername) {
-    const named = users.find((candidate) => candidate.username === adminUsername);
-    if (named) return named;
-  }
-  if (users.length === 1) return users[0]!;
-  const admins = users.filter((candidate) => candidate.role === "admin" && candidate.disabled_at == null);
-  return admins.length === 1 ? admins[0]! : null;
-}
-
 async function bootstrapAdmin(env: Env, password: string): Promise<UserRecord | null> {
   const username = env.ADMIN_USERNAME?.trim() || "admin";
   const createdAt = Date.now();
@@ -469,7 +491,8 @@ async function me(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const profileUsername = await getProfileUsername(env.DB);
-  return json({ ok: true, user: { ...publicUser(user), profile_username: profileUsername } });
+  const extras = await authMeExtras(env.DB);
+  return json({ ok: true, user: { ...publicUser(user), profile_username: profileUsername, ...extras } });
 }
 
 async function updateProfile(request: Request, env: Env): Promise<Response> {
@@ -485,9 +508,13 @@ async function updateProfile(request: Request, env: Env): Promise<Response> {
 }
 
 async function systemInfo(request: Request, env: Env): Promise<Response> {
-  const user = await requireUser(request, env);
-  if (user instanceof Response) return user;
-  return json({ ok: true, version: APP_VERSION, runtime: "Cloudflare Workers + D1" });
+  // The login page reads github_enabled before signing in (to decide
+  // whether to show the GitHub button), so that one flag is public; the
+  // version/runtime details stay behind the session.
+  const enabled = githubSettings(env) !== null;
+  const user = await findRequestSession(request, env);
+  if (!user) return json({ ok: true, github_enabled: enabled });
+  return json({ ok: true, version: APP_VERSION, runtime: "Cloudflare Workers + D1", github_enabled: enabled });
 }
 
 async function changePassword(request: Request, env: Env): Promise<Response> {
@@ -1143,13 +1170,6 @@ async function removeDevice(request: Request, env: Env, rawId: string): Promise<
 }
 
 type PasswordCheck = "ok" | "bad" | "limited" | "missing";
-
-async function requireSensitiveUser(request: Request, env: Env) {
-  const user = await requireUser(request, env);
-  if (user instanceof Response) return user;
-  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
-  return user;
-}
 
 async function loginIsLimited(env: Env, userKey: string, ipKey: string | null, now: number): Promise<boolean> {
   if ((await loginAttemptCount(env.DB, userKey, now)) >= LOGIN_FAILURE_LIMIT) return true;
