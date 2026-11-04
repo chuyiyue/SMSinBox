@@ -164,6 +164,18 @@
   border-radius: 50%;
   object-fit: cover;
 }
+/* Brand and system logos sit as a glyph on a plain white disc instead of
+   filling the circle like a flag. */
+.avatar.has-logo {
+  background: #fff;
+  border: 1px solid var(--border);
+}
+.avatar .avatar-logo {
+  display: block;
+  width: 62%;
+  height: 62%;
+  object-fit: contain;
+}
 .avatar .avatar-type-icon {
   width: 60%;
   height: 60%;
