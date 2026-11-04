@@ -14,6 +14,7 @@ const CANDIDATE_RE = /^(?=.*\d)[A-Za-z0-9]{4,8}$/;
 const SYSTEM_PROMPT = [
   "你是短信验证码提取器。",
   "从用户给出的短信正文中找出验证码，只输出验证码本身：4 到 8 位数字，或 4 到 8 位字母数字组合，不含空格或标点。",
+  "正文中的验证码中间可能带连字符或空格（如 613-408），输出时去掉分隔符，只输出连起来的数字。",
   "正文中没有验证码时，只输出 NONE。",
   "不要解释，不要输出其他任何内容。",
 ].join("");
@@ -70,22 +71,31 @@ function readAiResponse(output: unknown): string | null {
   return text;
 }
 
-// Anti-hallucination: the candidate must look like a code and appear verbatim
-// in the body, using the same full-width digit folding as extract.ts.
+// Anti-hallucination: the candidate must look like a code and appear in
+// the body, using the same full-width digit folding as extract.ts.
 function validateCandidate(candidate: string | null, content: string): string | null {
   if (candidate === null) return null;
   if (!CANDIDATE_RE.test(candidate)) return null;
   const folded = foldDigits(content);
-  // The candidate must appear as a standalone token: a hit glued to more
-  // letters or digits is part of a longer string (e.g. "4829" inside
-  // "482913"), not the code itself.
+  if (appearsStandalone(folded, candidate)) return candidate;
+  // Codes printed with a separator ("613-408") validate against the
+  // separator-free text, so the model's joined digits still count as
+  // appearing in the body.
+  const squeezed = folded.replace(/(\d)[- ](?=\d)/g, "$1");
+  return appearsStandalone(squeezed, candidate) ? candidate : null;
+}
+
+// The candidate must appear as a standalone token: a hit glued to more
+// letters or digits is part of a longer string (e.g. "4829" inside
+// "482913"), not the code itself.
+function appearsStandalone(haystack: string, candidate: string): boolean {
   let from = 0;
   for (;;) {
-    const index = folded.indexOf(candidate, from);
-    if (index === -1) return null;
-    const before = index > 0 ? folded[index - 1]! : "";
-    const after = folded[index + candidate.length] ?? "";
-    if (!/[A-Za-z0-9]/.test(before) && !/[A-Za-z0-9]/.test(after)) return candidate;
+    const index = haystack.indexOf(candidate, from);
+    if (index === -1) return false;
+    const before = index > 0 ? haystack[index - 1]! : "";
+    const after = haystack[index + candidate.length] ?? "";
+    if (!/[A-Za-z0-9]/.test(before) && !/[A-Za-z0-9]/.test(after)) return true;
     from = index + 1;
   }
 }

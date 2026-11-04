@@ -30,6 +30,17 @@ describe("extractCode", () => {
     expect(extractCode("有效期至2026年，验证码 654321")).toBe("654321");
   });
 
+  it("reads codes printed in separated groups, joined", () => {
+    expect(
+      extractCode("<#> 您的 WhatsApp 验证码：613-408 请不要与他人共享这个密码 4sgLq1p5sV6"),
+    ).toBe("613408");
+    expect(extractCode("Your verification code is 613 408")).toBe("613408");
+    expect(extractCode("验证码：1234-5678，5分钟内有效")).toBe("12345678");
+    // A hyphenated date next to the real code must not win.
+    expect(extractCode("有效期至 2026-10-31，验证码 654321")).toBe("654321");
+    expect(extractCode("订单日期 2026-10-31，验证码：123-456")).toBe("123456");
+  });
+
   it("ignores numbers that are not 4 to 8 digits or have no keyword", () => {
     expect(extractCode("请联系 13800138000")).toBeNull();
     expect(extractCode("订单号 202610311234")).toBeNull();

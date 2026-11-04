@@ -55,6 +55,21 @@ describe("recognizeCode", () => {
     expect(result).toEqual({ code: "482913", source: "workers-ai" });
   });
 
+  it("accepts the model's joined digits for a hyphen-grouped code in the body", async () => {
+    const run = vi.fn(async () => ({ response: "613408" }));
+    const content = "<#> 您的 WhatsApp 验证码：613-408 请不要与他人共享这个密码 4sgLq1p5sV6";
+    const result = await recognizeCode(envWithAi(aiBinding(run)), content);
+    // The regex layer already joins the groups, so this returns before
+    // the AI is consulted; the same content through the AI path is
+    // covered by extractCodeWithAi below.
+    expect(result).toEqual({ code: "613408", source: "regex" });
+    const aiResult = await extractCodeWithAi(
+      aiBinding(run),
+      "登录凭据 613-408，请勿泄露",
+    );
+    expect(aiResult).toBe("613408");
+  });
+
   it("accepts letters mixed with digits but rejects all-letter candidates", async () => {
     const mixed = vi.fn(async () => ({ response: "A1B2C3" }));
     const accepted = await recognizeCode(
