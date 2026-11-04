@@ -609,6 +609,18 @@
   box-shadow: 0 0 0 2px var(--accent-soft), var(--shadow-1);
 }
 
+/* Account panel: username and avatar halves sit side by side, each half
+   width, content left-aligned; they stack again on narrow screens. */
+.account-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5);
+  align-items: start;
+}
+@media (max-width: 767px) {
+  .account-pair { grid-template-columns: 1fr; }
+}
+
 /* Profile avatar upload preview: same circle treatment as the sidebar. */
 .avatar-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .avatar-preview {
