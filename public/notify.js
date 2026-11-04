@@ -34,6 +34,12 @@ const KINDS = [
     icon: '<use href="/icons.svg#icon-link"/>',
   },
   {
+    kind: "notifyx",
+    label: "NotifyX",
+    hint: "多通道推送",
+    icon: '<use href="/icons.svg#icon-bell"/>',
+  },
+  {
     kind: "feishu",
     label: "飞书",
     hint: "群机器人",
@@ -386,6 +392,13 @@ function renderFields() {
     fields.append(
       field("Webhook URL", "url", "https://example.com/webhook", "off"),
       help("在哪里获取", "任何能接收 POST JSON 的地址，推送时发送 title 与 text 两个字段。"),
+    );
+    return;
+  }
+  if (selectedKind === "notifyx") {
+    fields.append(
+      secretField("API 密钥", "api_key"),
+      help("在哪里获取", "登录 NotifyX 控制台，先建好通道配置，再到「API 密钥管理」生成密钥。一个密钥可绑定多个通道，消息会发到它绑定的全部通道。", "https://www.notifyx.cn/help"),
     );
     return;
   }
@@ -781,6 +794,7 @@ function describe(channel) {
   if (channel.kind === "telegram") return `chat ${config.chat_id || ""} · token ${config.bot_token || ""}`;
   if (channel.kind === "wecom") return `Webhook · ${hostOf(config.webhook_url)}`;
   if (channel.kind === "webhook") return `Webhook · ${hostOf(config.url)}`;
+  if (channel.kind === "notifyx") return `密钥 ${config.api_key || ""}`;
   if (channel.kind === "bark") return `${hostOf(config.server)} · ${maskTail(config.device_key)}`;
   if (channel.kind === "feishu" || channel.kind === "dingtalk") {
     return config.secret ? `Webhook · ${hostOf(config.webhook_url)} · 已签名` : `Webhook · ${hostOf(config.webhook_url)}`;
@@ -896,6 +910,9 @@ function viewFieldsFor(channel) {
   }
   if (channel.kind === "webhook") {
     return [viewField("Webhook URL", config.url)];
+  }
+  if (channel.kind === "notifyx") {
+    return [viewField("API 密钥", config.api_key)];
   }
   if (channel.kind === "bark") {
     return [viewField("Device key", config.device_key), viewField("服务器", config.server)];

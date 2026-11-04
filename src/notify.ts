@@ -5,7 +5,7 @@ import { sourceLangLabel } from "./translate";
 import type { NotifyChannelRow } from "./types";
 
 export const MAX_NOTIFY_CHANNELS = 10;
-export const NOTIFY_KINDS = ["telegram", "wecom", "bark", "email", "feishu", "dingtalk", "webhook"] as const;
+export const NOTIFY_KINDS = ["telegram", "wecom", "bark", "email", "feishu", "dingtalk", "webhook", "notifyx"] as const;
 export type NotifyKind = (typeof NOTIFY_KINDS)[number];
 
 export interface TelegramConfig {
@@ -37,6 +37,10 @@ export interface WebhookConfig {
   url: string;
 }
 
+export interface NotifyxConfig {
+  api_key: string;
+}
+
 export interface FeishuConfig {
   webhook_url: string;
   secret?: string;
@@ -53,6 +57,7 @@ export type ChannelConfig =
   | BarkConfig
   | EmailConfig
   | WebhookConfig
+  | NotifyxConfig
   | FeishuConfig
   | DingtalkConfig;
 
@@ -135,6 +140,7 @@ export function parseChannelInput(
   if (record.kind === "bark") return parseBark(record);
   if (record.kind === "email") return parseEmail(record);
   if (record.kind === "webhook") return parseWebhook(record);
+  if (record.kind === "notifyx") return parseNotifyx(record);
   if (record.kind === "feishu") return parseFeishu(record);
   if (record.kind === "dingtalk") return parseDingtalk(record);
   return { ok: false, error: "不支持的推送渠道" };
@@ -183,6 +189,10 @@ export function redactConfig(kind: NotifyKind, config: ChannelConfig): Record<st
   if (kind === "webhook") {
     const hook = config as WebhookConfig;
     return { url: redactHookUrl(kind, hook.url) };
+  }
+  if (kind === "notifyx") {
+    const notifyx = config as NotifyxConfig;
+    return { api_key: mask(notifyx.api_key) };
   }
   const email = config as EmailConfig;
   const redacted: Record<string, string | number> = { to: email.to, from: email.from };
@@ -434,6 +444,25 @@ async function deliverOne(channel: StoredChannel, payload: NotifyText, deps: Not
     });
     return;
   }
+  if (channel.kind === "notifyx") {
+    // The API key travels in the URL path, so errors must never quote
+    // the URL — only NotifyX's own error text or the bare status.
+    const config = channel.config as NotifyxConfig;
+    const response = await deps.fetch(`https://www.notifyx.cn/api/v1/send/${encodeURIComponent(config.api_key)}`, {
+      method: "POST",
+      redirect: "manual",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: payload.title, content: payload.text }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    const parsed = await readJsonLimited(response);
+    const record = asRecord(parsed);
+    if (!response.ok || !record || record.success !== true) {
+      const message = typeof record?.error === "string" ? record.error : `NotifyX 返回 ${response.status}`;
+      throw new Error(scrub(message));
+    }
+    return;
+  }
   const email = channel.config as EmailConfig;
   if (email.webhook_url) {
     await postJson(deps, email.webhook_url, "邮件", {
@@ -599,6 +628,12 @@ function parseWebhook(record: Record<string, unknown>): { ok: true; kind: "webho
   } catch {
     return { ok: false, error: "Webhook URL 必须是 http/https 地址" };
   }
+}
+
+function parseNotifyx(record: Record<string, unknown>): { ok: true; kind: "notifyx"; config: NotifyxConfig } | { ok: false; error: string } {
+  const key = stringField(record, "api_key");
+  if (!key || key.length > 256 || /\s/.test(key)) return { ok: false, error: "NotifyX API 密钥无效" };
+  return { ok: true, kind: "notifyx", config: { api_key: key } };
 }
 
 function parseFeishu(record: Record<string, unknown>): { ok: true; kind: "feishu"; config: FeishuConfig } | { ok: false; error: string } {
