@@ -12,7 +12,6 @@ import {
   pushActions,
   pushConfirm,
   receiveTime,
-  shortcutStatusLines,
 } from "../public/device-panel.js";
 
 const DEVICE = {
@@ -174,17 +173,30 @@ describe("device panel status", () => {
   });
 });
 
-describe("shortcut version status", () => {
+describe("setup guide", () => {
+  const html = readFileSync("public/devices.html", "utf8");
+  const js = readFileSync("public/devices.js", "utf8");
+
   it("recommends the published iCloud share and keeps an unsigned fallback", () => {
-    const lines = shortcutStatusLines();
-    expect(lines).toHaveLength(4);
-    expect(lines.join("\n")).toContain("SMSinBox Next");
-    expect(lines.join("\n")).toContain("只填写推送链接");
-    expect(lines.join("\n")).toContain("未签名");
-    expect(lines.join("\n")).toContain("icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494");
-    expect(lines.join("\n")).toContain("信息 › 内容");
-    expect(lines.join("\n")).not.toContain("尚未发布");
-    expect(lines.join("\n")).toContain("已收到 iOS 短信");
+    expect(html).toContain("SMSinBox Next");
+    expect(html).toContain("icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494");
+    expect(html).toContain("未签名版文件");
+    expect(html).toContain("信息 › 内容");
+    expect(html).not.toContain("尚未发布");
+    expect(html).toContain("已收到 iOS 短信");
+  });
+
+  it("makes the guide's key values copy on click", () => {
+    // Static values carry their copy payload inline.
+    expect(html).toContain('class="copy-value" data-copy="https://www.icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494"');
+    expect(html).toContain('data-copy="Content-Type: application/json"');
+    // Dynamic values are filled from the same constants as the API
+    // config block, and every .copy-value is click-bound in the builder.
+    expect(html).toContain('class="copy-value guide-sms-url"');
+    expect(html).toContain('class="copy-value guide-auth"');
+    expect(js).toContain('chip.dataset.copy = webhookUrl');
+    expect(js).toContain('chip.dataset.copy = authHeader');
+    expect(js).toContain('querySelectorAll(".copy-value")');
   });
 });
 
@@ -204,12 +216,9 @@ describe("devices page", () => {
     expect(html).toContain('id="token-box" class="token-box stack"');
     expect(html).toContain("只显示这一次");
     expect(html).toContain("可随时在设备详情「推送配置」里查看");
-    expect(html).toContain("版本与配置状态");
-    expect(html).toContain('id="shortcut-status"');
     expect(html).toContain('href="/api/v1/ios/shortcut?variant=all"');
     expect(html).not.toMatch(/href="[^"]*variant=code/);
     expect(html).not.toContain("再显示一次");
-    for (const line of shortcutStatusLines()) expect(html).toContain(line);
   });
 
   it("confirms generate, rotate, and revoke, and does not read a secret back", () => {

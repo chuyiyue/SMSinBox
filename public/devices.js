@@ -195,6 +195,24 @@ function buildApiConfig() {
 
 function buildSetupFold() {
   const node = cloneTemplate("#setup-guide-template");
+  // Dynamic values are filled from the same constants the API config
+  // block uses, so the guide can never drift from the real endpoints.
+  for (const chip of node.querySelectorAll(".guide-sms-url")) {
+    chip.textContent = webhookUrl;
+    chip.dataset.copy = webhookUrl;
+  }
+  for (const chip of node.querySelectorAll(".guide-auth")) {
+    chip.textContent = authHeader;
+    chip.dataset.copy = authHeader;
+  }
+  // Key values copy on click: the value itself is the button.
+  for (const chip of node.querySelectorAll(".copy-value")) {
+    chip.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const value = chip.dataset.copy || chip.textContent.trim();
+      flashLabel(chip, value, value);
+    });
+  }
   bindTabs(node);
   return node;
 }
