@@ -29,7 +29,7 @@
     }
   ],
   "triggers": {
-    "crons": ["15 3 * * *"]
+    "crons": ["0 0 * * *"]
   },
   "vars": {
     "RETENTION_DAYS": "90",
