@@ -939,6 +939,11 @@
   .add-device-form button { width: 100%; }
   .api-facts { grid-template-columns: 1fr; }
   .device-head { align-items: flex-start; }
+  /* Token card head: title row on top, actions on their own row at
+     natural size instead of squeezing into the title's flex line. */
+  .record-head { flex-direction: column; align-items: stretch; }
+  .record-head .actions { justify-content: flex-start; }
+  .record-head .actions button { flex: none; }
 }
 
 /* API & MCP page: top tabs, endpoint list, token dialog scopes. */
@@ -952,9 +957,17 @@
   background: var(--bg-sunken);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
+  /* Narrow screens: labels stay on one horizontal line and the strip
+     scrolls sideways instead of squeezing tabs into vertical text. */
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.api-tabs::-webkit-scrollbar { display: none; }
 
 .api-tabs .tab {
+  flex: none;
+  white-space: nowrap;
   min-height: 36px;
   padding: 0 16px;
   border-radius: var(--r-sm);
