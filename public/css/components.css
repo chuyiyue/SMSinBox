@@ -95,6 +95,7 @@ input.is-invalid, select.is-invalid, textarea.is-invalid { border-color: var(--d
 }
 
 .callout.warn { background: var(--warning-soft); color: var(--warning-text); }
+.callout.note { background: var(--bg-sunken); }
 .callout.danger, .error { color: var(--danger-text); }
 .callout.danger { background: var(--danger-soft); }
 .callout.ok { background: var(--success-soft); color: var(--success-text); }
