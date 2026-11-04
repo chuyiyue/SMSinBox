@@ -463,7 +463,10 @@
 /* Notify page: channel card grid and config dialog. */
 .channel-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  /* minmax(0, …): a bare 1fr sizes the column to the widest min-content
+     (the nowrap mono summary line), which pushed cards past the screen
+     edge on phones. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-3);
 }
 
@@ -874,6 +877,25 @@
 .api-actions { display: flex; gap: 8px; margin-left: auto; }
 .notify-toolbar .notify-page-tabs { margin-bottom: 0; }
 .notify-actions { display: flex; gap: 8px; margin-left: auto; }
+
+/* Phones (Roye): the toolbar stacks — tabs on their own full-width row,
+   then each action becomes a full-width long button aligned with the
+   tabs above it instead of a small pill floating at the right edge. */
+@media (max-width: 767px) {
+  .devices-toolbar,
+  .api-toolbar,
+  .notify-toolbar { flex-direction: column; align-items: stretch; }
+  .devices-actions,
+  .api-actions,
+  .notify-actions { margin-left: 0; display: grid; gap: 8px; }
+  .devices-actions > button,
+  .api-actions > button,
+  .notify-actions > button { width: 100%; }
+  /* The add action hides itself on the tabs it does not belong to;
+     don't leave an empty full-width row behind. */
+  .api-actions:has(> button[hidden]),
+  .notify-actions:has(> button[hidden]) { display: none; }
+}
 
 /* The OS-type icon sits before the device name on cards and in the
    drawer. It needs the same stroke treatment as .icon — without it the
