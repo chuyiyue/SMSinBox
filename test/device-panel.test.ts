@@ -178,8 +178,8 @@ describe("setup guide", () => {
   const js = readFileSync("public/devices.js", "utf8");
 
   it("recommends the published iCloud share and keeps an unsigned fallback", () => {
-    expect(html).toContain("SMSinBox Next");
-    expect(html).toContain("icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494");
+    expect(html).toContain("导入快捷指令");
+    expect(html).toContain("icloud.com/shortcuts/f7880f724c5443aebffc1ab5c5b7788f");
     expect(html).toContain("未签名版文件");
     expect(html).toContain("信息 › 内容");
     expect(html).not.toContain("尚未发布");
@@ -188,8 +188,13 @@ describe("setup guide", () => {
 
   it("makes the guide's key values copy on click", () => {
     // Static values carry their copy payload inline.
-    expect(html).toContain('class="copy-value" data-copy="https://www.icloud.com/shortcuts/cdfde24d823a43318ee651bb4d2c9494"');
-    expect(html).toContain('data-copy="Content-Type: application/json"');
+    expect(html).toContain('class="copy-value" data-copy="https://www.icloud.com/shortcuts/f7880f724c5443aebffc1ab5c5b7788f"');
+    expect(html).toContain('href="https://www.icloud.com/shortcuts/f7880f724c5443aebffc1ab5c5b7788f"');
+    // Header name and value copy separately: the Shortcuts app takes
+    // them in two different fields.
+    expect(html).toContain('data-copy="Content-Type"');
+    expect(html).toContain('data-copy="application/json"');
+    expect(html).not.toContain('data-copy="Content-Type: application/json"');
     // Dynamic values are filled from the same constants as the API
     // config block, and every .copy-value is click-bound in the builder.
     expect(html).toContain('class="copy-value guide-sms-url"');
