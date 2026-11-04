@@ -260,7 +260,7 @@ describe("single admin", () => {
     expect(legacy.calls.some((call) => call.sql.startsWith("DELETE FROM users"))).toBe(false);
   });
 
-  it("reports the package.json version and keeps the endpoint behind login", async () => {
+  it("reports the package.json version and serves only the GitHub flag anonymously", async () => {
     const script = makeDb();
     const response = await handleApi(authed("/api/v1/system/info"), envFor(script.db));
     expect(response.status).toBe(200);
@@ -270,9 +270,13 @@ describe("single admin", () => {
       runtime: "Cloudflare Workers + D1",
     });
 
+    // The login page needs github_enabled before signing in; anonymous
+    // callers get exactly that flag and nothing else.
     const anonymous = await handleApi(new Request("https://sms.example/api/v1/system/info"), envFor(makeDb().db));
-    expect(anonymous.status).toBe(401);
-    expect(await anonymous.json()).toMatchObject({ error: "未登录" });
+    expect(anonymous.status).toBe(200);
+    const anonBody = (await anonymous.json()) as Record<string, unknown>;
+    expect(anonBody).toMatchObject({ ok: true, github_enabled: false });
+    expect(anonBody).not.toHaveProperty("version");
 
     const wrongMethod = await handleApi(authed("/api/v1/system/info", "POST", {}), envFor(makeDb().db));
     expect(wrongMethod.status).toBe(405);

@@ -81,7 +81,8 @@ import { dedupHash } from "../dedup";
 import { recognizeCode } from "../code-recognition";
 import { clientAddress, isCrossSite, json, readCookie, readLimitedBytes, rejectsSensitiveWrite } from "../http";
 import { errorText, logError, logInfo } from "../log";
-import { issueSession, publicUser, requireSensitiveUser, requireUser } from "../session";
+import { findRequestSession, issueSession, publicUser, requireSensitiveUser, requireUser } from "../session";
+import { githubSettings } from "../github-oauth";
 import {
   authMeExtras,
   deleteAvatar,
@@ -507,9 +508,13 @@ async function updateProfile(request: Request, env: Env): Promise<Response> {
 }
 
 async function systemInfo(request: Request, env: Env): Promise<Response> {
-  const user = await requireUser(request, env);
-  if (user instanceof Response) return user;
-  return json({ ok: true, version: APP_VERSION, runtime: "Cloudflare Workers + D1" });
+  // The login page reads github_enabled before signing in (to decide
+  // whether to show the GitHub button), so that one flag is public; the
+  // version/runtime details stay behind the session.
+  const enabled = githubSettings(env) !== null;
+  const user = await findRequestSession(request, env);
+  if (!user) return json({ ok: true, github_enabled: enabled });
+  return json({ ok: true, version: APP_VERSION, runtime: "Cloudflare Workers + D1", github_enabled: enabled });
 }
 
 async function changePassword(request: Request, env: Env): Promise<Response> {

@@ -52,7 +52,8 @@ jobs:
           fi
 
       - name: Apply remote D1 migrations
-        run: npx wrangler d1 migrations apply smsinbox --remote
+        # wrangler asks for confirmation; there is no TTY in CI, so pipe it.
+        run: printf "y\n" | npx wrangler d1 migrations apply smsinbox --remote
 
       - name: Deploy Worker
         run: npx wrangler deploy
