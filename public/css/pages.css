@@ -189,8 +189,8 @@
   border-radius: 50%;
   object-fit: cover;
 }
-/* Brand and system logos sit as a glyph on a plain white disc instead of
-   filling the circle like a flag. */
+/* Brand logos sit as a glyph on a plain white disc instead of filling
+   the circle like a flag. */
 .avatar.has-logo {
   background: #fff;
   border: 1px solid var(--border);
@@ -200,6 +200,15 @@
   width: 62%;
   height: 62%;
   object-fit: contain;
+}
+/* The system (default) avatar uses the app icon, a full-bleed design:
+   it fills the whole circle exactly like a flag. */
+.avatar .avatar-logo-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
 }
 .avatar .avatar-type-icon {
   width: 60%;

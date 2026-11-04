@@ -1002,9 +1002,13 @@ function avatarNode(message) {
     return node;
   }
   // Internal test messages come from the system itself: use its logo.
+  // The app icon is a full-bleed design, so it fills the avatar circle
+  // exactly like a flag does instead of sitting as a glyph on a disc.
   if (String(from ?? "").trim().toLowerCase() === "smsinbox") {
-    node.classList.add("has-logo");
-    node.append(logoImg("/logo.png"));
+    node.classList.add("has-logo-fill");
+    const img = logoImg("/logo.png");
+    img.className = "avatar-logo-fill";
+    node.append(img);
     return node;
   }
   const iso = flagCountryForNumber(from);
