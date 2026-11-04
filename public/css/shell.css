@@ -511,18 +511,6 @@
 }
 .auth-card .auth-github { width: 100%; }
 
-/* Password-manager proxy: no pixels, no tab stop, no screen-reader text. */
-.auth-username-proxy {
-  position: absolute;
-  left: -9999px;
-  width: 1px;
-  height: 1px;
-  min-height: 0;
-  padding: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-
 .sidebar-note { margin: 12px 8px 0; color: var(--text-3); font-size: var(--fs-xs); }
 
 @media (min-width: 640px) and (max-width: 1023px) {

@@ -353,8 +353,12 @@ async function login(request: Request, env: Env): Promise<Response> {
   if (isCrossSite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const body = await readJson(request);
   if (!body.ok) return body.response;
-  // Username fields from older clients are intentionally ignored; there is
-  // exactly one administrator and only the password decides the login.
+  // Login takes a username and a password. The username must match the
+  // single administrator row (case-insensitively); a mismatch is refused
+  // with the same wording as a wrong password so the response never says
+  // which field failed.
+  const username = readLoginUsername(body.value);
+  if (username === null) return json({ ok: false, error: "请填写用户名" }, 400);
   const password = readLoginPassword(body.value);
   if (password === null) return json({ ok: false, error: "请填写密码" }, 400);
 
@@ -373,8 +377,13 @@ async function login(request: Request, env: Env): Promise<Response> {
     if (!hasEnvPassword) {
       return json({ ok: false, error: "尚未配置管理员密码。请设置 ADMIN_PASSWORD。" }, 503);
     }
+    // First deploy: the configured variables are the credentials. The new
+    // administrator row takes ADMIN_USERNAME (or the "admin" fallback), so
+    // the submitted username has to match that name before the env password
+    // is even compared.
+    const bootstrapName = env.ADMIN_USERNAME?.trim() || "admin";
     const envPasswordOk = await secretsEqual(password, adminPassword);
-    if (!envPasswordOk) {
+    if (username.toLowerCase() !== bootstrapName.toLowerCase() || !envPasswordOk) {
       await recordLoginFailure(env.DB, userKey, now);
       if (ipKey) await recordLoginFailure(env.DB, ipKey, now);
       return json({ ok: false, error: "密码错误" }, 401);
@@ -385,9 +394,10 @@ async function login(request: Request, env: Env): Promise<Response> {
     return issueSessionFor(request, env, created);
   }
 
-  // Only one row is the administrator. ADMIN_USERNAME is no longer a login
-  // field; it survives as a read-only hint for selecting that row while
-  // production databases still contain pre-merge rows.
+  // Only one row is the administrator. ADMIN_USERNAME stays a read-only
+  // hint for selecting that row while production databases still contain
+  // pre-merge rows; the login username is then checked against the row
+  // itself, never against the hint.
   const designated = pickDesignatedUser(users, env.ADMIN_USERNAME?.trim() ?? "");
   if (!designated) {
     return json(
@@ -397,6 +407,11 @@ async function login(request: Request, env: Env): Promise<Response> {
       },
       409,
     );
+  }
+  if (username.toLowerCase() !== designated.username.toLowerCase()) {
+    await recordLoginFailure(env.DB, userKey, now);
+    if (ipKey) await recordLoginFailure(env.DB, ipKey, now);
+    return json({ ok: false, error: "密码错误" }, 401);
   }
 
   const rowPasswordOk = await verifyPassword(password, designated.password_hash);
@@ -1396,6 +1411,15 @@ function readLoginPassword(value: unknown): string | null {
   if (typeof password !== "string") return null;
   if (password.length === 0 || password.length > 256) return null;
   return password;
+}
+
+function readLoginUsername(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const username = (value as Record<string, unknown>).username;
+  if (typeof username !== "string") return null;
+  const trimmed = username.trim();
+  if (trimmed.length === 0 || trimmed.length > 128) return null;
+  return trimmed;
 }
 
 function readCurrentPassword(record: Record<string, unknown>): string | { error: string } {

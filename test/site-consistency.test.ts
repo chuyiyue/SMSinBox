@@ -586,6 +586,13 @@ describe("site consistency", () => {
     expect(login).toContain('autocomplete="one-time-code"');
     expect(loginJs).toContain("/api/v1/auth/totp/verify");
     expect(loginJs).toContain("totp_required");
+    // Password login is username + password again: a visible username
+    // field above the password, submitted with the login request.
+    expect(login).toContain('id="username"');
+    expect(login).toContain('autocomplete="username"');
+    expect(login).not.toContain("auth-username-proxy");
+    expect(loginJs).toContain('querySelector("#username")');
+    expect(loginJs).toContain("username: usernameValue");
 
     const users = readFileSync("public/users.html", "utf8");
     expect(users).toContain('id="totp-panel"');

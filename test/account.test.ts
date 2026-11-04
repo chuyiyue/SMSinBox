@@ -342,29 +342,64 @@ describe("admin account", () => {
     expect(script.meta.has("profile_username")).toBe(false);
   });
 
-  it("logs in with the password only and ignores a legacy username field", async () => {
+  it("requires the submitted username to match the admin row, ignoring case", async () => {
     const script = makeDb();
-    const legacy = await handleApi(loginRequest("someone-else", PASSWORD), envFor(script.db));
-    expect(legacy.status).toBe(200);
-    expect(await legacy.json()).toMatchObject({ user: { id: ADMIN_ID, role: "admin" } });
+    const ok = await handleApi(loginRequest("root", PASSWORD), envFor(script.db));
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toMatchObject({ user: { id: ADMIN_ID, role: "admin" } });
     expect(script.calls.some((call) => call.sql.startsWith("UPDATE users SET username"))).toBe(false);
     expect(script.users).toHaveLength(1);
 
-    const second = makeDb();
+    const upper = makeDb();
+    const cased = await handleApi(loginRequest("ROOT", PASSWORD), envFor(upper.db));
+    expect(cased.status).toBe(200);
+
+    // A wrong username fails exactly like a wrong password: same status and
+    // same wording, so the response never says which field was wrong.
+    const wrongName = makeDb();
+    const denied = await handleApi(loginRequest("someone-else", PASSWORD), envFor(wrongName.db));
+    expect(denied.status).toBe(401);
+    expect(await denied.json()).toMatchObject({ error: "密码错误" });
+    expect(wrongName.calls.some((call) => call.sql.includes("INSERT INTO sessions"))).toBe(false);
+
+    const missing = makeDb();
     const bare = await handleApi(
       new Request("https://sms.example/api/v1/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ password: PASSWORD }),
       }),
-      envFor(second.db),
+      envFor(missing.db),
     );
-    expect(bare.status).toBe(200);
+    expect(bare.status).toBe(400);
+    expect(await bare.json()).toMatchObject({ error: "请填写用户名" });
+    expect(missing.rates).toHaveLength(0);
 
     const wrong = makeDb();
-    const denied = await handleApi(loginRequest("root", "wrong-pass"), envFor(wrong.db));
-    expect(denied.status).toBe(401);
-    expect(await denied.json()).toMatchObject({ error: "密码错误" });
+    const deniedPassword = await handleApi(loginRequest("root", "wrong-pass"), envFor(wrong.db));
+    expect(deniedPassword.status).toBe(401);
+    expect(await deniedPassword.json()).toMatchObject({ error: "密码错误" });
+  });
+
+  it("bootstraps the first admin from the configured variables only", async () => {
+    // envFor pins ADMIN_USERNAME=root and ADMIN_PASSWORD=secret.
+    const script = makeDb({ users: [], sessions: [] });
+    const wrongName = await handleApi(loginRequest("someone-else", "secret"), envFor(script.db));
+    expect(wrongName.status).toBe(401);
+    expect(await wrongName.json()).toMatchObject({ error: "密码错误" });
+    expect(script.users).toHaveLength(0);
+    expect(script.calls.some((call) => call.sql.includes("INSERT INTO users"))).toBe(false);
+
+    const created = await handleApi(loginRequest("root", "secret"), envFor(script.db));
+    expect(created.status).toBe(200);
+    expect(await created.json()).toMatchObject({ user: { username: "root", role: "admin" } });
+    expect(script.users).toHaveLength(1);
+    expect(script.users[0]?.username).toBe("root");
+    expect(await verifyPassword("secret", script.users[0]?.password_hash ?? "")).toBe(true);
+
+    // The bootstrapped row is now the login target for later sign-ins.
+    const again = await handleApi(loginRequest("ROOT", "secret"), envFor(script.db));
+    expect(again.status).toBe(200);
   });
 
   it("changes the password, revokes every session, and clears the cookie", async () => {
@@ -636,7 +671,15 @@ describe("login rate limit", () => {
       users: [{ ...adminUser(), id: OTHER_USER, username: "alice", password_hash: "stale" }],
       sessions: [],
     });
-    const response = await handleApi(loginRequest("root", "secret"), envFor(script.db));
+    // The env password is a recovery path, not a username bypass: the
+    // submitted name still has to match the surviving row ("alice"), even
+    // though ADMIN_USERNAME points at "root" for row selection.
+    const mismatched = await handleApi(loginRequest("root", "secret"), envFor(script.db));
+    expect(mismatched.status).toBe(401);
+    expect(await mismatched.json()).toMatchObject({ error: "密码错误" });
+    expect(script.users[0]?.password_hash).toBe("stale");
+
+    const response = await handleApi(loginRequest("alice", "secret"), envFor(script.db));
     expect(response.status).toBe(200);
     expect(await verifyPassword("secret", script.users[0]?.password_hash ?? "")).toBe(true);
     expect(script.users.map((item) => item.username)).toEqual(["alice"]);

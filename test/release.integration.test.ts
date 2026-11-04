@@ -1016,7 +1016,9 @@ describe("single user convergence", () => {
     expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(2);
 
     const elderLogin = await call("/api/v1/auth/login", jsonInit({ username: "elder", password: "elder-pass-1" }));
-    expect((await expectStatus(elderLogin, 401)).error).toBe("仅管理员可以登录");
+    // The username is checked against the administrator row, so a member's
+    // own credentials fail with the plain credential error.
+    expect((await expectStatus(elderLogin, 401)).error).toBe("密码错误");
     expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(2);
     expect(await countOf("SELECT COUNT(*) AS total FROM devices WHERE user_id = ?", [elderId])).toBe(1);
 
@@ -1061,12 +1063,19 @@ describe("single user convergence", () => {
     const previous = env.ADMIN_USERNAME;
     try {
       env.ADMIN_USERNAME = "second-admin";
-      const recovered = await call(
+      // ADMIN_USERNAME only selects the row; the login name is checked
+      // against the row itself. The renamed hint no longer logs anyone in,
+      // while the row's own name plus ADMIN_PASSWORD still recovers it —
+      // and neither attempt spawns a second row.
+      const mismatched = await call(
         "/api/v1/auth/login",
         jsonInit({ username: "second-admin", password: ADMIN_PASSWORD }),
       );
-      // The username is ignored; the single existing row is still the admin,
-      // so changing ADMIN_USERNAME cannot lock the owner out or spawn a row.
+      expect(mismatched.status).toBe(401);
+      const recovered = await call(
+        "/api/v1/auth/login",
+        jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
+      );
       expect((await expectStatus(recovered, 200)).user).toMatchObject({ username: ADMIN_USERNAME, role: "admin" });
       expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
     } finally {
@@ -1169,7 +1178,7 @@ describe("admin account", () => {
 
     const fresh = await call(
       "/api/v1/auth/login",
-      jsonInit({ username: "anything-from-an-old-form", password: "replacement-pass-1" }),
+      jsonInit({ username: ADMIN_USERNAME, password: "replacement-pass-1" }),
     );
     expect((await expectStatus(fresh, 200)).user).toMatchObject({ username: ADMIN_USERNAME, role: "admin" });
     expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
