@@ -107,8 +107,7 @@
 /* Collapsed rail: center icons, hide labels and the device list. */
 :root[data-sidebar="collapsed"] .brand-name,
 :root[data-sidebar="collapsed"] .nav-label,
-:root[data-sidebar="collapsed"] .sidebar-label,
-:root[data-sidebar="collapsed"] .sidebar-add {
+:root[data-sidebar="collapsed"] .sidebar-label {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -139,7 +138,7 @@
 
 .sidebar-section-toggle {
   display: inline-flex;
-  flex: 0 0 66.666%;
+  flex: 1 1 auto;
   align-items: center;
   gap: 4px;
   min-width: 0;
@@ -181,28 +180,6 @@
   font-size: var(--fs-xs);
   letter-spacing: 0.06em;
 }
-
-.sidebar-add {
-  /* Square button parked at the right end of the row: the section toggle
-     owns the left two-thirds, this sits inside the right third. */
-  display: flex;
-  flex: 0 0 30px;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  min-width: 0;
-  height: 30px;
-  min-height: 30px;
-  margin-left: auto;
-  padding: 0;
-  border-radius: var(--r-sm);
-  color: var(--text-3);
-  text-decoration: none;
-  font-size: 1rem;
-  line-height: 1;
-}
-
-.sidebar-add:hover { color: var(--accent-text); }
 
 .device-list { display: grid; gap: 2px; }
 
@@ -415,6 +392,12 @@
   margin-left: auto;
 }
 
+/* The top-right cluster is one shared component on every page: theme
+   toggle, the page's primary action and refresh share one height and
+   one center line. */
+.topbar-actions > * { height: 38px; }
+.topbar-actions .primary { display: inline-flex; align-items: center; }
+
 .live-status {
   display: inline-flex;
   align-items: center;
@@ -523,7 +506,7 @@
   .sidebar { width: 64px; padding-left: 2px; padding-right: 2px; }
   .main { margin-left: 64px; }
   .sidebar-brand-row { gap: 0; padding: 2px 0 0; }
-  .brand-name, .nav-label, .sidebar-label, .sidebar-add, .sidebar-devices, .btn-label { 
+  .brand-name, .nav-label, .sidebar-label, .sidebar-devices, .btn-label {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -591,7 +574,6 @@
   :root[data-sidebar="collapsed"] .brand-name,
   :root[data-sidebar="collapsed"] .nav-label,
   :root[data-sidebar="collapsed"] .sidebar-label,
-  :root[data-sidebar="collapsed"] .sidebar-add,
   :root[data-sidebar="collapsed"] .account-name,
   :root[data-sidebar="collapsed"] .account-logout {
     position: static;

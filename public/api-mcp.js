@@ -181,7 +181,7 @@ const API_ENDPOINTS = [
   },
 ];
 let tokenListEl;
-let tokenCountEl;
+
 let pageErrorEl;
 let pageStatusEl;
 let dialogEl;
@@ -196,7 +196,6 @@ export function start() {
   initShell();
 
   tokenListEl = document.querySelector("#token-list");
-  tokenCountEl = document.querySelector("#token-count");
   pageErrorEl = document.querySelector("#page-error");
   pageStatusEl = document.querySelector("#page-status");
   dialogEl = document.querySelector("#token-dialog");
@@ -340,7 +339,7 @@ async function loadTokens() {
   }
 
   const tokens = result.data?.tokens || [];
-  if (tokenCountEl) tokenCountEl.textContent = String(tokens.length);
+
   renderTokenList(tokens);
   renderPermissionSummary(tokens);
 }

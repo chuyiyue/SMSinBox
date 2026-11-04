@@ -392,7 +392,7 @@
 
 .privacy { margin-top: 24px; color: var(--text-3); font-size: var(--fs-xs); }
 
-.count-pill { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.device-guide { min-width: 0; }
 
 .guide ol, .ios-steps ol { padding-left: 1.2rem; }
 .guide li, .ios-steps li { margin: 4px 0; }

@@ -24,7 +24,6 @@
               <svg class="icon chevron" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-chevron-down"/></svg>
               <span class="sidebar-label" id="sidebar-devices-title">设备</span>
             </button>
-            <a class="ghost icon-btn sidebar-add" href="/devices.html#add" aria-label="添加设备" title="添加设备">+</a>
           </div>
           <div id="sidebar-devices" class="device-list"></div>
         </div>
@@ -101,11 +100,20 @@
             </section>
           </template>
 
-          <section class="devices-section" aria-labelledby="devices-title">
+          <div class="tabs api-tabs devices-page-tabs" role="tablist" aria-label="设备页面视图">
+            <button class="tab is-active" id="dtab-list" type="button" role="tab" aria-selected="true" aria-controls="dpanel-list">设备列表</button>
+            <button class="tab" id="dtab-guide" type="button" role="tab" aria-selected="false" aria-controls="dpanel-guide">接入指引</button>
+          </div>
+
+          <section class="devices-section" id="dpanel-list" role="tabpanel" aria-labelledby="devices-title">
             <div class="section-head">
               <h2 id="devices-title">我的设备</h2>
             </div>
             <div id="devices" class="devices cards"></div>
+          </section>
+
+          <section id="dpanel-guide" role="tabpanel" aria-label="接入指引" hidden>
+            <div id="device-guide" class="device-guide stack"></div>
           </section>
 
           <template id="api-config-template">

@@ -68,6 +68,8 @@ function startView() {
     }),
   });
   document.querySelector("#add-device").addEventListener("click", openCreate);
+  buildPageGuide();
+  wirePageTabs();
   hashListener = () => {
     hashHandled = false;
     applyLocationHash();
@@ -130,6 +132,34 @@ function buildAddBody() {
 
   section.append(buildSetupFold());
   return section;
+}
+
+// The access guide is generic (same for every device), so it lives once at
+// page level in its own tab instead of being cloned into every device card.
+function buildPageGuide() {
+  const guide = document.querySelector("#device-guide");
+  if (!guide || guide.childElementCount > 0) return;
+  guide.append(buildApiConfig(), buildSetupFold());
+}
+
+function wirePageTabs() {
+  const listTab = document.querySelector("#dtab-list");
+  const guideTab = document.querySelector("#dtab-guide");
+  const listPanel = document.querySelector("#dpanel-list");
+  const guidePanel = document.querySelector("#dpanel-guide");
+  if (!listTab || !guideTab || !listPanel || !guidePanel) return;
+  const activate = (name) => {
+    const guide = name === "guide";
+    listTab.classList.toggle("is-active", !guide);
+    listTab.setAttribute("aria-selected", guide ? "false" : "true");
+    guideTab.classList.toggle("is-active", guide);
+    guideTab.setAttribute("aria-selected", guide ? "true" : "false");
+    listPanel.hidden = guide;
+    guidePanel.hidden = !guide;
+  };
+  listTab.addEventListener("click", () => activate("list"));
+  guideTab.addEventListener("click", () => activate("guide"));
+  if (location.hash === "#guide") activate("guide");
 }
 
 function buildApiConfig() {
@@ -276,7 +306,7 @@ function buildDeviceDetailShell(device, entry = null) {
   const labels = [
     ["overview", "概览"],
     ["messages", "短信记录"],
-    ["access", "接入配置"],
+
     ["push", "推送配置"],
     ["advanced", "高级设置"],
   ];
@@ -302,11 +332,6 @@ function buildDeviceDetailShell(device, entry = null) {
   messages.dataset.devicePanel = "messages";
   messages.hidden = true;
   void loadDeviceMessagePanel(messages, device.id);
-  const access = document.createElement("section");
-  access.className = "device-detail-panel";
-  access.dataset.devicePanel = "access";
-  access.hidden = true;
-  access.append(buildApiConfig(), buildSetupFold());
   const push = document.createElement("section");
   push.className = "device-detail-panel";
   push.dataset.devicePanel = "push";
@@ -318,7 +343,7 @@ function buildDeviceDetailShell(device, entry = null) {
   advanced.hidden = true;
   advanced.append(buildAdvancedPanel(device));
 
-  panels.append(overview, messages, access, push, advanced);
+  panels.append(overview, messages, push, advanced);
   detail.append(summary, tabs, panels);
   for (const tab of tabs.querySelectorAll("[data-device-tab]")) {
     tab.addEventListener("click", () => {

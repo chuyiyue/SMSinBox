@@ -168,8 +168,13 @@ describe("site consistency", () => {
     const css = readFileSync("public/css/shell.css", "utf8");
     expect(boot).toContain('row.className = "sidebar-brand-row"');
     expect(css).toMatch(/\.sidebar-label-row \{[\s\S]*?margin: 0 12px 6px;/);
-    expect(css).toMatch(/\.sidebar-section-toggle \{[\s\S]*?flex: 0 0 66\.666%;/);
-    expect(css).toMatch(/\.sidebar-add \{[\s\S]*?flex: 0 0 30px;[\s\S]*?margin-left: auto;[\s\S]*?justify-content: center;/);
+    expect(css).toMatch(/\.sidebar-section-toggle \{[\s\S]*?flex: 1 1 auto;/);
+    // No add-device shortcut in the sidebar: adding happens on the devices
+    // page, and the section toggle spans the full row on its own.
+    expect(css).not.toContain(".sidebar-add");
+    for (const page of pages) {
+      expect(readFileSync(page, "utf8"), page).not.toContain("sidebar-add");
+    }
     // The account entry centers the avatar and name inside its container.
     expect(css).toMatch(/\.account-btn \{[\s\S]*?display: flex;[\s\S]*?justify-content: center;/);
     expect(css).toMatch(/\.account-name \{[\s\S]*?text-align: center;/);
@@ -177,6 +182,32 @@ describe("site consistency", () => {
     expect(boot).toContain('button.setAttribute("aria-expanded", collapsed ? "false" : "true")');
     expect(css).toContain(":root[data-sidebar=\"collapsed\"] .sidebar-brand-row");
     expect(css).toContain(".sidebar-collapse { display: none; }");
+  });
+
+  it("shares one aligned top-right cluster and shows no count next to add buttons", () => {
+    const shellCss = readFileSync("public/css/shell.css", "utf8");
+    expect(shellCss).toMatch(/\.topbar-actions > \* \{ height: 38px; \}/);
+    for (const page of pages) {
+      const html = readFileSync(page, "utf8");
+      expect(html, page).not.toContain("count-pill");
+      expect(html, page).not.toContain("token-count");
+      expect(html, page).not.toContain("channel-count");
+    }
+    expect(readFileSync("public/api-mcp.js", "utf8")).not.toContain("tokenCountEl");
+    expect(readFileSync("public/notify.js", "utf8")).not.toContain("channel-count");
+  });
+
+  it("gives the devices page a guide tab and keeps the guide out of device cards", () => {
+    const html = readFileSync("public/devices.html", "utf8");
+    const js = readFileSync("public/devices.js", "utf8");
+    expect(html).toContain('id="dtab-guide"');
+    expect(html).toContain("接入指引");
+    expect(html).toContain('id="dpanel-guide"');
+    expect(html).toContain('id="device-guide"');
+    expect(js).toContain("buildPageGuide()");
+    expect(js).not.toContain('"access", "接入配置"');
+    expect(js).not.toMatch(/access\.append\(buildApiConfig/);
+    expect(js).toMatch(/panels\.append\(overview, messages, push, advanced\)/);
   });
 
   it("labels the admin entry as system management on every page", () => {
