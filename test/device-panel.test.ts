@@ -156,7 +156,9 @@ describe("devices page", () => {
     expect(js).toContain("复制推送链接");
     expect(js).toContain("复制 ID");
     expect(js).toContain("发送测试消息");
-    expect(js).toContain("安装说明");
+    // The setup guide no longer lives inside device cards; it has its own
+    // tab on the devices page.
+    expect(js).not.toContain("安装说明");
     expect(js).not.toContain("device.push_url");
     expect(js).not.toContain("再显示一次");
     expect(js).not.toMatch(/\/reveal/);

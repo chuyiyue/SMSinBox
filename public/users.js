@@ -79,7 +79,6 @@ function startView() {
     onRefresh: () => refreshPage(),
   });
   const cleanupTotp = initTotpSettings();
-  const cleanupSettingsNav = initSettingsNav();
 
   profileForm.addEventListener("submit", submitProfile);
   passwordForm.addEventListener("submit", submitPassword);
@@ -119,41 +118,7 @@ function startView() {
   return () => {
     if (viewToken === token) viewToken += 1;
     cleanupTotp();
-    cleanupSettingsNav();
   };
-}
-
-function initSettingsNav() {
-  if (window.matchMedia("(max-width: 639px)").matches) {
-    return () => {};
-  }
-  const nav = document.querySelector(".settings-nav");
-  if (!nav) return () => {};
-  const links = [...nav.querySelectorAll('a[href^="#"]')];
-  const sections = links
-    .map((link) => document.querySelector(link.getAttribute("href") || ""))
-    .filter((section) => section instanceof HTMLElement);
-  if (!links.length) return () => {};
-  const activate = (id) => {
-    for (const link of links) {
-      const active = link.getAttribute("href") === `#${id}`;
-      link.classList.toggle("is-active", active);
-      if (active) link.setAttribute("aria-current", "true");
-      else link.removeAttribute("aria-current");
-    }
-  };
-  activate(sections[0]?.id || "");
-  const observer = new IntersectionObserver(
-    (entries) => {
-      const visible = entries
-        .filter((entry) => entry.isIntersecting)
-        .sort((left, right) => left.boundingClientRect.top - right.boundingClientRect.top);
-      if (visible[0]) activate(visible[0].target.id);
-    },
-    { rootMargin: "-24% 0px -68% 0px", threshold: 0 },
-  );
-  for (const section of sections) observer.observe(section);
-  return () => observer.disconnect();
 }
 
 async function boot(token) {
@@ -394,6 +359,11 @@ function renderSession(session) {
   if (Number.isFinite(expiresAt) && expiresAt > 0) {
     parts.push(`有效期至 ${formatTime(expiresAt)}`);
   }
+  const agent = [session.browser, session.os, session.device]
+    .filter((value) => typeof value === "string" && value)
+    .join(" · ");
+  if (agent) parts.push(agent);
+  if (session.ip) parts.push(`IP ${session.ip}`);
   if (!parts.length) parts.push("会话时间未知");
   meta.textContent = parts.join(" · ");
   const detail = [];

@@ -125,6 +125,8 @@ export interface ListedSession {
   id: string;
   created_at: number;
   expires_at: number;
+  user_agent: string | null;
+  ip: string | null;
 }
 
 export interface NotifyChannelRow {

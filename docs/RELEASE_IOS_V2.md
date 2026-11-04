@@ -18,6 +18,7 @@
 - `0008_device_identity.sql`
 - `0009_api_tokens.sql`
 - `0010_message_code_source.sql`
+- `0011_session_client_info.sql`
 
 `0005_device_push.sql` 只追加 `push_token_hash`、`push_revoked_at` 和唯一索引。它不改已有 `token_hash`，不改短信，不删行。SQLite 的唯一索引允许多个 NULL，还没签发推送链接的旧设备可以共存。
 
@@ -31,7 +32,9 @@
 
 `0010_message_code_source.sql` 只给 `messages` 追加 `code_source` 列（`regex` / `workers-ai`，无码为 NULL），并把已有带码短信回填为 `regex`。新 Worker 入库时会写这一列：正则提到码记 `regex`，正则未命中时由 Workers AI 兜底识别并记 `workers-ai`。还没跑过 `0010` 时不要部署这份 Worker。
 
-新 Worker 会读取推送列和 TOTP 列。数据库还没跑过 `0005` / `0007` / `0008` / `0009` / `0010` 时不要部署这份 Worker。旧 Worker 不读这些列，所以先迁移再部署是安全的。
+`0011_session_client_info.sql` 只给 `sessions` 追加 `user_agent` 和 `ip` 两列。登录签发会话时写入，会话管理据此显示浏览器、设备类型和 IP 地址；旧会话两列为 NULL，显示为未知。还没跑过 `0011` 时不要部署这份 Worker。
+
+新 Worker 会读取推送列和 TOTP 列。数据库还没跑过 `0005` / `0007` / `0008` / `0009` / `0010` / `0011` 时不要部署这份 Worker。旧 Worker 不读这些列，所以先迁移再部署是安全的。
 
 ## 已在本地完成
 
