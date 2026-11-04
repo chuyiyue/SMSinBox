@@ -196,9 +196,8 @@ export function renderSidebarDevices(devices, activeId = getActiveId()) {
   const box = document.querySelector("#sidebar-devices");
   if (!box) return;
   const active = String(activeId || "");
-  // Plain capped list (no collapsing): pinned devices when any exist,
-  // else the first ones; an ellipsis row links to the full device list
-  // whenever some devices are not shown.
+  // Plain capped list (no collapsing, no "view all" row): pinned
+  // devices when any exist, else the first ones.
   const selection = selectSidebarDevices(devices || []);
   const rows = [];
   for (const device of selection.shown) {
@@ -242,20 +241,8 @@ export function renderSidebarDevices(devices, activeId = getActiveId()) {
   } else {
     empty?.remove();
   }
-  let more = box.querySelector(".device-more");
-  if (selection.hasMore) {
-    if (!more) {
-      more = document.createElement("a");
-      more.className = "device-more";
-      more.href = "/devices.html";
-      more.textContent = "…";
-      more.title = "查看全部设备";
-      more.setAttribute("aria-label", "查看全部设备");
-    }
-    box.append(more);
-  } else {
-    more?.remove();
-  }
+  // Rows painted by older versions may linger; drop any stale "…" row.
+  box.querySelector(".device-more")?.remove();
 }
 
 export function initShell(options = {}) {
