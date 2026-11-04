@@ -182,6 +182,17 @@ describe("site consistency", () => {
     expect(boot).toContain('button.setAttribute("aria-expanded", collapsed ? "false" : "true")');
     expect(css).toContain(":root[data-sidebar=\"collapsed\"] .sidebar-brand-row");
     expect(css).toContain(".sidebar-collapse { display: none; }");
+    // The collapse control uses the panel glyph (no arrows anywhere), and
+    // in the rail the logo takes over as the expand control: its mark
+    // swaps for the panel icon on hover, the separate button hides, and
+    // the account footer sinks to the bottom.
+    expect(boot).toContain("/icons.svg#icon-panel-left");
+    expect(boot).not.toContain("icon-chevron-left");
+    expect(boot).toContain("brand-expand");
+    expect(css).toContain(":root[data-sidebar=\"collapsed\"] .sidebar-collapse { display: none; }");
+    expect(css).toContain(":root[data-sidebar=\"collapsed\"] .brand:hover .brand-expand");
+    expect(css).toMatch(/:root\[data-sidebar="collapsed"\] \.sidebar-footer \{ margin-top: auto;/);
+    expect(readFileSync("public/icons.svg", "utf8")).toContain('id="icon-panel-left"');
   });
 
   it("shares one aligned top-right cluster and shows no count next to add buttons", () => {

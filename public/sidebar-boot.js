@@ -102,6 +102,11 @@
       button.setAttribute("title", label);
       button.setAttribute("aria-expanded", collapsed ? "false" : "true");
     }
+    var brandEl = document.querySelector(".sidebar .brand");
+    if (brandEl) {
+      if (collapsed) brandEl.setAttribute("title", "展开侧栏");
+      else brandEl.removeAttribute("title");
+    }
   }
 
   function injectCollapseButton() {
@@ -114,10 +119,28 @@
     button.setAttribute("aria-label", "收起侧栏");
     button.setAttribute("title", "收起侧栏");
     button.innerHTML =
-      '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-chevron-left"/></svg>';
+      '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-panel-left"/></svg>';
     button.addEventListener("click", function () {
       var collapsed = document.documentElement.getAttribute("data-sidebar") === "collapsed";
       applySidebarState(!collapsed, true);
+    });
+    // In the collapsed rail the separate button disappears and the logo
+    // itself becomes the expand control: hovering swaps the mark for the
+    // panel icon (pure CSS), and clicking expands instead of navigating.
+    var expandIcon = document.createElement("span");
+    expandIcon.className = "brand-expand";
+    expandIcon.setAttribute("aria-hidden", "true");
+    expandIcon.innerHTML =
+      '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-panel-left"/></svg>';
+    var mark = brand.querySelector(".mark");
+    if (mark) mark.after(expandIcon);
+    else brand.prepend(expandIcon);
+    brand.addEventListener("click", function (event) {
+      var isCollapsed = document.documentElement.getAttribute("data-sidebar") === "collapsed";
+      if (isCollapsed && window.matchMedia("(min-width: 1024px)").matches) {
+        event.preventDefault();
+        applySidebarState(false, true);
+      }
     });
     var row = document.createElement("div");
     row.className = "sidebar-brand-row";
