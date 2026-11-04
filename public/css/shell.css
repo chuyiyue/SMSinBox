@@ -139,7 +139,7 @@
 
 .sidebar-section-toggle {
   display: inline-flex;
-  flex: 1 1 50%;
+  flex: 0 0 66.666%;
   align-items: center;
   gap: 4px;
   min-width: 0;
@@ -183,14 +183,17 @@
 }
 
 .sidebar-add {
+  /* Square button parked at the right end of the row: the section toggle
+     owns the left two-thirds, this sits inside the right third. */
   display: flex;
-  flex: 1 1 50%;
+  flex: 0 0 30px;
   align-items: center;
   justify-content: center;
-  width: auto;
+  width: 30px;
   min-width: 0;
   height: 30px;
   min-height: 30px;
+  margin-left: auto;
   padding: 0;
   border-radius: var(--r-sm);
   color: var(--text-3);
@@ -266,9 +269,11 @@
 }
 
 .account-btn {
+  display: flex;
+  align-items: center;
   flex: 1 1 auto;
   min-width: 0;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 10px;
   padding: 0 10px;
   min-height: 40px;
@@ -311,12 +316,12 @@
 }
 
 .account-name {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: left;
+  text-align: center;
   font-weight: 600;
 }
 

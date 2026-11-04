@@ -168,8 +168,11 @@ describe("site consistency", () => {
     const css = readFileSync("public/css/shell.css", "utf8");
     expect(boot).toContain('row.className = "sidebar-brand-row"');
     expect(css).toMatch(/\.sidebar-label-row \{[\s\S]*?margin: 0 12px 6px;/);
-    expect(css).toMatch(/\.sidebar-section-toggle \{[\s\S]*?flex: 1 1 50%;/);
-    expect(css).toMatch(/\.sidebar-add \{[\s\S]*?flex: 1 1 50%;[\s\S]*?justify-content: center;/);
+    expect(css).toMatch(/\.sidebar-section-toggle \{[\s\S]*?flex: 0 0 66\.666%;/);
+    expect(css).toMatch(/\.sidebar-add \{[\s\S]*?flex: 0 0 30px;[\s\S]*?margin-left: auto;[\s\S]*?justify-content: center;/);
+    // The account entry centers the avatar and name inside its container.
+    expect(css).toMatch(/\.account-btn \{[\s\S]*?display: flex;[\s\S]*?justify-content: center;/);
+    expect(css).toMatch(/\.account-name \{[\s\S]*?text-align: center;/);
     expect(css).toMatch(/\.sidebar \.device-link \{[\s\S]*?padding: 6px 12px;/);
     expect(boot).toContain('button.setAttribute("aria-expanded", collapsed ? "false" : "true")');
     expect(css).toContain(":root[data-sidebar=\"collapsed\"] .sidebar-brand-row");
