@@ -52,6 +52,7 @@ function channel(partial: Partial<StoredChannel> & Pick<StoredChannel, "kind" | 
     userId: "user-1",
     enabled: partial.enabled ?? true,
     createdAt: partial.createdAt ?? 1,
+    note: partial.note ?? "",
     kind: partial.kind,
     config: partial.config,
   };
@@ -589,6 +590,45 @@ describe("notification API", () => {
       authedEnv(fakeDb({ first: sessionUser({ total: 10 }) })),
     );
     expect(limited.status).toBe(400);
+  });
+
+  it("stores an optional remark on create and updates it via PATCH", async () => {
+    const headers = { cookie: "smsinbox_session=sms_session_token_value", "content-type": "application/json" };
+    const created = await handleApi(
+      new Request("https://sms.example/api/v1/notifications", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ kind: "telegram", bot_token: TOKEN, chat_id: "42", note: "  主力 TG  " }),
+      }),
+      authedEnv(fakeDb({ first: sessionUser() })),
+    );
+    expect(created.status).toBe(200);
+    expect((await created.json() as { channel: { note: string } }).channel.note).toBe("主力 TG");
+
+    const id = "11111111-1111-4111-8111-111111111111";
+    const patched = await handleApi(
+      new Request(`https://sms.example/api/v1/notifications/${id}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ note: "备用" }),
+      }),
+      authedEnv(fakeDb({ first: sessionUser() })),
+    );
+    expect(patched.status).toBe(200);
+    expect((await patched.json() as { note: string }).note).toBe("备用");
+
+    const tooLong = await handleApi(
+      new Request(`https://sms.example/api/v1/notifications/${id}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ note: "长".repeat(81) }),
+      }),
+      authedEnv(fakeDb({ first: sessionUser() })),
+    );
+    expect(tooLong.status).toBe(400);
+
+    expect(channelFromRow(row({ note: "备注" }))?.note).toBe("备注");
+    expect(channelFromRow(row())?.note).toBe("");
   });
 
   it("lists stored channels without the bot token", async () => {

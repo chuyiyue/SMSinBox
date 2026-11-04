@@ -320,6 +320,15 @@ dialog.modal::backdrop { background: var(--overlay); }
 .menu-icon { width: 18px; flex: none; display: inline-flex; align-items: center; margin-right: 8px; color: var(--text-2); }
 .menu-icon .icon { width: 16px; height: 16px; }
 
+/* Shared enable/disable action (notify channels, API tokens): the fill
+   itself reads as the switch — solid black enables, white disables.
+   The hover rules need the extra specificity to beat the base
+   button:hover background. */
+.btn-enable { background: var(--accent-button); color: var(--on-accent); border-color: transparent; }
+.btn-enable:hover { background: var(--accent-button-hover); }
+.btn-disable { background: var(--surface); color: var(--text); border-color: var(--border-strong); }
+.btn-disable:hover { background: var(--surface-hover); }
+
 /* Custom select (ui.js mountSelect): a form-styled toggle + menu, so no
    picker ever falls back to browser-default chrome. */
 .select-field { width: 100%; }

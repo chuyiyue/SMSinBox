@@ -152,6 +152,7 @@ export interface NotifyChannelRow {
   config: string;
   enabled: number;
   created_at: number;
+  note?: string;
 }
 
 export interface ApiTokenRecord {

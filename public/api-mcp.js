@@ -574,22 +574,6 @@ function renderTokenList(tokens) {
     renameBtn.addEventListener("click", () => startTokenRename(token, titleArea));
     actions.append(renameBtn);
 
-    if (token.status === "active") {
-      const disableBtn = document.createElement("button");
-      disableBtn.className = "ghost";
-      disableBtn.type = "button";
-      disableBtn.textContent = "禁用";
-      disableBtn.addEventListener("click", () => setTokenDisabled(token.id, true));
-      actions.append(disableBtn);
-    } else if (token.status === "disabled") {
-      const enableBtn = document.createElement("button");
-      enableBtn.className = "ghost";
-      enableBtn.type = "button";
-      enableBtn.textContent = "启用";
-      enableBtn.addEventListener("click", () => setTokenDisabled(token.id, false));
-      actions.append(enableBtn);
-    }
-
     // Rotation replaces revocation (Roye): same row, fresh secret. It is
     // offered for every token — rotating a revoked one revives it.
     const rotateBtn = document.createElement("button");
@@ -598,6 +582,25 @@ function renderTokenList(tokens) {
     rotateBtn.textContent = "轮换";
     rotateBtn.addEventListener("click", () => rotateToken(token));
     actions.append(rotateBtn);
+
+    // Enable/disable sits right before delete, with the same filled
+    // toggle treatment as the notify channel cards (black enables,
+    // white disables).
+    if (token.status === "active") {
+      const disableBtn = document.createElement("button");
+      disableBtn.className = "btn-disable";
+      disableBtn.type = "button";
+      disableBtn.textContent = "禁用";
+      disableBtn.addEventListener("click", () => setTokenDisabled(token.id, true));
+      actions.append(disableBtn);
+    } else if (token.status === "disabled") {
+      const enableBtn = document.createElement("button");
+      enableBtn.className = "btn-enable";
+      enableBtn.type = "button";
+      enableBtn.textContent = "启用";
+      enableBtn.addEventListener("click", () => setTokenDisabled(token.id, false));
+      actions.append(enableBtn);
+    }
 
     const deleteBtn = document.createElement("button");
     deleteBtn.className = "danger ghost";

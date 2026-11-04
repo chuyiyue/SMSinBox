@@ -34,6 +34,16 @@
   min-width: min-content;
 }
 
+/* One control height across the whole bar — search box included — so
+   the first box lines up with the device/number fields instead of
+   sitting taller and leaving a step above it. */
+.filterbar .filter-search input,
+.filterbar .filters input,
+.filterbar .filters .select-toggle {
+  height: 40px;
+  min-height: 40px;
+}
+
 .filter-label {
   color: var(--text-3);
   font-size: var(--fs-xs);
@@ -384,16 +394,27 @@
 
 .channel-test-empty { color: var(--text-3); }
 
-.channel-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
+/* Channel card actions: one 2x2 grid, one button family — edit/test on
+   the first row, the enable/disable state toggle and delete below. */
+.channel-actions-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
   border-top: 1px solid var(--border);
   padding-top: var(--space-3);
 }
+.channel-actions-grid > button { width: 100%; }
 
-.channel-actions .switch { flex: none; }
+.channel-note {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+/* The add/edit channel dialogs stack their fields with even gaps, so
+   the help fold never crowds the last input. */
+#notify-fields, #notify-view-fields { display: grid; gap: 12px; }
 
 @media (min-width: 640px) {
   .channel-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
