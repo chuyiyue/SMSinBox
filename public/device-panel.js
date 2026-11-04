@@ -91,8 +91,8 @@ export function platformDetail(platform) {
 }
 
 // The type chosen for the device (at creation, or later in the detail
-// drawer's advanced settings). It is only a starting point: once a
-// message reports a device type, the report wins (see describeDevice).
+// drawer's advanced settings). A specific choice is authoritative
+// everywhere; reports only fill in for unset/Other (see describeDevice).
 export function platformFromPreselect(value) {
   const text = String(value ?? "").trim();
   if (!text) return null;
@@ -109,14 +109,14 @@ export function sidebarDeviceIcon(device) {
 
 // The sidebar device list is a plain capped list: the owner's pinned
 // devices when any exist, otherwise the first devices in list order.
-// hasMore tells the caller to render the ellipsis row to the full list.
+// There is no "view all" row under it (Roye): the pin area is the list.
 export const SIDEBAR_DEVICE_LIMIT = 5;
 
 export function selectSidebarDevices(devices, limit = SIDEBAR_DEVICE_LIMIT) {
   const all = (devices || []).filter((device) => device && device.id);
   const pinned = all.filter((device) => device.pinned_at != null);
   const shown = (pinned.length ? pinned : all).slice(0, Math.max(0, limit));
-  return { shown, hasMore: all.length > shown.length };
+  return { shown };
 }
 
 export function receiveTime(device, latest) {
@@ -151,10 +151,16 @@ export function latestByDevice(messages) {
 
 export function describeDevice(device, latest) {
   const push = device?.push === "active" || device?.push === "revoked" ? device.push : "none";
-  // A reported device type (from the latest message) wins; until one
-  // arrives, fall back to the type preselected at creation time.
+  // The type the owner chose wins (Roye): list, detail and sidebar must
+  // all show the selected type. A reported type only supplies the answer
+  // when nothing specific was chosen (unset, or Other).
   const reported = platformFromReport(latest?.reported_device);
-  const platform = reported.key !== "unknown" ? reported : (platformFromPreselect(device?.platform) ?? reported);
+  const chosen = platformFromPreselect(device?.platform);
+  const platform = chosen && chosen.key !== "other"
+    ? chosen
+    : reported.key !== "unknown"
+      ? reported
+      : (chosen ?? reported);
   const received = receiveTime(device, latest);
   return {
     name: String(device?.name || ""),

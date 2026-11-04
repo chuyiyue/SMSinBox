@@ -13,7 +13,7 @@
   var STALE_MS = 7 * 24 * 60 * 60 * 1000;
   // The sidebar device list is a plain list, never collapsible: it shows
   // the pinned devices (or the first devices when nothing is pinned),
-  // capped at this many, with an ellipsis row linking to the full list.
+  // capped at this many, with no "view all" row under it.
   var SIDEBAR_DEVICE_LIMIT = 5;
 
   // Only modules marked for the nav render here; a module with nav: false
@@ -179,7 +179,7 @@
 
   // Mirrors selectSidebarDevices in device-panel.js (this script cannot
   // import modules): pinned devices when any exist, else the first ones,
-  // capped at the limit; hasMore drives the ellipsis row.
+  // capped at the limit.
   function sidebarSelection(devices) {
     var all = [];
     for (var i = 0; i < devices.length; i += 1) {
@@ -187,17 +187,7 @@
     }
     var pinned = all.filter(function (device) { return device.pinned_at != null; });
     var shown = (pinned.length ? pinned : all).slice(0, SIDEBAR_DEVICE_LIMIT);
-    return { shown: shown, hasMore: all.length > shown.length };
-  }
-
-  function moreRow() {
-    var link = document.createElement("a");
-    link.className = "device-more";
-    link.href = "/devices.html";
-    link.textContent = "…";
-    link.title = "查看全部设备";
-    link.setAttribute("aria-label", "查看全部设备");
-    return link;
+    return { shown: shown };
   }
 
   function paintCachedDevices() {
@@ -237,7 +227,6 @@
       var device = selection.shown[index];
       box.append(button(String(device.id), String(device.id), String(device.name || "未命名设备"), String(device.id) === active, device));
     }
-    if (selection.hasMore) box.append(moreRow());
   }
 
   function button(id, key, name, on, device) {

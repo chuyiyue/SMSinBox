@@ -44,7 +44,6 @@ export const SIDEBAR_DEVICE_LIMIT: number;
 
 export interface SidebarSelection<T> {
   shown: T[];
-  hasMore: boolean;
 }
 
 export function selectSidebarDevices<T extends { id?: unknown; pinned_at?: number | null }>(
