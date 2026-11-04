@@ -30,7 +30,7 @@ type WaitCtx = { waitUntil(promise: Promise<unknown>): void };
 const MCP_TOOLS = [
   {
     name: "list_messages",
-    description: "List recent SMS messages within the authorized device scope (paginated).",
+    description: "List recent SMS messages within the authorized device scope (paginated)",
     inputSchema: {
       type: "object",
       properties: {
@@ -44,7 +44,7 @@ const MCP_TOOLS = [
   },
   {
     name: "search_messages",
-    description: "Search SMS messages by keyword query, sender, and/or device.",
+    description: "Search SMS messages by keyword query, sender, and/or device",
     inputSchema: {
       type: "object",
       properties: {
@@ -58,7 +58,7 @@ const MCP_TOOLS = [
   },
   {
     name: "get_message",
-    description: "Get full details of a single SMS message by its ID.",
+    description: "Get full details of a single SMS message by its ID",
     inputSchema: {
       type: "object",
       required: ["id"],
@@ -69,7 +69,7 @@ const MCP_TOOLS = [
   },
   {
     name: "get_latest_otp",
-    description: "Get the most recent SMS verification code (OTP). Returns not found if none exists.",
+    description: "Get the most recent SMS verification code (OTP). Returns not found if none exists",
     inputSchema: {
       type: "object",
       properties: {
@@ -81,7 +81,7 @@ const MCP_TOOLS = [
   },
   {
     name: "search_otp",
-    description: "Search SMS verification codes with pagination, time range, and sender/device filters.",
+    description: "Search SMS verification codes with pagination, time range, and sender/device filters",
     inputSchema: {
       type: "object",
       properties: {
@@ -96,7 +96,7 @@ const MCP_TOOLS = [
   },
   {
     name: "list_devices",
-    description: "List all devices within the authorized scope, including their online status and platform.",
+    description: "List all devices within the authorized scope, including their online status and platform",
     inputSchema: {
       type: "object",
       properties: {},
@@ -104,7 +104,7 @@ const MCP_TOOLS = [
   },
   {
     name: "get_device_status",
-    description: "Get current status, last seen time, and latest message time of a specific device.",
+    description: "Get current status, last seen time, and latest message time of a specific device",
     inputSchema: {
       type: "object",
       required: ["id"],

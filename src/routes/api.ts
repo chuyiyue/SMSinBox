@@ -375,7 +375,7 @@ async function login(request: Request, env: Env): Promise<Response> {
   const hasEnvPassword = adminPassword.length > 0;
   if (users.length === 0) {
     if (!hasEnvPassword) {
-      return json({ ok: false, error: "尚未配置管理员密码。请设置 ADMIN_PASSWORD。" }, 503);
+      return json({ ok: false, error: "尚未配置管理员密码。请设置 ADMIN_PASSWORD" }, 503);
     }
     // First deploy: the configured variables are the credentials. The new
     // administrator row takes ADMIN_USERNAME (or the "admin" fallback), so
@@ -403,7 +403,7 @@ async function login(request: Request, env: Env): Promise<Response> {
     return json(
       {
         ok: false,
-        error: "存在多个账号，无法确定管理员。请先只保留一个 users 行，或用 ADMIN_USERNAME 指向现有管理员。",
+        error: "存在多个账号，无法确定管理员。请先只保留一个 users 行，或用 ADMIN_USERNAME 指向现有管理员",
       },
       409,
     );
@@ -803,7 +803,7 @@ async function createDevice(request: Request, env: Env): Promise<Response> {
     return json(
       {
         ok: false,
-        error: "设备认证尚未配置。请先设置 DEVICE_JWT_SECRET（至少 16 个字符），再添加设备。",
+        error: "设备认证尚未配置。请先设置 DEVICE_JWT_SECRET（至少 16 个字符），再添加设备",
       },
       503,
     );
@@ -1050,7 +1050,7 @@ async function testNotification(request: Request, env: Env, rawId: string): Prom
   const row = await findNotifyChannel(env.DB, user.id, id);
   const channel = row ? channelFromRow(row) : null;
   if (!channel) return json({ ok: false, error: "渠道不存在" }, 404);
-  const payload = { title: "SMSinBox 测试", text: "这是一条测试通知，不包含短信内容。" };
+  const payload = { title: "SMSinBox 测试", text: "这是一条测试通知，不包含短信内容" };
   const channels = [channel];
   const results = await deliverChannels(channels, payload, defaultDeps());
   await recordPushResults(env, user.id, "test", payload, channels, results, null, null);
