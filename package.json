@@ -1,6 +1,6 @@
 {
   "name": "smsinbox",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "自部署短信转发网关：Cloudflare Workers + D1 + 静态收件箱",
   "type": "module",
