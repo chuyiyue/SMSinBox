@@ -332,6 +332,10 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* Links inside message content are bare anchors and do not inherit the
+   container's wrapping: one long unbroken URL would otherwise stretch
+   the card past the viewport instead of wrapping inside it. */
+.preview a, .content a { overflow-wrap: anywhere; }
 
 /* Body cards in the detail drawer: translation first, then the original.
    Panel-style frame (border / radius / padding) sized for the drawer. */
