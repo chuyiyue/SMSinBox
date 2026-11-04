@@ -6,8 +6,8 @@
 | --- | --- |
 | `CLOUDFLARE_API_TOKEN` | Wrangler 部署和应用 D1 迁移；令牌需要 Workers 和 D1 编辑权限。 |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账号 ID：`df9099b08aefcec67ce14c18f00c7b52`。 |
-| `GITHUB_OAUTH_CLIENT_ID` | GitHub OAuth App 的 Client ID。 |
-| `GITHUB_OAUTH_CLIENT_SECRET` | GitHub OAuth App 的 Client Secret。 |
+| `GH_OAUTH_CLIENT_ID` | GitHub OAuth App 的 Client ID。 |
+| `GH_OAUTH_CLIENT_SECRET` | GitHub OAuth App 的 Client Secret。 |
 | `ADMIN_GH_USERNAME` | 管理员的 GitHub 用户名；只有这个账号能使用 GitHub 登录或首次注册成为管理员。 |
 
 GitHub OAuth App 的回调地址应为：
