@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { handleApi } from "../src/routes/api";
 import {
   channelFromRow,
+  defaultDeps,
   deliverChannels,
   parseChannelInput,
   redactConfig,
@@ -357,6 +358,25 @@ describe("feishu and dingtalk", () => {
 });
 
 describe("delivery", () => {
+  it("default deps invoke fetch through a wrapper, never as a bare global", async () => {
+    // workerd rejects deps.fetch(...) when deps.fetch IS the global
+    // fetch ("Illegal invocation"); defaultDeps must hand out a
+    // wrapper that is safe to call as another object's method.
+    const seen: string[] = [];
+    vi.stubGlobal("fetch", async (input: unknown) => {
+      seen.push(String(input));
+      return new Response("{}", { status: 200 });
+    });
+    try {
+      const deps = defaultDeps();
+      const holder: { f: typeof deps.fetch } = { f: deps.fetch };
+      await holder.f("https://example.com/hook");
+      expect(seen).toEqual(["https://example.com/hook"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("keeps going when one channel fails", async () => {
     const calls: string[] = [];
     const results = await deliverChannels(

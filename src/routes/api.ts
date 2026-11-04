@@ -107,6 +107,7 @@ import {
 } from "./totp";
 import {
   channelFromRow,
+  defaultDeps,
   deliverChannels,
   MAX_NOTIFY_CHANNELS,
   notifyStoredSms,
@@ -119,7 +120,6 @@ import { buildRawPayload } from "../parse";
 import { compileLikeQuery } from "../search";
 import { buildShortcut, shortcutFilename, type ShortcutVariant } from "../shortcut";
 import { buildTestSms } from "./sms";
-import { openSmtpSocket } from "../smtp";
 import { createInboxStream, resolveCursor, SSE_BATCH } from "../sse";
 import type { UserRecord } from "../types";
 import type { ApiTokenView } from "../types";
@@ -956,9 +956,13 @@ async function testNotification(request: Request, env: Env, rawId: string): Prom
   const [result] = await deliverChannels(
     [channel],
     { title: "SMSinBox 测试", text: "这是一条测试通知，不包含短信内容。" },
-    { fetch, openSmtp: openSmtpSocket },
+    defaultDeps(),
   );
-  if (!result?.ok) return json({ ok: false, error: result?.error || "发送失败" }, 502);
+  if (!result?.ok) {
+    // Delivery errors can carry raw runtime text; the owner only needs
+    // the outcome here — the detail is already logged by deliverChannels.
+    return json({ ok: false, error: "发送失败，请检查渠道配置后重试" }, 502);
+  }
   return json({ ok: true });
 }
 

@@ -244,8 +244,11 @@ export function scrub(message: string): string {
     .slice(0, 180);
 }
 
-function defaultDeps(): NotifyDeps {
-  return { fetch, openSmtp: openSmtpSocket };
+export function defaultDeps(): NotifyDeps {
+  // The fetch wrapper matters: workerd throws "Illegal invocation" when
+  // the global fetch is passed around bare and later invoked as another
+  // object's method (deps.fetch(...)). An arrow keeps the global this.
+  return { fetch: (input, init) => fetch(input, init), openSmtp: openSmtpSocket };
 }
 
 async function deliverOne(channel: StoredChannel, payload: NotifyText, deps: NotifyDeps): Promise<void> {

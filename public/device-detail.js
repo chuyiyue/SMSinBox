@@ -5,7 +5,9 @@
 // "smsinbox:devices-changed" so the hosting page can re-render its list.
 import {
   api,
+  CodeChip,
   flashLabel,
+  formatTime,
   isUnauthorized,
   mountSelect,
   openModal,
@@ -418,7 +420,8 @@ async function submitDeviceRename(device, input, save, errorBox) {
     return;
   }
   if (name === String(device?.name || "")) {
-    toast("设备名称未改变");
+    // Unchanged is not worth a word (Roye): saving with only the type
+    // changed, or with nothing changed, stays silent here.
     return;
   }
   save.disabled = true;

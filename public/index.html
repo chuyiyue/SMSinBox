@@ -37,11 +37,14 @@
             <button id="open-filters" class="secondary mobile-filter-toggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="筛选" title="筛选">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-filter"/></svg>
             </button>
-            <div class="filter-search">
-              <svg class="icon filter-search-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-search"/></svg>
-              <input class="topbar-search" type="search" name="q" form="filters" maxlength="80" placeholder="搜索正文、号码或验证码" aria-label="搜索短信" />
-              <span id="q-count" class="q-count" hidden></span>
-            </div>
+            <label class="filter-field filter-search-field">
+              <span class="filter-label" id="summary">共 0 条</span>
+              <div class="filter-search">
+                <svg class="icon filter-search-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-search"/></svg>
+                <input class="topbar-search" type="search" name="q" form="filters" maxlength="80" placeholder="搜索正文、号码或验证码" aria-label="搜索短信" />
+                <span id="q-count" class="q-count" hidden></span>
+              </div>
+            </label>
             <form id="filters" class="filters" role="search">
               <label class="filter-field">
                 <span class="filter-label">设备</span>
@@ -60,7 +63,6 @@
               </div>
               <button id="clear-filters" class="ghost filter-clear" type="button" hidden>清除筛选</button>
             </form>
-            <p id="summary" class="subtle filter-summary">共 0 条</p>
           </div>
           <div id="filter-chips" class="chips"></div>
           <p id="query-error" class="field-error" hidden>关键词过长，请缩短</p>
