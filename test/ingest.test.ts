@@ -10,7 +10,7 @@ import {
   replaceDevicePushToken,
   revokeDevicePush,
 } from "../src/db";
-import { ENCRYPTED_PREFIX } from "../src/crypto";
+import { decryptString, ENCRYPTED_PREFIX, resolveContentKey } from "../src/crypto";
 import { extractCode } from "../src/extract";
 import { MAX_BODY_BYTES } from "../src/http";
 import worker from "../src/index";
@@ -52,6 +52,8 @@ type MessageRow = {
   received_at: number;
   created_at: number;
   encrypted: number;
+  translated_content: string | null;
+  source_lang: string | null;
 };
 
 type UserRow = {
@@ -59,6 +61,7 @@ type UserRow = {
   username: string;
   role: string;
   disabled_at: number | null;
+  translate_enabled?: number;
 };
 
 type SessionRow = {
@@ -166,6 +169,10 @@ function createDb() {
             const row = state.messages.find((message) => message.content_hash === args[0]);
             return row ? { id: row.id, code: row.code, encrypted: row.encrypted } : null;
           }
+          if (sql.includes("translate_enabled") && sql.includes("FROM users")) {
+            const admin = state.users.find((row) => row.role === "admin" && row.disabled_at == null);
+            return admin ? { translate_enabled: admin.translate_enabled ?? 0 } : null;
+          }
           throw new Error(`unhandled first: ${sql}`);
         },
         async all() {
@@ -207,6 +214,8 @@ function createDb() {
               received_at: Number(args[9]),
               created_at: Number(args[10]),
               encrypted: Number(args[11]),
+              translated_content: args[12] == null ? null : String(args[12]),
+              source_lang: args[13] == null ? null : String(args[13]),
             });
             return { meta: { changes: 1 } };
           }
@@ -695,6 +704,127 @@ describe("code recognition on ingest", () => {
   });
 });
 
+describe("translation on ingest", () => {
+  const ENGLISH = "Your package arrived at the lobby this morning.";
+  const CHINESE = "您的包裹今天早上已到达大堂。";
+
+  beforeEach(() => {
+    vi.spyOn(Date, "now").mockReturnValue(NOW);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function aiBinding(run: (...args: unknown[]) => unknown): Env["AI"] {
+    return { run } as unknown as Env["AI"];
+  }
+
+  function enableTranslation(state: State, enabled: number): void {
+    state.users.push({
+      id: USER_ID,
+      username: "ada",
+      role: "admin",
+      disabled_at: null,
+      translate_enabled: enabled,
+    });
+  }
+
+  it("stores the sealed translation and source_lang when the switch is on", async () => {
+    const harness = createDb();
+    await seedDevice(harness.state, TOKEN);
+    enableTranslation(harness.state, 1);
+    const run = vi.fn(async (...args: unknown[]) => {
+      if (String(args[0]).includes("m2m100")) return { translated_text: CHINESE };
+      return { response: "NONE" };
+    });
+    const response = await handleSms(
+      smsRequest(TOKEN, smsBody(ENGLISH)),
+      envFor(harness.db, "", aiBinding(run)),
+      waitCtx().ctx,
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true });
+    expect(harness.state.messages[0]).toMatchObject({
+      content: ENGLISH,
+      translated_content: CHINESE,
+      source_lang: "en",
+      encrypted: 0,
+    });
+    expect(run.mock.calls.some((call) => String(call[0]).includes("m2m100"))).toBe(true);
+
+    const keyed = createDb();
+    await seedDevice(keyed.state, TOKEN);
+    enableTranslation(keyed.state, 1);
+    const key = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+    const sealed = await handleSms(
+      smsRequest(TOKEN, smsBody(ENGLISH, "10010")),
+      envFor(keyed.db, key, aiBinding(run)),
+      waitCtx().ctx,
+    );
+    expect(sealed.status).toBe(200);
+    const stored = keyed.state.messages[0];
+    expect(stored?.encrypted).toBe(1);
+    expect(stored?.source_lang).toBe("en");
+    expect(stored?.translated_content?.startsWith(ENCRYPTED_PREFIX)).toBe(true);
+    expect(stored?.translated_content).not.toBe(CHINESE);
+    const resolved = resolveContentKey(key);
+    expect(resolved.state).toBe("on");
+    if (resolved.state !== "on" || !stored?.translated_content) return;
+    expect(await decryptString(resolved.raw, stored.translated_content)).toBe(CHINESE);
+  });
+
+  it("leaves both columns null when the switch is off", async () => {
+    const harness = createDb();
+    await seedDevice(harness.state, TOKEN);
+    enableTranslation(harness.state, 0);
+    const run = vi.fn(async (...args: unknown[]) => {
+      if (String(args[0]).includes("m2m100")) return { translated_text: CHINESE };
+      return { response: "NONE" };
+    });
+    const response = await handleSms(
+      smsRequest(TOKEN, smsBody(ENGLISH)),
+      envFor(harness.db, "", aiBinding(run)),
+      waitCtx().ctx,
+    );
+    expect(response.status).toBe(200);
+    expect(harness.state.messages).toHaveLength(1);
+    expect(harness.state.messages[0]).toMatchObject({
+      translated_content: null,
+      source_lang: null,
+    });
+    expect(run.mock.calls.some((call) => String(call[0]).includes("m2m100"))).toBe(false);
+  });
+
+  it("still stores the message when translation fails", async () => {
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((line) => {
+      errors.push(String(line));
+    });
+    const harness = createDb();
+    await seedDevice(harness.state, TOKEN);
+    enableTranslation(harness.state, 1);
+    const run = vi.fn(async () => {
+      throw new Error("model down");
+    });
+    const response = await handleSms(
+      smsRequest(TOKEN, smsBody(ENGLISH)),
+      envFor(harness.db, "", aiBinding(run)),
+      waitCtx().ctx,
+    );
+    expect(response.status).toBe(200);
+    expect(harness.state.messages).toHaveLength(1);
+    expect(harness.state.messages[0]).toMatchObject({
+      content: ENGLISH,
+      translated_content: null,
+      source_lang: null,
+    });
+    expect(errors.join("")).toContain("sms_translate_failed");
+    expect(errors.join("")).not.toContain(ENGLISH);
+    expect(errors.join("")).not.toContain("lobby");
+  });
+});
+
 describe("sms route", () => {
   beforeEach(() => {
     vi.spyOn(Date, "now").mockReturnValue(NOW);
@@ -811,6 +941,8 @@ describe("device push rows", () => {
       received_at: NOW,
       created_at: NOW,
       encrypted: 0,
+      translated_content: null,
+      source_lang: null,
     });
 
     expect(await deleteDevice(harness.db, USER_ID, DEVICE_ID)).toBe(true);

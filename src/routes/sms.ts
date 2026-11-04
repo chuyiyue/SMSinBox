@@ -15,11 +15,13 @@ import {
   insertMessage,
   isUniqueViolation,
   RATE_LIMIT_PER_MINUTE,
+  readAdminTranslateEnabled,
   touchDevice,
 } from "../db";
 import { recognizeCode } from "../code-recognition";
 import { json, MAX_BODY_BYTES, readLimitedBytes } from "../http";
-import { logInfo } from "../log";
+import { errorText, logError, logInfo } from "../log";
+import { translateSmsContent } from "../translate";
 import { notifyStoredSms, scheduleNotify } from "../notify";
 import { buildRawPayload, parseSmsPayload } from "../parse";
 import type { DeviceRecord } from "../types";
@@ -153,10 +155,12 @@ async function storeSms(
 
   const recognized = await recognizeCode(env, parsed.sms.content);
   const code = recognized.code;
+  const translation = await loadTranslation(env, parsed.sms.content);
   const sealed = await sealMessage(contentKey, {
     content: parsed.sms.content,
     code,
     rawPayload: buildRawPayload(bodyText, parsed.sms),
+    translatedContent: translation?.translated ?? null,
   });
   if ("error" in sealed) return json({ ok: false, error: "内容加密密钥无效" }, 500);
   const id = crypto.randomUUID();
@@ -174,6 +178,8 @@ async function storeSms(
       receivedAt: parsed.sms.receivedAt,
       createdAt: now,
       encrypted: sealed.encrypted,
+      translatedContent: sealed.translatedContent,
+      sourceLang: translation?.sourceLang ?? null,
     });
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
@@ -189,6 +195,8 @@ async function storeSms(
     message_id: id,
     has_code: code !== null,
     code_source: recognized.source,
+    translated: translation !== null,
+    source_lang: translation?.sourceLang ?? null,
   });
   scheduleNotify(ctx, () =>
     notifyStoredSms(env, device.user_id, {
@@ -200,6 +208,22 @@ async function storeSms(
     }),
   );
   return json({ ok: true, id, code });
+}
+
+// Preference lookup and the model call both fail closed. A throw, a timeout,
+// or a rejected translation leaves the two columns null and still stores the SMS.
+async function loadTranslation(
+  env: Env,
+  content: string,
+): Promise<{ translated: string; sourceLang: string } | null> {
+  try {
+    const enabled = await readAdminTranslateEnabled(env.DB);
+    if (!enabled) return null;
+    return await translateSmsContent(env, content);
+  } catch (error) {
+    logError({ message: "sms_translate_failed", error: errorText(error) });
+    return null;
+  }
 }
 
 async function duplicateResponse(

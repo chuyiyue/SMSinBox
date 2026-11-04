@@ -32,6 +32,7 @@ const EXPECTED_MIGRATIONS = [
   "0014_device_pins_groups.sql",
   "0015_device_group_order.sql",
   "0016_notify_channel_note.sql",
+  "0017_message_translation.sql",
 ];
 const TABLES = [
   "api_tokens",
@@ -284,7 +285,7 @@ describe("release migrations", () => {
 
     // The worker under test reads the later additive columns, so finish the
     // schema before exercising login on the legacy rows.
-    await applyFiles(["0006_single_user.sql", "0007_totp.sql", "0008_device_identity.sql", "0009_api_tokens.sql", "0010_message_code_source.sql", "0011_session_client_info.sql", "0012_device_push_secret.sql", "0013_api_token_secret.sql", "0014_device_pins_groups.sql", "0015_device_group_order.sql", "0016_notify_channel_note.sql"]);
+    await applyFiles(["0006_single_user.sql", "0007_totp.sql", "0008_device_identity.sql", "0009_api_tokens.sql", "0010_message_code_source.sql", "0011_session_client_info.sql", "0012_device_push_secret.sql", "0013_api_token_secret.sql", "0014_device_pins_groups.sql", "0015_device_group_order.sql", "0016_notify_channel_note.sql", "0017_message_translation.sql"]);
     const migrated = await env.DB.prepare("PRAGMA table_info(devices)").all<{ name: string; dflt_value: unknown }>();
     expect(migrated.results.map((column) => column.name)).toEqual([
       "id",
@@ -1733,6 +1734,73 @@ describe("release storage edges", () => {
     expect(await countOf("SELECT COUNT(*) AS total FROM rate_limits WHERE token_hash = ?", ["old-rate-hash"])).toBe(0);
     expect(await countOf("SELECT COUNT(*) AS total FROM devices WHERE id = ?", [deviceId])).toBe(1);
     expect((await call("/api/v1/auth/me", {}, cookie)).status).toBe(200);
+  }, 20_000);
+
+  it("stores translation columns and toggles the preference without an AI binding", async () => {
+    await resetSchema();
+    const sql = readFileSync("migrations/0017_message_translation.sql", "utf8");
+    expect(sql).toMatch(/ADD COLUMN translated_content TEXT/);
+    expect(sql).toMatch(/ADD COLUMN source_lang TEXT/);
+    expect(sql).toMatch(/ADD COLUMN translate_enabled INTEGER NOT NULL DEFAULT 0/);
+
+    const messages = await env.DB.prepare("PRAGMA table_info(messages)").all<{ name: string }>();
+    expect(messages.results.map((column) => column.name)).toEqual(
+      expect.arrayContaining(["translated_content", "source_lang"]),
+    );
+    const users = await env.DB.prepare("PRAGMA table_info(users)").all<{ name: string; dflt_value: string | null }>();
+    const flag = users.results.find((column) => column.name === "translate_enabled");
+    expect(flag?.dflt_value).toBe("0");
+
+    const login = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
+    const cookie = sessionCookie(login);
+    const me = await expectStatus(await call("/api/v1/me", {}, cookie), 200);
+    expect(me.user).toMatchObject({ username: ADMIN_USERNAME, translate_enabled: false });
+    const authMe = await expectStatus(await call("/api/v1/auth/me", {}, cookie), 200);
+    expect(authMe.user).toMatchObject({ translate_enabled: false });
+
+    const preference = (body: unknown) =>
+      call(
+        "/api/v1/me/preferences",
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        cookie,
+      );
+    expect((await call("/api/v1/me/preferences", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ translate_enabled: true }) })).status).toBe(401);
+    expect((await preference({ translate_enabled: "true" })).status).toBe(400);
+    expect((await preference({ translate_enabled: 1 })).status).toBe(400);
+
+    const enabled = await expectStatus(await preference({ translate_enabled: true }), 200);
+    expect(enabled).toEqual({ ok: true, translate_enabled: true });
+    const after = await expectStatus(await call("/api/v1/me", {}, cookie), 200);
+    expect(after.user).toMatchObject({ translate_enabled: true });
+
+    const created = await expectStatus(await call("/api/v1/devices", jsonInit({ name: "翻译测试" }), cookie), 200);
+    const token = String(created.token);
+    const stored = await expectStatus(
+      await call("/api/v1/sms", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          from: "10010",
+          content: "Your package arrived at the lobby this morning.",
+          device: "Android",
+        }),
+      }),
+      200,
+    );
+    expect(stored.ok).toBe(true);
+    const row = await env.DB.prepare(
+      "SELECT translated_content, source_lang FROM messages WHERE id = ?",
+    )
+      .bind(String(stored.id))
+      .first<{ translated_content: string | null; source_lang: string | null }>();
+    expect(row).toEqual({ translated_content: null, source_lang: null });
+    const inbox = await expectStatus(await call("/api/v1/messages", {}, cookie), 200);
+    const listed = (inbox.messages as Array<Record<string, unknown>>).find((message) => message.id === stored.id);
+    expect(listed).toMatchObject({ translated_content: null, source_lang: null });
   }, 20_000);
 });
 

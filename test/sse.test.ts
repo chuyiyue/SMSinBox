@@ -30,6 +30,8 @@ function sample(overrides: Partial<MessageView> = {}): MessageView {
     received_at: 2_000,
     received_at_source: "device",
     created_at: 2_000,
+    translated_content: null,
+    source_lang: null,
     ...overrides,
   };
 }

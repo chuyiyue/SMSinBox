@@ -28,7 +28,7 @@ describe("optional AES-GCM storage", () => {
     expect(resolveContentKey(undefined)).toEqual({ state: "off" });
     expect(resolveContentKey("  ")).toEqual({ state: "off" });
     const open = await sealMessage({ state: "off" }, PLAIN);
-    expect(open).toEqual({ ...PLAIN, encrypted: 0 });
+    expect(open).toEqual({ ...PLAIN, translatedContent: null, encrypted: 0 });
     expect(resolveContentKey("aaaa").state).toBe("invalid");
     expect(await sealMessage({ state: "invalid" }, PLAIN)).toEqual({ error: "invalid_key" });
   });
@@ -49,6 +49,11 @@ describe("optional AES-GCM storage", () => {
     expect(await decryptString(bytes, first.content)).toBe(PLAIN.content);
     expect(await revealCode(key, first.code, true)).toBe("123456");
     expect(await decryptString(bytes, first.rawPayload)).toBe(PLAIN.rawPayload);
+    const withTranslation = await sealMessage(key, { ...PLAIN, translatedContent: "验证码是 123456" });
+    if ("error" in withTranslation || withTranslation.translatedContent === null) throw new Error("seal failed");
+    expect(withTranslation.translatedContent.startsWith(ENCRYPTED_PREFIX)).toBe(true);
+    expect(withTranslation.translatedContent).not.toBe("验证码是 123456");
+    expect(await decryptString(bytes, withTranslation.translatedContent)).toBe("验证码是 123456");
 
     let binary = "";
     for (const byte of bytes) binary += String.fromCharCode(byte);
