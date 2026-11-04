@@ -421,8 +421,8 @@ function renderFields() {
   if (selectedKind === "notifyx") {
     fields.append(
       secretField("API 密钥", "api_key"),
-      field("渠道标识（可选）", "channel", "ios", "off"),
-      help("在哪里获取", "登录 NotifyX 控制台，先建好通道配置，再到「API 密钥管理」生成密钥。一个密钥绑定多个通道时，发送必须带渠道标识；只绑一个通道可留空", "https://www.notifyx.cn/help"),
+      field("群组 ID（可选）", "team", "1234567890", "off"),
+      help("在哪里获取", "登录 NotifyX 控制台，先建好通道配置，再到「API 密钥管理」生成密钥。密钥关联一个通道；要发到群组时填群组 ID，不用群组可留空", "https://www.notifyx.cn/help"),
     );
     return;
   }
@@ -830,7 +830,7 @@ function describe(channel) {
   if (channel.kind === "telegram") return `chat ${config.chat_id || ""} · token ${config.bot_token || ""}`;
   if (channel.kind === "wecom") return `Webhook · ${hostOf(config.webhook_url)}`;
   if (channel.kind === "webhook") return `Webhook · ${hostOf(config.url)}`;
-  if (channel.kind === "notifyx") return config.channel ? `密钥 ${config.api_key || ""} · 渠道 ${config.channel}` : `密钥 ${config.api_key || ""}`;
+  if (channel.kind === "notifyx") return config.team ? `密钥 ${config.api_key || ""} · 群组 ${config.team}` : `密钥 ${config.api_key || ""}`;
   if (channel.kind === "bark") return `${hostOf(config.server)} · ${maskTail(config.device_key)}`;
   if (channel.kind === "feishu" || channel.kind === "dingtalk") {
     return config.secret ? `Webhook · ${hostOf(config.webhook_url)} · 已签名` : `Webhook · ${hostOf(config.webhook_url)}`;
