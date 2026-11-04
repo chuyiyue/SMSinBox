@@ -992,7 +992,7 @@ describe("notification API", () => {
       null,
       null,
     ]);
-    expect(stored[0]?.[8]).toBe("这是一条测试通知，不包含短信内容。");
+    expect(stored[0]?.[8]).toBe("这是一条测试通知，不包含短信内容");
     expect(stored[0]?.[9]).toBe(1);
     expect(stored[0]?.[10]).toBeNull();
   });
