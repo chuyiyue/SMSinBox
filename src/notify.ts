@@ -39,6 +39,8 @@ export interface WebhookConfig {
 
 export interface NotifyxConfig {
   api_key: string;
+  /** Required by NotifyX when one key is bound to several downstream channels. */
+  channel?: string;
 }
 
 export interface FeishuConfig {
@@ -192,7 +194,9 @@ export function redactConfig(kind: NotifyKind, config: ChannelConfig): Record<st
   }
   if (kind === "notifyx") {
     const notifyx = config as NotifyxConfig;
-    return { api_key: mask(notifyx.api_key) };
+    return notifyx.channel
+      ? { api_key: mask(notifyx.api_key), channel: notifyx.channel }
+      : { api_key: mask(notifyx.api_key) };
   }
   const email = config as EmailConfig;
   const redacted: Record<string, string | number> = { to: email.to, from: email.from };
@@ -448,7 +452,8 @@ async function deliverOne(channel: StoredChannel, payload: NotifyText, deps: Not
     // The API key travels in the URL path, so errors must never quote
     // the URL — only NotifyX's own error text or the bare status.
     const config = channel.config as NotifyxConfig;
-    const response = await deps.fetch(`https://www.notifyx.cn/api/v1/send/${encodeURIComponent(config.api_key)}`, {
+    const channelQuery = config.channel ? `?channel=${encodeURIComponent(config.channel)}` : "";
+    const response = await deps.fetch(`https://www.notifyx.cn/api/v1/send/${encodeURIComponent(config.api_key)}${channelQuery}`, {
       method: "POST",
       redirect: "manual",
       headers: { "content-type": "application/json" },
@@ -633,7 +638,12 @@ function parseWebhook(record: Record<string, unknown>): { ok: true; kind: "webho
 function parseNotifyx(record: Record<string, unknown>): { ok: true; kind: "notifyx"; config: NotifyxConfig } | { ok: false; error: string } {
   const key = stringField(record, "api_key");
   if (!key || key.length > 256 || /\s/.test(key)) return { ok: false, error: "NotifyX API 密钥无效" };
-  return { ok: true, kind: "notifyx", config: { api_key: key } };
+  const channel = stringField(record, "channel");
+  if (channel && (channel.length > 64 || !/^[A-Za-z0-9_-]+$/.test(channel))) {
+    return { ok: false, error: "NotifyX 渠道标识只能包含字母、数字、下划线和连字符" };
+  }
+  const config: NotifyxConfig = channel ? { api_key: key, channel } : { api_key: key };
+  return { ok: true, kind: "notifyx", config };
 }
 
 function parseFeishu(record: Record<string, unknown>): { ok: true; kind: "feishu"; config: FeishuConfig } | { ok: false; error: string } {
@@ -747,6 +757,32 @@ function isPublicIpv6(host: string): boolean {
   if (/^fe[89ab]/.test(normalized)) return false;
   if (normalized.startsWith("ff")) return false;
   return true;
+}
+
+/**
+ * Edit-merge: the submitted object defines the editable field set for the
+ * channel's kind. A non-empty submitted value wins; an empty string means
+ * "keep the stored value" (how secret fields stay unchanged when the edit
+ * form leaves them blank). Keys absent from the submission are dropped, so
+ * switching an email channel's mode discards the other modes' fields.
+ */
+export function mergeChannelConfig(
+  stored: StoredChannel,
+  submitted: Record<string, unknown>,
+): { ok: true; config: ChannelConfig } | { ok: false; error: string } {
+  const storedRecord = stored.config as unknown as Record<string, unknown>;
+  const candidate: Record<string, unknown> = { kind: stored.kind };
+  for (const [key, value] of Object.entries(submitted)) {
+    if (key === "kind") continue;
+    if (typeof value === "string" && value.trim() === "") {
+      if (key in storedRecord) candidate[key] = storedRecord[key];
+      continue;
+    }
+    candidate[key] = value;
+  }
+  const parsed = parseChannelInput(candidate);
+  if (!parsed.ok) return parsed;
+  return { ok: true, config: parsed.config };
 }
 
 function stringField(record: Record<string, unknown>, key: string): string {

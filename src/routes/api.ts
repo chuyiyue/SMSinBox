@@ -39,6 +39,7 @@ import {
   insertMessage,
   insertNotifyChannel,
   listPushLogs,
+  updateNotifyChannelConfig,
   updateNotifyChannelNote,
   insertUser,
   isUniqueViolation,
@@ -110,6 +111,7 @@ import {
 } from "./totp";
 import {
   channelFromRow,
+  mergeChannelConfig,
   defaultDeps,
   deliverChannels,
   MAX_NOTIFY_CHANNELS,
@@ -259,7 +261,7 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
   if (notifyItem?.[1]) {
     if (method === "DELETE") return removeNotification(request, env, notifyItem[1]);
     if (method === "POST") return setNotificationEnabled(request, env, notifyItem[1]);
-    if (method === "PATCH") return updateNotificationNote(request, env, notifyItem[1]);
+    if (method === "PATCH") return updateNotification(request, env, notifyItem[1]);
     return methodNotAllowed("POST, PATCH, DELETE");
   }
   if (path === "/api/v1/ios/shortcut") {
@@ -996,7 +998,13 @@ function readChannelNote(value: unknown): string | null {
   return note;
 }
 
-async function updateNotificationNote(request: Request, env: Env, rawId: string): Promise<Response> {
+/**
+ * PATCH a channel: { note } updates the note (original behaviour);
+ * { config } replaces the editable config — empty-string fields keep their
+ * stored values so secrets survive an edit round-trip (see mergeChannelConfig).
+ * Both may arrive together.
+ */
+async function updateNotification(request: Request, env: Env, rawId: string): Promise<Response> {
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const id = decodePart(rawId);
@@ -1006,12 +1014,37 @@ async function updateNotificationNote(request: Request, env: Env, rawId: string)
   if (!body.value || typeof body.value !== "object" || Array.isArray(body.value)) {
     return json({ ok: false, error: "请求体无效" }, 400);
   }
-  const note = readChannelNote((body.value as Record<string, unknown>).note);
-  if (note === null) return json({ ok: false, error: "备注需要 80 个字符以内" }, 400);
-  const updated = await updateNotifyChannelNote(env.DB, user.id, id, note);
-  if (!updated) return json({ ok: false, error: "渠道不存在" }, 404);
-  logInfo({ message: "notify_channel_note_set", channel_id: id, user_id: user.id });
-  return json({ ok: true, id, note });
+  const record = body.value as Record<string, unknown>;
+  const hasConfig = "config" in record;
+  const hasNote = "note" in record;
+  if (!hasConfig && !hasNote) return json({ ok: false, error: "请求体无效" }, 400);
+  let note: string | null = null;
+  if (hasNote) {
+    note = readChannelNote(record.note);
+    if (note === null) return json({ ok: false, error: "备注需要 80 个字符以内" }, 400);
+  }
+  let channelDto: ReturnType<typeof presentChannel> | null = null;
+  if (hasConfig) {
+    if (!record.config || typeof record.config !== "object" || Array.isArray(record.config)) {
+      return json({ ok: false, error: "请求体无效" }, 400);
+    }
+    const row = await findNotifyChannel(env.DB, user.id, id);
+    if (!row) return json({ ok: false, error: "渠道不存在" }, 404);
+    const stored = channelFromRow(row);
+    if (!stored) return json({ ok: false, error: "渠道不存在" }, 404);
+    const merged = mergeChannelConfig(stored, record.config as Record<string, unknown>);
+    if (!merged.ok) return json({ ok: false, error: merged.error }, 400);
+    const updated = await updateNotifyChannelConfig(env.DB, user.id, id, JSON.stringify(merged.config));
+    if (!updated) return json({ ok: false, error: "渠道不存在" }, 404);
+    logInfo({ message: "notify_channel_config_set", channel_id: id, user_id: user.id });
+    channelDto = presentChannel({ ...stored, config: merged.config });
+  }
+  if (hasNote) {
+    const updated = await updateNotifyChannelNote(env.DB, user.id, id, note as string);
+    if (!updated) return json({ ok: false, error: "渠道不存在" }, 404);
+    logInfo({ message: "notify_channel_note_set", channel_id: id, user_id: user.id });
+  }
+  return json({ ok: true, id, ...(hasNote ? { note } : {}), ...(channelDto ? { channel: channelDto } : {}) });
 }
 
 async function removeNotification(request: Request, env: Env, rawId: string): Promise<Response> {
