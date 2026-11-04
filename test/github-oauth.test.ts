@@ -160,9 +160,9 @@ function envFor(db: D1Database, extra: Record<string, string> = {}): Env {
     CONTENT_KEY: "",
     ADMIN_USERNAME: "root",
     ADMIN_PASSWORD: "secret",
-    GITHUB_CLIENT_ID: "client-id",
-    GITHUB_CLIENT_SECRET: "client-secret",
-    ADMIN_GITHUB_USERNAME: "octocat",
+    GH_CLIENT_ID: "client-id",
+    GH_CLIENT_SECRET: "client-secret",
+    ADMIN_GH_USERNAME: "octocat",
     ...extra,
   } as unknown as Env;
 }
@@ -262,9 +262,9 @@ describe("github oauth and avatar http", () => {
     expect(await enabled.json()).toEqual({ ok: true, github_enabled: true });
 
     const disabledCases: Array<Record<string, string>> = [
-      { GITHUB_CLIENT_ID: "" },
-      { GITHUB_CLIENT_SECRET: "  " },
-      { ADMIN_GITHUB_USERNAME: "" },
+      { GH_CLIENT_ID: "" },
+      { GH_CLIENT_SECRET: "  " },
+      { ADMIN_GH_USERNAME: "" },
     ];
     for (const extra of disabledCases) {
       const disabled = await handleApi(new Request(`${ORIGIN}/api/v1/auth/config`), envFor(makeDb().db, extra));
@@ -274,9 +274,9 @@ describe("github oauth and avatar http", () => {
 
   it("hides the start endpoint when GitHub is not configured", async () => {
     const missing: Array<Record<string, string>> = [
-      { GITHUB_CLIENT_ID: "" },
-      { GITHUB_CLIENT_SECRET: "" },
-      { ADMIN_GITHUB_USERNAME: "" },
+      { GH_CLIENT_ID: "" },
+      { GH_CLIENT_SECRET: "" },
+      { ADMIN_GH_USERNAME: "" },
     ];
     for (const extra of missing) {
       const response = await handleApi(
@@ -369,7 +369,7 @@ describe("github oauth and avatar http", () => {
       new Request(`${ORIGIN}/api/v1/auth/github/callback?code=abc&state=state-token`, {
         headers: { cookie: "gh_oauth_state=state-token; gh_oauth_intent=login" },
       }),
-      envFor(makeDb({ users: [], sessions: [] }).db, { GITHUB_CLIENT_SECRET: "" }),
+      envFor(makeDb({ users: [], sessions: [] }).db, { GH_CLIENT_SECRET: "" }),
     );
     expect(disabled.status).toBe(302);
     expect(disabled.headers.get("location")).toBe("/login?error=github_exchange");
