@@ -142,7 +142,7 @@ beforeAll(async () => {
   await applyMigrations(db);
 
   // Bootstrap Admin
-  const loginRes = await call("/api/v1/auth/login", jsonInit({ password: ADMIN_PASSWORD }));
+  const loginRes = await call("/api/v1/auth/login", jsonInit({ username: "admin", password: ADMIN_PASSWORD }));
   expect(loginRes.status).toBe(200);
   adminCookie = sessionCookie(loginRes);
   const meRes = await expectStatus(await call("/api/v1/auth/me", {}, adminCookie), 200);

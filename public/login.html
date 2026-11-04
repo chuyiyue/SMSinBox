@@ -23,6 +23,19 @@
            密码表单下方（用带「或」字的分隔线隔开），仅当服务端配置了
            GitHub OAuth 时由 login.js 显示，否则整块保持隐藏。 -->
       <form id="login-form" class="auth-form">
+        <label>用户名
+          <input
+            id="username"
+            name="username"
+            type="text"
+            autocomplete="username"
+            autocapitalize="none"
+            spellcheck="false"
+            maxlength="128"
+            required
+            autofocus
+          />
+        </label>
         <label>密码
           <span class="password-field">
             <input
@@ -32,24 +45,12 @@
               autocomplete="current-password"
               maxlength="256"
               required
-              autofocus
             />
             <button id="password-toggle" class="icon-btn" type="button" aria-label="显示密码" aria-pressed="false">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-eye"/></svg>
             </button>
           </span>
         </label>
-        <!-- 密码管理器兼容：对用户不可见，读屏跳过；服务端忽略这个值。 -->
-        <input
-          id="username"
-          name="username"
-          type="text"
-          autocomplete="username"
-          class="auth-username-proxy"
-          tabindex="-1"
-          aria-hidden="true"
-          value="admin"
-        />
         <button id="login-submit" type="submit">登录</button>
       </form>
       <!-- 验证步骤：与密码共用同一张卡片，不新开页面。 -->

@@ -3,6 +3,7 @@ import { takeFlash } from "./ui.js";
 
 const form = document.querySelector("#login-form");
 const error = document.querySelector("#login-error");
+const username = document.querySelector("#username");
 const password = document.querySelector("#password");
 const toggle = document.querySelector("#password-toggle");
 const submit = document.querySelector("#login-submit");
@@ -45,12 +46,14 @@ toggle.addEventListener("click", () => {
   toggle.setAttribute("aria-label", show ? "隐藏密码" : "显示密码");
 });
 
-password.addEventListener("input", () => {
-  // Typing again clears a plain error banner, but not a running rate limit.
-  if (error.dataset.tone === "locked") return;
-  delete error.dataset.tone;
-  error.hidden = true;
-});
+for (const field of [username, password]) {
+  field.addEventListener("input", () => {
+    // Typing again clears a plain error banner, but not a running rate limit.
+    if (error.dataset.tone === "locked") return;
+    delete error.dataset.tone;
+    error.hidden = true;
+  });
+}
 
 try {
   const existing = await api("/api/v1/auth/me", { allowUnauthorized: true });
@@ -77,6 +80,12 @@ form.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (Date.now() < lockedUntil) return;
   hideError();
+  const usernameValue = username.value.trim();
+  if (!usernameValue) {
+    showError("请输入用户名");
+    username.focus();
+    return;
+  }
   const passwordValue = password.value;
   if (!passwordValue) {
     showError("请输入密码");
@@ -88,7 +97,7 @@ form.addEventListener("submit", async (event) => {
     const result = await api("/api/v1/auth/login", {
       method: "POST",
       allowUnauthorized: true,
-      body: JSON.stringify({ password: passwordValue }),
+      body: JSON.stringify({ username: usernameValue, password: passwordValue }),
     });
     if (result.response.status === 429) {
       startCountdown(retryAfterSeconds(result.response.headers.get("retry-after")));
@@ -232,6 +241,7 @@ function showTotpError(message) {
 function setBusy(busy) {
   const locked = Date.now() < lockedUntil;
   submit.disabled = busy || locked;
+  username.disabled = busy;
   password.disabled = busy;
   if (busy) {
     submit.replaceChildren();

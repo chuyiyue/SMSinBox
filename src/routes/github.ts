@@ -215,6 +215,11 @@ async function createGithubAdmin(env: Env, login: string): Promise<UserRecord | 
       role: "admin",
       createdAt,
     });
+    // The account was born from this GitHub login, so the display name
+    // starts as the GitHub login. This runs only at creation; later binds
+    // and sign-ins leave the profile username alone (see syncGithubProfile).
+    const profile = await getProfileUsername(env.DB);
+    if (!profile && GITHUB_LOGIN_RE.test(login)) await setProfileUsername(env.DB, login);
     return user;
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
@@ -227,8 +232,9 @@ async function syncGithubProfile(db: D1Database, identity: GithubIdentity): Prom
   await writeSchemaMeta(db, GITHUB_ID_KEY, identity.id);
   await writeSchemaMeta(db, GITHUB_LOGIN_KEY, identity.login);
   await writeSchemaMeta(db, GITHUB_AVATAR_URL_KEY, identity.avatarUrl);
-  const profile = await getProfileUsername(db);
-  if (!profile && GITHUB_LOGIN_RE.test(identity.login)) await setProfileUsername(db, identity.login);
+  // Binding or signing in never touches the profile username: the display
+  // name is independent of GitHub. The single exception is account
+  // creation, which seeds it in createGithubAdmin above.
 }
 
 async function readAvatarBody(
