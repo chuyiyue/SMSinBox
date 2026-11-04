@@ -1718,7 +1718,7 @@ describe("release storage edges", () => {
     ]);
 
     const ctx = executionContext();
-    await worker.scheduled({ scheduledTime: now, cron: "15 3 * * *" } as ScheduledController, env, ctx);
+    await worker.scheduled({ scheduledTime: now, cron: "0 0 * * *" } as ScheduledController, env, ctx);
     await ctx.drain();
 
     expect(await countOf("SELECT COUNT(*) AS total FROM messages WHERE id = ?", [String(old.id)])).toBe(0);

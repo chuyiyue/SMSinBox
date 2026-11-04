@@ -29,7 +29,7 @@
 - 其余 `/api/*` 进入 `handleApi`。
 - 其他路径交给静态资源 `env.ASSETS`（`public/`，`run_worker_first: ["/api/*"]`）。
 
-Cron `15 3 * * *` 调用 `purgeExpired`：按 `RETENTION_DAYS`（默认 90）删短信，删过期会话，删两天前的 `rate_limits`。
+Cron `0 0 * * *` 调用 `purgeExpired`：按 `RETENTION_DAYS`（默认 90）删短信，删过期会话，删两天前的 `rate_limits`。
 
 `Env`（`worker-configuration.d.ts`）：`DB`、`ASSETS`、`RETENTION_DAYS`、`CONTENT_KEY`、`ADMIN_USERNAME`、`ADMIN_PASSWORD`。没有 KV、队列或 Durable Object。Wrangler 观测打开了 `redact_query_string`，路径本身不会被平台配置打码。
 

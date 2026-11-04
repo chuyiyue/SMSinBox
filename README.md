@@ -41,7 +41,7 @@
 | `ADMIN_PASSWORD` | Worker 机密 | 是 | 无 | 管理员密码，建议足够长且随机。 |
 | `DEVICE_JWT_SECRET` | Worker 机密 | 建议 | 无 | 设备 JWT 的签名密钥，32 字节 base64。不设时从 `CONTENT_KEY`、再从 `ADMIN_PASSWORD` 派生；更换它会让已签发的设备 JWT 立即失效（旧设备仍可用随机 Bearer 上报）。 |
 | `CONTENT_KEY` | Worker 机密 | 否 | 空（不加密） | 32 字节 base64 的 AES-GCM 密钥。设置后短信正文、验证码、原始请求体、推送与 Token 密钥、TOTP 密钥都加密存储。**更换或清空后，之前加密的内容无法解密**，请先备份再改。 |
-| `RETENTION_DAYS` | 普通变量（`wrangler.jsonc` 的 `vars`） | 否 | `90` | 短信保留天数，每天 03:15 UTC 的定时任务删除更早的短信（按写入时间）。 |
+| `RETENTION_DAYS` | 普通变量（`wrangler.jsonc` 的 `vars`） | 否 | `90` | 短信保留天数，每天 00:00 UTC 的定时任务删除更早的短信（按写入时间）。 |
 | `GH_CLIENT_ID` | Worker 机密 | 否 | 无 | GitHub OAuth App 的 Client ID。与下一项同时设置才启用 GitHub 登录。 |
 | `GH_CLIENT_SECRET` | Worker 机密 | 否 | 无 | GitHub OAuth App 的 Client Secret。 |
 
@@ -174,7 +174,7 @@ npx wrangler deploy
 
 - iOS 只会转发匹配自动化条件的新短信；手机需开机联网，重启后要先解锁一次；这条路径不支持彩信（MMS），且必须关闭「运行前询问」。
 - 不设置 `CONTENT_KEY` 时，短信正文以明文存在你自己的 D1 里。设置之后，正文、验证码和原始请求体用 AES-GCM 加密，每条短信使用独立的 12 字节 IV；开启加密后关键词搜索只解密最近 500 条匹配，更早的短信需要缩小设备或号码筛选（接口返回 `search_truncated: true` 时即是这种情形）。
-- 每天 03:15 UTC 删除超过 `RETENTION_DAYS`（默认 90）天的短信，按写入时间计算。
+- 每天 00:00 UTC 删除超过 `RETENTION_DAYS`（默认 90）天的短信，按写入时间计算。
 - 去重键是设备、发件人、压成单行空格后的正文，以及接收时间所在的那一分钟；一分钟后再收到同样内容，会记成新短信。
 - 管理员口令使用 PBKDF2-SHA256（10000 次迭代，受免费套餐 CPU 限制）；登录失败有 15 分钟窗口上限（用户名 8 次、来源 IP 30 次）。
 - Workers / D1 免费套餐额度决定实际吞吐：每条新短信大约写入 3 行，收件箱页面一直开着时 SSE 与补拉会持续产生读取，请按自己的用量评估。
