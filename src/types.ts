@@ -26,6 +26,8 @@ export interface MessageRecord {
   received_at: number;
   created_at: number;
   encrypted: number;
+  translated_content: string | null;
+  source_lang: string | null;
 }
 
 export interface MessageView {
@@ -42,6 +44,8 @@ export interface MessageView {
   received_at: number;
   received_at_source: "device" | "server" | "unknown";
   created_at: number;
+  translated_content: string | null;
+  source_lang: string | null;
 }
 
 export type PushState = "none" | "active" | "revoked";
@@ -108,6 +112,7 @@ export interface SessionUser {
   disabled_at: number | null;
   expires_at: number;
   totp_enabled_at?: number | null;
+  translate_enabled?: number | null;
 }
 
 export interface TotpUserRecord {

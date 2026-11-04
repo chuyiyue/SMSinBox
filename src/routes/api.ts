@@ -73,6 +73,7 @@ import {
   rotateApiToken,
   setNotifyChannelEnabled,
   setProfileUsername,
+  setUserTranslateEnabled,
   touchDevice,
   updateDeviceName,
   updateDevicePlatform,
@@ -146,9 +147,13 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
     if (method !== "POST") return methodNotAllowed("POST");
     return logout(request, env);
   }
-  if (path === "/api/v1/auth/me") {
+  if (path === "/api/v1/auth/me" || path === "/api/v1/me") {
     if (method !== "GET") return methodNotAllowed("GET");
     return me(request, env);
+  }
+  if (path === "/api/v1/me/preferences") {
+    if (method !== "PATCH") return methodNotAllowed("PATCH");
+    return updatePreferences(request, env);
   }
   if (path === "/api/v1/auth/profile") {
     if (method !== "POST") return methodNotAllowed("POST");
@@ -501,7 +506,34 @@ async function me(request: Request, env: Env): Promise<Response> {
   if (user instanceof Response) return user;
   const profileUsername = await getProfileUsername(env.DB);
   const extras = await authMeExtras(env.DB);
-  return json({ ok: true, user: { ...publicUser(user), profile_username: profileUsername, ...extras } });
+  return json({
+    ok: true,
+    user: {
+      ...publicUser(user),
+      profile_username: profileUsername,
+      ...extras,
+      translate_enabled: user.translate_enabled === 1,
+    },
+  });
+}
+
+async function updatePreferences(request: Request, env: Env): Promise<Response> {
+  const user = await requireSensitiveUser(request, env);
+  if (user instanceof Response) return user;
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const parsed = readTranslatePreference(body.value);
+  if ("error" in parsed) return json({ ok: false, error: parsed.error }, 400);
+  await setUserTranslateEnabled(env.DB, user.id, parsed.translateEnabled);
+  logInfo({ message: "translate_pref_updated", user_id: user.id, translate_enabled: parsed.translateEnabled });
+  return json({ ok: true, translate_enabled: parsed.translateEnabled });
+}
+
+function readTranslatePreference(value: unknown): { translateEnabled: boolean } | { error: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { error: "参数无效" };
+  const flag = (value as Record<string, unknown>).translate_enabled;
+  if (typeof flag !== "boolean") return { error: "参数无效" };
+  return { translateEnabled: flag };
 }
 
 async function updateProfile(request: Request, env: Env): Promise<Response> {
@@ -1053,6 +1085,8 @@ async function testDevice(request: Request, env: Env, ctx: WaitCtx, rawId: strin
       receivedAt: now,
       createdAt: now,
       encrypted: sealed.encrypted,
+      translatedContent: sealed.translatedContent,
+      sourceLang: null,
     });
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;

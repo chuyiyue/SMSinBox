@@ -1,0 +1,368 @@
+import { AI_MODEL as LLAMA_MODEL } from "./code-recognition";
+import { errorText, logError } from "./log";
+
+// Many-to-many translation. Cloudflare's published example passes full
+// language names ("english", "french"), not ISO codes.
+export const M2M_MODEL = "@cf/meta/m2m100-1.2b";
+export const M2M_TARGET_LANG = "chinese";
+export const TRANSLATE_TIMEOUT_MS = 6_000;
+
+// Language code from detectSourceLang → the name m2m100 expects.
+// zh-Hant shares the model's single Chinese name; a result that still
+// equals the traditional source fails validation and falls through to Llama.
+export const M2M_LANG_NAME: Record<string, string> = {
+  en: "english",
+  ja: "japanese",
+  ko: "korean",
+  ru: "russian",
+  uk: "ukrainian",
+  th: "thai",
+  ar: "arabic",
+  hi: "hindi",
+  el: "greek",
+  he: "hebrew",
+  fr: "french",
+  de: "german",
+  es: "spanish",
+  it: "italian",
+  pt: "portuguese",
+  nl: "dutch",
+  vi: "vietnamese",
+  id: "indonesian",
+  "zh-Hant": "chinese",
+};
+
+const LLAMA_MAX_TOKENS = 1024;
+
+// Glyphs that are traditional and are not the simplified form of the same
+// word. One hit in an otherwise Han message is enough to call it zh-Hant.
+const TRADITIONAL_HINTS = new Set(
+  "們麼麽這裡點過還體國學萬與臺個為時會來對說後從開關長門問間電話機網請發現經業產東車書無應該讓認識語訊號碼驗證確認賬錄洩給".split(
+    "",
+  ),
+);
+
+const UKRAINIAN_HINTS = new Set("іїєґІЇЄҐ".split(""));
+
+const LATIN_STOPWORDS: Record<string, readonly string[]> = {
+  en: ["the", "and", "you", "your", "please", "this", "that", "with", "from", "have", "verification", "not", "share", "code", "is", "are", "for", "was", "package", "arrived"],
+  fr: ["vous", "votre", "pour", "dans", "avec", "est", "une", "des", "pas", "vérification", "veuillez", "bonjour", "merci"],
+  de: ["ihr", "ihre", "ihren", "bitte", "lautet", "nicht", "und", "für", "danke", "bestätigungscode", "ist"],
+  es: ["código", "verificación", "está", "gracias", "para", "favor", "hola", "usted"],
+  it: ["codice", "verifica", "grazie", "buongiorno", "tuo", "per", "favore", "sono"],
+  pt: ["você", "código", "verificação", "obrigado", "não", "seu", "uma", "para"],
+  nl: ["uw", "niet", "voor", "verificatiecode", "alstublieft", "dank", "het"],
+  vi: ["không", "của", "bạn", "được", "trong", "mã", "xác", "minh", "là"],
+  id: ["anda", "tidak", "untuk", "dengan", "kode", "adalah", "yang", "verifikasi"],
+};
+
+const LATIN_LANGS = ["en", "fr", "de", "es", "it", "pt", "nl", "vi", "id"] as const;
+
+type Script =
+  | "kana"
+  | "han"
+  | "hangul"
+  | "cyrillic"
+  | "thai"
+  | "arabic"
+  | "devanagari"
+  | "greek"
+  | "hebrew"
+  | "latin";
+
+const SCRIPT_ORDER: readonly Script[] = [
+  "kana",
+  "han",
+  "hangul",
+  "cyrillic",
+  "thai",
+  "arabic",
+  "devanagari",
+  "greek",
+  "hebrew",
+  "latin",
+];
+
+export type SmsTranslation = { translated: string; sourceLang: string };
+
+// Null means "do not translate": simplified Chinese, or not enough letters
+// left after URLs, digits, and verification-code tokens are stripped.
+export function detectSourceLang(content: string): string | null {
+  const cleaned = stripNoise(content);
+  const counts = countScripts(cleaned);
+  const total = SCRIPT_ORDER.reduce((sum, script) => sum + counts[script], 0);
+  if (total < 4) return null;
+
+  if (counts.kana > 0 && counts.han > 0) {
+    const others = total - counts.kana - counts.han;
+    if (counts.kana + counts.han >= others) return "ja";
+  }
+
+  let best: Script | null = null;
+  let bestCount = 0;
+  for (const script of SCRIPT_ORDER) {
+    if (counts[script] > bestCount) {
+      best = script;
+      bestCount = counts[script];
+    }
+  }
+  if (!best) return null;
+
+  switch (best) {
+    case "kana":
+      return "ja";
+    case "han":
+      return hasTraditional(cleaned) ? "zh-Hant" : null;
+    case "hangul":
+      return "ko";
+    case "cyrillic":
+      return hasUkrainian(cleaned) ? "uk" : "ru";
+    case "thai":
+      return "th";
+    case "arabic":
+      return "ar";
+    case "devanagari":
+      return "hi";
+    case "greek":
+      return "el";
+    case "hebrew":
+      return "he";
+    case "latin":
+      return sniffLatin(cleaned);
+    default:
+      return null;
+  }
+}
+
+// Never throws. A missing binding, timeout, or rejected model output is null
+// so ingest can store the original SMS unchanged.
+export async function translateSmsContent(env: Env, content: string): Promise<SmsTranslation | null> {
+  const sourceLang = detectSourceLang(content);
+  if (!sourceLang) return null;
+  try {
+    const primary = await runM2M(env.AI, content, sourceLang);
+    if (primary.ok) return { translated: primary.text, sourceLang };
+    const fallback = await runLlama(env.AI, content, sourceLang);
+    if (fallback.ok) return { translated: fallback.text, sourceLang };
+    const error = `${primary.error}; ${fallback.error}`.slice(0, 180);
+    logError({ message: "sms_translate_failed", source_lang: sourceLang, error });
+    return null;
+  } catch (error) {
+    logError({ message: "sms_translate_failed", source_lang: sourceLang, error: errorText(error) });
+    return null;
+  }
+}
+
+type Attempt = { ok: true; text: string } | { ok: false; error: string };
+
+async function runM2M(ai: Ai | undefined, content: string, sourceLang: string): Promise<Attempt> {
+  if (!ai || typeof ai.run !== "function") return { ok: false, error: "ai_unavailable" };
+  const sourceName = M2M_LANG_NAME[sourceLang];
+  if (!sourceName) return { ok: false, error: "unknown_lang" };
+  try {
+    const output = await withTimeout(
+      ai.run(M2M_MODEL, {
+        text: content,
+        source_lang: sourceName,
+        target_lang: M2M_TARGET_LANG,
+      }),
+      TRANSLATE_TIMEOUT_MS,
+    );
+    const text = acceptTranslation(readM2M(output), content, false);
+    if (!text) return { ok: false, error: "m2m_rejected" };
+    return { ok: true, text };
+  } catch (error) {
+    return { ok: false, error: errorText(error) };
+  }
+}
+
+async function runLlama(ai: Ai | undefined, content: string, sourceLang: string): Promise<Attempt> {
+  if (!ai || typeof ai.run !== "function") return { ok: false, error: "ai_unavailable" };
+  try {
+    const output = await withTimeout(
+      ai.run(LLAMA_MODEL, {
+        messages: [
+          { role: "system", content: llamaSystemPrompt(sourceLang) },
+          { role: "user", content },
+        ],
+        temperature: 0,
+        max_tokens: LLAMA_MAX_TOKENS,
+      }),
+      TRANSLATE_TIMEOUT_MS,
+    );
+    // Length cap and "must differ from the source" both apply here.
+    // zh-Hant → simplified has to change glyphs, so equality is a failure
+    // for that pair too (the model echoed traditional instead of converting).
+    const text = acceptTranslation(readLlama(output), content, true);
+    if (!text) return { ok: false, error: "llama_rejected" };
+    return { ok: true, text };
+  } catch (error) {
+    return { ok: false, error: errorText(error) };
+  }
+}
+
+function llamaSystemPrompt(sourceLang: string): string {
+  return [
+    "你是短信翻译器。",
+    `把用户给出的短信正文从 ${sourceLang} 翻译成简体中文。`,
+    "只输出译文本身，不要解释，不要加引号、前后缀或原文。",
+    "如果正文已经是简体中文，只输出原文。",
+  ].join("");
+}
+
+function readM2M(output: unknown): string | null {
+  if (typeof output !== "object" || output === null) return null;
+  const translated = (output as { translated_text?: unknown }).translated_text;
+  if (typeof translated !== "string") return null;
+  if (translated.trim().toUpperCase().startsWith("ERROR")) return null;
+  const text = cleanTranslation(translated);
+  return text || null;
+}
+
+function readLlama(output: unknown): string | null {
+  if (typeof output !== "object" || output === null) return null;
+  const response = (output as { response?: unknown }).response;
+  if (typeof response !== "string") return null;
+  const text = cleanTranslation(response);
+  return text || null;
+}
+
+function cleanTranslation(raw: string): string {
+  let text = raw.trim();
+  text = text.replace(/^(?:译文|翻译|简体中文|簡體中文)\s*[:：]\s*/u, "");
+  if (
+    (text.startsWith("「") && text.endsWith("」")) ||
+    (text.startsWith('"') && text.endsWith('"')) ||
+    (text.startsWith("“") && text.endsWith("”"))
+  ) {
+    text = text.slice(1, -1).trim();
+  }
+  return text.trim();
+}
+
+function acceptTranslation(translated: string | null, content: string, checkLength: boolean): string | null {
+  if (!translated) return null;
+  const text = translated.trim();
+  if (!text) return null;
+  if (text === content.trim()) return null;
+  if (checkLength && content.length > 0 && text.length > content.length * 3) return null;
+  return text;
+}
+
+function stripNoise(content: string): string {
+  let text = content.normalize("NFKC");
+  text = text.replace(/https?:\/\/\S+/gi, " ");
+  text = text.replace(/\bwww\.\S+/gi, " ");
+  text = text.replace(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/gi, " ");
+  text = text.replace(/\b(?=[A-Za-z0-9]*\d)[A-Za-z0-9]{4,8}\b/g, " ");
+  text = text.replace(/\d+/g, " ");
+  return text;
+}
+
+function countScripts(text: string): Record<Script, number> {
+  const counts: Record<Script, number> = {
+    kana: 0,
+    han: 0,
+    hangul: 0,
+    cyrillic: 0,
+    thai: 0,
+    arabic: 0,
+    devanagari: 0,
+    greek: 0,
+    hebrew: 0,
+    latin: 0,
+  };
+  for (const char of text) {
+    const script = scriptOf(char.codePointAt(0) ?? 0);
+    if (script) counts[script] += 1;
+  }
+  return counts;
+}
+
+function scriptOf(cp: number): Script | null {
+  if (isDigit(cp)) return null;
+  if ((cp >= 0x3040 && cp <= 0x309f) || (cp >= 0x30a0 && cp <= 0x30ff) || (cp >= 0xff66 && cp <= 0xff9d)) {
+    return "kana";
+  }
+  if ((cp >= 0x4e00 && cp <= 0x9fff) || (cp >= 0x3400 && cp <= 0x4dbf) || (cp >= 0xf900 && cp <= 0xfaff)) {
+    return "han";
+  }
+  if ((cp >= 0xac00 && cp <= 0xd7af) || (cp >= 0x1100 && cp <= 0x11ff) || (cp >= 0x3130 && cp <= 0x318f)) {
+    return "hangul";
+  }
+  if ((cp >= 0x0400 && cp <= 0x04ff) || (cp >= 0x0500 && cp <= 0x052f)) return "cyrillic";
+  if (cp >= 0x0e00 && cp <= 0x0e7f) return "thai";
+  if (cp >= 0x0590 && cp <= 0x05ff) return "hebrew";
+  if (
+    (cp >= 0x0600 && cp <= 0x06ff) ||
+    (cp >= 0x0750 && cp <= 0x077f) ||
+    (cp >= 0x08a0 && cp <= 0x08ff) ||
+    (cp >= 0xfb50 && cp <= 0xfdff) ||
+    (cp >= 0xfe70 && cp <= 0xfeff)
+  ) {
+    return "arabic";
+  }
+  if (cp >= 0x0900 && cp <= 0x097f) return "devanagari";
+  if ((cp >= 0x0370 && cp <= 0x03ff) || (cp >= 0x1f00 && cp <= 0x1fff)) return "greek";
+  if (
+    (cp >= 0x0041 && cp <= 0x005a) ||
+    (cp >= 0x0061 && cp <= 0x007a) ||
+    (cp >= 0x00c0 && cp <= 0x024f) ||
+    (cp >= 0x1e00 && cp <= 0x1eff)
+  ) {
+    return "latin";
+  }
+  return null;
+}
+
+function isDigit(cp: number): boolean {
+  return (
+    (cp >= 0x30 && cp <= 0x39) ||
+    (cp >= 0xff10 && cp <= 0xff19) ||
+    (cp >= 0x0660 && cp <= 0x0669) ||
+    (cp >= 0x06f0 && cp <= 0x06f9) ||
+    (cp >= 0x0966 && cp <= 0x096f) ||
+    (cp >= 0x0e50 && cp <= 0x0e59)
+  );
+}
+
+function hasTraditional(text: string): boolean {
+  for (const char of text) if (TRADITIONAL_HINTS.has(char)) return true;
+  return false;
+}
+
+function hasUkrainian(text: string): boolean {
+  for (const char of text) if (UKRAINIAN_HINTS.has(char)) return true;
+  return false;
+}
+
+function sniffLatin(text: string): string {
+  const words = [...text.toLowerCase().matchAll(/\p{L}+/gu)].map((match) => match[0]).filter((word) => word.length >= 2);
+  let best: (typeof LATIN_LANGS)[number] = "en";
+  let bestScore = 0;
+  for (const lang of LATIN_LANGS) {
+    const dict = LATIN_STOPWORDS[lang] ?? [];
+    let score = 0;
+    for (const word of words) if (dict.includes(word)) score += 1;
+    if (lang === "vi" && /[ăâêôơưđ]/i.test(text)) score += 2;
+    if (score > bestScore) {
+      best = lang;
+      bestScore = score;
+    }
+  }
+  return bestScore > 0 ? best : "en";
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("ai_timeout")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
