@@ -156,9 +156,9 @@ describe("shortcut plist", () => {
     const downloadAt = plist.indexOf("is.workflow.actions.downloadurl");
     const emptyBody = plist.indexOf("<string>未发送：正文为空</string>");
     const sent = plist.indexOf("<string>已转发</string>");
-    const limited = plist.indexOf("<string>未写入：请求过于频繁（429）。请稍后再试。</string>");
-    const denied = plist.indexOf("<string>未写入：推送链接无效或已撤销（401）。请在设备页轮换后重贴链接。</string>");
-    const rejected = plist.indexOf("<string>未写入：服务器拒绝了这条短信。</string>");
+    const limited = plist.indexOf("<string>未写入：请求过于频繁（429）。请稍后再试</string>");
+    const denied = plist.indexOf("<string>未写入：推送链接无效或已撤销（401）。请在设备页轮换后重贴链接</string>");
+    const rejected = plist.indexOf("<string>未写入：服务器拒绝了这条短信</string>");
     const offline = plist.indexOf("<string>未发送：网络失败，或返回的不是 JSON。");
     expect(emptyBody).toBeGreaterThan(0);
     expect(emptyBody).toBeLessThan(downloadAt);

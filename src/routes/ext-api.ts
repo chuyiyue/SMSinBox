@@ -322,7 +322,7 @@ export function getOpenApiSpec(): Record<string, unknown> {
     info: {
       title: "SMSinBox External API",
       version: APP_VERSION,
-      description: "Read-only external REST API for SMS messages, verification codes (OTP), and device status.",
+      description: "Read-only external REST API for SMS messages, verification codes (OTP), and device status",
     },
     servers: [
       {
@@ -344,7 +344,7 @@ export function getOpenApiSpec(): Record<string, unknown> {
       "/health": {
         get: {
           summary: "Connectivity check",
-          description: "Verify that the API is online and the token is valid.",
+          description: "Verify that the API is online and the token is valid",
           responses: {
             "200": { description: "API is healthy" },
             "401": { description: "Unauthorized" },
@@ -354,7 +354,7 @@ export function getOpenApiSpec(): Record<string, unknown> {
       "/me": {
         get: {
           summary: "Current token details",
-          description: "Get permissions, device scope, and expiry of the calling token.",
+          description: "Get permissions, device scope, and expiry of the calling token",
           responses: {
             "200": { description: "Token information" },
             "401": { description: "Unauthorized" },
@@ -364,7 +364,7 @@ export function getOpenApiSpec(): Record<string, unknown> {
       "/messages": {
         get: {
           summary: "List SMS messages",
-          description: "List SMS messages with pagination and optional filters.",
+          description: "List SMS messages with pagination and optional filters",
           parameters: [
             { name: "limit", in: "query", schema: { type: "integer", default: 20, maximum: 100 } },
             { name: "offset", in: "query", schema: { type: "integer", default: 0 } },
@@ -383,7 +383,7 @@ export function getOpenApiSpec(): Record<string, unknown> {
       "/messages/{id}": {
         get: {
           summary: "Get single message",
-          description: "Get details of an SMS message by ID.",
+          description: "Get details of an SMS message by ID",
           parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
           responses: {
             "200": { description: "Message details" },
@@ -394,7 +394,7 @@ export function getOpenApiSpec(): Record<string, unknown> {
       "/otp/latest": {
         get: {
           summary: "Get latest OTP",
-          description: "Get the latest SMS verification code matching optional filters.",
+          description: "Get the latest SMS verification code matching optional filters",
           parameters: [
             { name: "device_id", in: "query", schema: { type: "string" } },
             { name: "from", in: "query", schema: { type: "string" } },
@@ -409,7 +409,7 @@ export function getOpenApiSpec(): Record<string, unknown> {
       "/otp/search": {
         get: {
           summary: "Search OTP messages",
-          description: "Search messages containing verification codes.",
+          description: "Search messages containing verification codes",
           parameters: [
             { name: "limit", in: "query", schema: { type: "integer", default: 20, maximum: 100 } },
             { name: "offset", in: "query", schema: { type: "integer", default: 0 } },
@@ -427,7 +427,7 @@ export function getOpenApiSpec(): Record<string, unknown> {
       "/devices": {
         get: {
           summary: "List authorized devices",
-          description: "List devices within authorized scope and their derived status.",
+          description: "List devices within authorized scope and their derived status",
           responses: {
             "200": { description: "Device list" },
             "403": { description: "Permission devices:read required" },
@@ -437,7 +437,7 @@ export function getOpenApiSpec(): Record<string, unknown> {
       "/devices/{id}/status": {
         get: {
           summary: "Get single device status",
-          description: "Get device online status and timestamp of the latest received message.",
+          description: "Get device online status and timestamp of the latest received message",
           parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
           responses: {
             "200": { description: "Device status" },

@@ -20,10 +20,13 @@
 /* Fields grow to share the row: when one control leaves the bar (a
    segment, a field), the others fill the space instead of leaving a
    hole. Nothing in the bar is fixed-width except the segmented range,
-   which sizes to its labels. */
+   which sizes to its labels. Fields may shrink below their basis
+   (min-width: 0): when the manage toggle widens into 删除（N), the
+   fields and the search box give up the room and the bar keeps its
+   shape instead of wrapping the range onto a staggered second band. */
 .filters .filter-field {
   flex: 1 1 170px;
-  min-width: 140px;
+  min-width: 0;
 }
 
 /* The segmented range sizes to its labels and must never be squeezed
@@ -68,7 +71,7 @@
    设备/号码 instead of trailing the bar at the far right. */
 .filter-search-field {
   flex: 1 1 240px;
-  min-width: 180px;
+  min-width: 0;
 }
 
 .filter-search {
@@ -724,6 +727,9 @@
   gap: var(--space-5);
   align-items: start;
 }
+/* A hidden half (e.g. GitHub login when the feature is off) leaves the
+   other half the full row instead of a stranded half column. */
+.account-pair:has(> [hidden]) { grid-template-columns: 1fr; }
 @media (max-width: 767px) {
   .account-pair { grid-template-columns: 1fr; }
 }

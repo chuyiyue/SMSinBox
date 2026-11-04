@@ -4,6 +4,7 @@ import {
   channelFromRow,
   defaultDeps,
   deliverChannels,
+  mergeChannelConfig,
   parseChannelInput,
   recordPushResults,
   redactConfig,
@@ -316,6 +317,88 @@ describe("notification text and config", () => {
     expect(failed[0]?.ok).toBe(false);
     expect(failed[0]?.error).toBe("invalid API key");
     expect(JSON.stringify(failed)).not.toContain("re_bad");
+  });
+
+  it("parses, masks and delivers NotifyX channels without leaking the key", async () => {
+    const parsed = parseChannelInput({ kind: "notifyx", api_key: "nxkey1234567890" });
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.config).toEqual({ api_key: "nxkey1234567890" });
+      expect(redactConfig(parsed.kind, parsed.config)).toEqual({ api_key: "****7890" });
+    }
+    expect(parseChannelInput({ kind: "notifyx", api_key: "" }).ok).toBe(false);
+    expect(parseChannelInput({ kind: "notifyx", api_key: "has space" }).ok).toBe(false);
+
+    const withTeam = parseChannelInput({ kind: "notifyx", api_key: "nxkey1234567890", team: "1234567890" });
+    expect(withTeam.ok).toBe(true);
+    if (withTeam.ok) {
+      expect(withTeam.config).toEqual({ api_key: "nxkey1234567890", team: "1234567890" });
+      expect(redactConfig(withTeam.kind, withTeam.config)).toEqual({ api_key: "****7890", team: "1234567890" });
+    }
+    expect(parseChannelInput({ kind: "notifyx", api_key: "nxkey1234567890", team: "bad team!" }).ok).toBe(false);
+    const teamCalls: Array<{ url: string; body: string }> = [];
+    const teamResults = await deliverChannels(
+      [channel({ kind: "notifyx", config: { api_key: "nxkey1234567890", team: "1234567890" } })],
+      { title: "标题", text: "正文内容" },
+      {
+        fetch: async (input, init) => {
+          teamCalls.push({ url: String(input), body: String(init?.body ?? "") });
+          // NotifyX's real queued response has no `success` field.
+          return Response.json({ id: 1743064120638044200, message: "消息已加入队列", status: "queued" });
+        },
+        openSmtp: async () => {
+          throw new Error("unused");
+        },
+      },
+    );
+    expect(teamResults[0]?.ok).toBe(true);
+    expect(teamCalls[0]?.url).toBe("https://www.notifyx.cn/api/v1/send/nxkey1234567890");
+    expect(JSON.parse(teamCalls[0]?.body ?? "{}")).toEqual({ title: "标题", content: "正文内容", team: "1234567890" });
+
+    const explicitFailure = await deliverChannels(
+      [channel({ kind: "notifyx", config: { api_key: "nxkey1234567890" } })],
+      { title: "标题", text: "正文内容" },
+      {
+        fetch: async () => Response.json({ success: false, error: "Invalid API key" }),
+        openSmtp: async () => {
+          throw new Error("unused");
+        },
+      },
+    );
+    expect(explicitFailure[0]?.ok).toBe(false);
+    expect(explicitFailure[0]?.error).toBe("Invalid API key");
+
+    const calls: Array<{ url: string; body: string }> = [];
+    const results = await deliverChannels(
+      [channel({ kind: "notifyx", config: { api_key: "nxkey1234567890" } })],
+      { title: "验证码 123456", text: "正文内容" },
+      {
+        fetch: async (input, init) => {
+          calls.push({ url: String(input), body: String(init?.body ?? "") });
+          return Response.json({ success: true, message: "发送成功", data: { messageId: "msg_1", channels: ["wecom"] } });
+        },
+        openSmtp: async () => {
+          throw new Error("unused");
+        },
+      },
+    );
+    expect(results[0]?.ok).toBe(true);
+    expect(calls[0]?.url).toBe("https://www.notifyx.cn/api/v1/send/nxkey1234567890");
+    expect(JSON.parse(calls[0]?.body ?? "{}")).toEqual({ title: "验证码 123456", content: "正文内容" });
+
+    const failed = await deliverChannels(
+      [channel({ kind: "notifyx", config: { api_key: "nxkey1234567890" } })],
+      { title: "t", text: "x" },
+      {
+        fetch: async () => Response.json({ success: false, error: "Invalid API key" }, { status: 401 }),
+        openSmtp: async () => {
+          throw new Error("unused");
+        },
+      },
+    );
+    expect(failed[0]?.ok).toBe(false);
+    expect(failed[0]?.error).toBe("Invalid API key");
+    expect(JSON.stringify(failed)).not.toContain("nxkey1234567890");
   });
 
   it("records webhook delivery results in push logs using the webhook kind", async () => {
@@ -830,6 +913,60 @@ describe("notification API", () => {
     expect(channelFromRow(row())?.note).toBe("");
   });
 
+  it("updates channel config via PATCH, keeping secrets left blank", async () => {
+    const headers = { cookie: "smsinbox_session=sms_session_token_value", "content-type": "application/json" };
+    const id = "11111111-1111-4111-8111-111111111111";
+    const stored = row({ id, config: JSON.stringify({ bot_token: TOKEN, chat_id: "42" }) });
+    const configWrites: unknown[][] = [];
+    const db = {
+      prepare(sql: string) {
+        const statement = {
+          args: [] as unknown[],
+          bind(...args: unknown[]) { statement.args = args; return statement; },
+          async first() { return sql.includes("notify_channels") ? stored : sessionUser(); },
+          async all() { return { results: [] }; },
+          async run() {
+            if (sql.includes("SET config")) configWrites.push(statement.args);
+            return { meta: { changes: 1 } };
+          },
+        };
+        return statement;
+      },
+    } as unknown as D1Database;
+    const patched = await handleApi(
+      new Request(`https://sms.example/api/v1/notifications/${id}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ config: { bot_token: "", chat_id: "99" } }),
+      }),
+      authedEnv(db),
+    );
+    expect(patched.status).toBe(200);
+    const body = await patched.json() as { channel: { config: { bot_token: string; chat_id: string } } };
+    expect(body.channel.config.chat_id).toBe("99");
+    expect(body.channel.config.bot_token).toBe("****6789");
+    expect(configWrites).toHaveLength(1);
+    expect(JSON.parse(String(configWrites[0]?.[0]))).toEqual({ bot_token: TOKEN, chat_id: "99" });
+  });
+
+  it("mergeChannelConfig keeps blank secrets, replaces plain fields and prunes stale email modes", () => {
+    const telegram = channelFromRow(row({ config: JSON.stringify({ bot_token: TOKEN, chat_id: "42" }) })) as StoredChannel;
+    expect(mergeChannelConfig(telegram, { bot_token: "", chat_id: "99" })).toEqual({
+      ok: true,
+      config: { bot_token: TOKEN, chat_id: "99" },
+    });
+    const smtp = channelFromRow(row({
+      kind: "email",
+      config: JSON.stringify({ to: "you@example.com", from: "sms@example.com", smtp_host: "smtp.example.com", smtp_port: 465, smtp_username: "sms@example.com", smtp_password: "pw" }),
+    })) as StoredChannel;
+    expect(mergeChannelConfig(smtp, { to: "you@example.com", from: "sms@example.com", resend_api_key: "re_AbC123456789" })).toEqual({
+      ok: true,
+      config: { to: "you@example.com", from: "sms@example.com", resend_api_key: "re_AbC123456789" },
+    });
+    const hook = channelFromRow(row({ kind: "webhook", config: JSON.stringify({ url: "https://example.com/hook" }) })) as StoredChannel;
+    expect(mergeChannelConfig(hook, { url: "not a url" }).ok).toBe(false);
+  });
+
   it("lists stored channels without the bot token", async () => {
     const stored = row({ config: JSON.stringify({ bot_token: TOKEN, chat_id: "42" }) });
     expect(channelFromRow(stored)?.kind).toBe("telegram");
@@ -949,7 +1086,7 @@ describe("notification API", () => {
       null,
       null,
     ]);
-    expect(stored[0]?.[8]).toBe("这是一条测试通知，不包含短信内容。");
+    expect(stored[0]?.[8]).toBe("这是一条测试通知，不包含短信内容");
     expect(stored[0]?.[9]).toBe(1);
     expect(stored[0]?.[10]).toBeNull();
   });

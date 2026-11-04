@@ -1078,6 +1078,19 @@ export async function updateNotifyChannelNote(
   return (result.meta.changes ?? 0) > 0;
 }
 
+export async function updateNotifyChannelConfig(
+  db: D1Database,
+  userId: string,
+  channelId: string,
+  config: string,
+): Promise<boolean> {
+  const result = await db
+    .prepare("UPDATE notify_channels SET config = ? WHERE id = ? AND user_id = ?")
+    .bind(config, channelId, userId)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
 export async function deleteNotifyChannel(db: D1Database, userId: string, channelId: string): Promise<boolean> {
   const result = await db
     .prepare("DELETE FROM notify_channels WHERE id = ? AND user_id = ?")

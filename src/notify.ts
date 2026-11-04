@@ -5,7 +5,7 @@ import { sourceLangLabel } from "./translate";
 import type { NotifyChannelRow } from "./types";
 
 export const MAX_NOTIFY_CHANNELS = 10;
-export const NOTIFY_KINDS = ["telegram", "wecom", "bark", "email", "feishu", "dingtalk", "webhook"] as const;
+export const NOTIFY_KINDS = ["telegram", "wecom", "bark", "email", "feishu", "dingtalk", "webhook", "notifyx"] as const;
 export type NotifyKind = (typeof NOTIFY_KINDS)[number];
 
 export interface TelegramConfig {
@@ -37,6 +37,12 @@ export interface WebhookConfig {
   url: string;
 }
 
+export interface NotifyxConfig {
+  api_key: string;
+  /** Optional NotifyX group id (the API's `team` field) for group delivery. */
+  team?: string;
+}
+
 export interface FeishuConfig {
   webhook_url: string;
   secret?: string;
@@ -53,6 +59,7 @@ export type ChannelConfig =
   | BarkConfig
   | EmailConfig
   | WebhookConfig
+  | NotifyxConfig
   | FeishuConfig
   | DingtalkConfig;
 
@@ -135,6 +142,7 @@ export function parseChannelInput(
   if (record.kind === "bark") return parseBark(record);
   if (record.kind === "email") return parseEmail(record);
   if (record.kind === "webhook") return parseWebhook(record);
+  if (record.kind === "notifyx") return parseNotifyx(record);
   if (record.kind === "feishu") return parseFeishu(record);
   if (record.kind === "dingtalk") return parseDingtalk(record);
   return { ok: false, error: "不支持的推送渠道" };
@@ -183,6 +191,12 @@ export function redactConfig(kind: NotifyKind, config: ChannelConfig): Record<st
   if (kind === "webhook") {
     const hook = config as WebhookConfig;
     return { url: redactHookUrl(kind, hook.url) };
+  }
+  if (kind === "notifyx") {
+    const notifyx = config as NotifyxConfig;
+    return notifyx.team
+      ? { api_key: mask(notifyx.api_key), team: notifyx.team }
+      : { api_key: mask(notifyx.api_key) };
   }
   const email = config as EmailConfig;
   const redacted: Record<string, string | number> = { to: email.to, from: email.from };
@@ -434,6 +448,33 @@ async function deliverOne(channel: StoredChannel, payload: NotifyText, deps: Not
     });
     return;
   }
+  if (channel.kind === "notifyx") {
+    // The API key travels in the URL path, so errors must never quote
+    // the URL — only NotifyX's own error text or the bare status.
+    const config = channel.config as NotifyxConfig;
+    const response = await deps.fetch(`https://www.notifyx.cn/api/v1/send/${encodeURIComponent(config.api_key)}`, {
+      method: "POST",
+      redirect: "manual",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: payload.title.slice(0, 100),
+        content: payload.text.slice(0, 2000),
+        ...(config.team ? { team: config.team } : {}),
+      }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    const parsed = await readJsonLimited(response);
+    const record = asRecord(parsed);
+    // NotifyX answers a queued message with { id, message, status: "queued" }
+    // (no success flag at all), so success = HTTP ok with no explicit
+    // failure marker — never require a `success` field NotifyX doesn't send.
+    const failed = !response.ok || record?.success === false || typeof record?.error === "string";
+    if (failed) {
+      const message = typeof record?.error === "string" ? record.error : `NotifyX 返回 ${response.status}`;
+      throw new Error(scrub(message));
+    }
+    return;
+  }
   const email = channel.config as EmailConfig;
   if (email.webhook_url) {
     await postJson(deps, email.webhook_url, "邮件", {
@@ -601,6 +642,17 @@ function parseWebhook(record: Record<string, unknown>): { ok: true; kind: "webho
   }
 }
 
+function parseNotifyx(record: Record<string, unknown>): { ok: true; kind: "notifyx"; config: NotifyxConfig } | { ok: false; error: string } {
+  const key = stringField(record, "api_key");
+  if (!key || key.length > 256 || /\s/.test(key)) return { ok: false, error: "NotifyX API 密钥无效" };
+  const team = stringField(record, "team");
+  if (team && (team.length > 32 || !/^[A-Za-z0-9_-]+$/.test(team))) {
+    return { ok: false, error: "NotifyX 群组 ID 只能包含字母、数字、下划线和连字符" };
+  }
+  const config: NotifyxConfig = team ? { api_key: key, team } : { api_key: key };
+  return { ok: true, kind: "notifyx", config };
+}
+
 function parseFeishu(record: Record<string, unknown>): { ok: true; kind: "feishu"; config: FeishuConfig } | { ok: false; error: string } {
   const webhook = stringField(record, "webhook_url");
   const url = webhook ? publicHttpsUrl(webhook) : null;
@@ -712,6 +764,32 @@ function isPublicIpv6(host: string): boolean {
   if (/^fe[89ab]/.test(normalized)) return false;
   if (normalized.startsWith("ff")) return false;
   return true;
+}
+
+/**
+ * Edit-merge: the submitted object defines the editable field set for the
+ * channel's kind. A non-empty submitted value wins; an empty string means
+ * "keep the stored value" (how secret fields stay unchanged when the edit
+ * form leaves them blank). Keys absent from the submission are dropped, so
+ * switching an email channel's mode discards the other modes' fields.
+ */
+export function mergeChannelConfig(
+  stored: StoredChannel,
+  submitted: Record<string, unknown>,
+): { ok: true; config: ChannelConfig } | { ok: false; error: string } {
+  const storedRecord = stored.config as unknown as Record<string, unknown>;
+  const candidate: Record<string, unknown> = { kind: stored.kind };
+  for (const [key, value] of Object.entries(submitted)) {
+    if (key === "kind") continue;
+    if (typeof value === "string" && value.trim() === "") {
+      if (key in storedRecord) candidate[key] = storedRecord[key];
+      continue;
+    }
+    candidate[key] = value;
+  }
+  const parsed = parseChannelInput(candidate);
+  if (!parsed.ok) return parsed;
+  return { ok: true, config: parsed.config };
 }
 
 function stringField(record: Record<string, unknown>, key: string): string {

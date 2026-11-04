@@ -1,7 +1,7 @@
 import { base64UrlToBytes, bytesToBase64Url, copyBytes } from "./auth";
 
 export const ENCRYPTED_PREFIX = "enc1:";
-export const UNREADABLE_CONTENT = "无法解密这条短信。请确认 CONTENT_KEY 与写入时一致。";
+export const UNREADABLE_CONTENT = "无法解密这条短信。请确认 CONTENT_KEY 与写入时一致";
 
 export type ContentKey = { state: "off" } | { state: "invalid" } | { state: "on"; raw: Uint8Array };
 

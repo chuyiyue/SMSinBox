@@ -35,6 +35,12 @@ const KINDS = [
     icon: '<use href="/icons.svg#icon-link"/>',
   },
   {
+    kind: "notifyx",
+    label: "NotifyX",
+    hint: "多通道推送",
+    icon: '<use href="/icons.svg#icon-bell"/>',
+  },
+  {
     kind: "feishu",
     label: () => t("notify.kindFeishu"),
     hint: () => t("notify.kindGroupBot"),
@@ -61,10 +67,22 @@ let historyList;
 let historyError;
 let historyMore;
 let historyEnd;
-let view;
-let viewFields;
 let selectedKind = "telegram";
 let emailMode = "webhook";
+let editingChannel = null;
+
+// Fields whose values the API only returns masked: in the edit form they
+// start blank and a blank means "keep the stored value".
+const SECRET_FIELDS = {
+  telegram: ["bot_token"],
+  wecom: ["webhook_url"],
+  bark: ["device_key"],
+  email: ["webhook_url", "smtp_password", "resend_api_key"],
+  webhook: ["url"],
+  notifyx: ["api_key"],
+  feishu: ["webhook_url", "secret"],
+  dingtalk: ["webhook_url", "secret"],
+};
 let viewToken = 0;
 let historyOffset = 0;
 let historyTotal = 0;
@@ -92,8 +110,6 @@ function startView() {
   list = document.querySelector("#notify-list");
   dialog = document.querySelector("#notify-dialog");
   kindStep = document.querySelector("#kind-step");
-  view = document.querySelector("#notify-view");
-  viewFields = document.querySelector("#notify-view-fields");
   addButton = document.querySelector("#add-channel");
   historyList = document.querySelector("#notify-history-list");
   historyError = document.querySelector("#notify-history-error");
@@ -145,7 +161,6 @@ function startView() {
   historyMore.addEventListener("click", () => loadHistory(false));
   document.querySelector("#notify-close").addEventListener("click", () => dialog.close());
   document.querySelector("#notify-back").addEventListener("click", () => showKindStep());
-  document.querySelector("#notify-view-close").addEventListener("click", () => dialog.close());
   dialog.addEventListener("click", (event) => {
     if (event.target === dialog) dialog.close();
   });
@@ -330,6 +345,7 @@ function renderKindGrid() {
 
 function openCreate() {
   if (addButton.disabled) return;
+  editingChannel = null;
   showKindStep();
   showFormError("");
   if (!dialog.open) dialog.showModal();
@@ -339,7 +355,8 @@ function openCreate() {
 function showKindStep() {
   kindStep.hidden = false;
   form.hidden = true;
-  view.hidden = true;
+  document.querySelector("#notify-back").hidden = false;
+  form.querySelector("button[type=submit]").textContent = t("notify.addSubmit");
   document.querySelector("#notify-dialog-title").textContent = t("notify.addChannel");
 }
 
@@ -349,7 +366,6 @@ function chooseKind(kind) {
   showFormError("");
   renderFields();
   kindStep.hidden = true;
-  view.hidden = true;
   form.hidden = false;
   const meta = KINDS.find((item) => item.kind === kind);
   const label = meta ? meta.label() : t("notify.channelFallback");
@@ -357,54 +373,67 @@ function chooseKind(kind) {
   form.querySelector("input")?.focus();
 }
 
-function openView(channel) {
-  const meta = KINDS.find((item) => item.kind === channel.kind);
-  const blocks = viewFieldsFor(channel);
-  // The config itself stays read-only here; the remark is editable.
-  const noteLabel = document.createElement("label");
-  noteLabel.append(t("notify.note"));
-  const noteInput = document.createElement("input");
-  noteInput.value = channel.note || "";
-  noteInput.maxLength = 80;
-  noteInput.placeholder = t("notify.notePlaceholder");
-  noteLabel.append(noteInput);
-  const saveNote = document.createElement("button");
-  saveNote.type = "button";
-  saveNote.className = "secondary";
-  saveNote.textContent = t("notify.saveNote");
-  saveNote.addEventListener("click", () => saveChannelNote(channel, noteInput, saveNote));
-  blocks.push(noteLabel, saveNote);
-  viewFields.replaceChildren(...blocks);
+/**
+ * Edit mode: the same form as creation, kind locked, prefilled from the
+ * channel's (masked) config. Secret fields start blank — a blank secret
+ * means "keep the stored value" and the API merges it back server-side.
+ */
+function openEdit(channel) {
+  editingChannel = channel;
+  selectedKind = channel.kind;
+  if (channel.kind === "email") {
+    const config = channel.config || {};
+    emailMode = config.resend_api_key ? "resend" : config.webhook_url ? "webhook" : "smtp";
+  }
+  showFormError("");
+  renderFields();
+  fillEditForm(channel);
   kindStep.hidden = true;
-  form.hidden = true;
-  view.hidden = false;
-  document.querySelector("#notify-dialog-title").textContent = t("notify.kindConfig", { name: meta ? meta.label() : channel.kind });
+  form.hidden = false;
+  document.querySelector("#notify-back").hidden = true;
+  form.querySelector("button[type=submit]").textContent = t("common.save");
+  const meta = KINDS.find((item) => item.kind === channel.kind);
+  document.querySelector("#notify-dialog-title").textContent = t("notify.editChannel", { name: meta ? meta.label() : channel.kind });
   if (!dialog.open) dialog.showModal();
   document.body.classList.add("modal-open");
 }
 
-async function saveChannelNote(channel, input, button) {
-  const note = input.value.trim();
-  button.disabled = true;
-  try {
-    const result = await api(`/api/v1/notifications/${channel.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ note }),
-    });
-    if (!result.response.ok) {
-      toast(result.data?.error || t("notify.noteSaveFailed"), { tone: "danger" });
-      return;
+function fillEditForm(channel) {
+  const config = channel.config || {};
+  const secrets = new Set(SECRET_FIELDS[channel.kind] || []);
+  for (const input of form.querySelectorAll("input[name]")) {
+    const name = input.getAttribute("name");
+    if (!name || name === "note") continue;
+    if (secrets.has(name)) {
+      input.value = "";
+      input.placeholder = t("notify.keepSecretPlaceholder");
+    } else if (config[name] !== undefined && config[name] !== null) {
+      input.value = String(config[name]);
     }
-    channel.note = note;
-    toast(t("notify.noteSaved"));
-    await loadChannels();
-  } catch (error) {
-    if (isUnauthorized(error)) return;
-    toast(t("notify.noteSaveFailed"), { tone: "danger" });
-  } finally {
-    button.disabled = false;
   }
+  const noteInput = form.querySelector("input[name=note]");
+  if (noteInput) noteInput.value = channel.note || "";
 }
+
+/**
+ * Shape an edit submission for PATCH: readForm fields become `config`, the
+ * remark stays top-level, and blank secret fields of the active form are
+ * re-added as empty strings so the server knows to keep the stored values.
+ */
+function buildEditPayload(readBody) {
+  const { kind, note, ...config } = readBody;
+  let secrets = SECRET_FIELDS[kind] || [];
+  if (kind === "email") {
+    secrets = emailMode === "webhook" ? ["webhook_url"] : emailMode === "resend" ? ["resend_api_key"] : ["smtp_password"];
+  }
+  for (const name of secrets) {
+    const input = form.querySelector(`input[name="${name}"]`);
+    if (input && !(name in config)) config[name] = "";
+  }
+  return { config, note: note || "" };
+}
+
+
 
 function renderFields() {
   fields.replaceChildren();
@@ -447,6 +476,14 @@ function renderFields() {
     fields.append(
       field("Webhook URL", "url", "https://example.com/webhook", "off"),
       help(t("notify.where"), t("notify.webhookHelp")),
+    );
+    return;
+  }
+  if (selectedKind === "notifyx") {
+    fields.append(
+      secretField("API 密钥", "api_key"),
+      field("群组 ID（可选）", "team", "1234567890", "off"),
+      help("在哪里获取", "登录 NotifyX 控制台，先建好通道配置，再到「API 密钥管理」生成密钥。密钥关联一个通道；要发到群组时填群组 ID，不用群组可留空", "https://www.notifyx.cn/help"),
     );
     return;
   }
@@ -548,25 +585,34 @@ async function submitChannel(event) {
   }
   const button = form.querySelector("button[type=submit]");
   button.disabled = true;
-  button.textContent = t("notify.adding");
+  const previous = button.textContent;
+  const editing = editingChannel;
+  button.textContent = editing ? t("notify.saving") : t("notify.adding");
   try {
-    const created = await api("/api/v1/notifications", { method: "POST", body: JSON.stringify(body) });
+    const result = editing
+      ? await api(`/api/v1/notifications/${editing.id}`, { method: "PATCH", body: JSON.stringify(buildEditPayload(body)) })
+      : await api("/api/v1/notifications", { method: "POST", body: JSON.stringify(body) });
     if (token !== viewToken) return;
-    if (!created.response.ok) {
-      const message = created.data.error || t("notify.addFailed");
+    if (!result.response.ok) {
+      const message = result.data.error || (editing ? t("notify.saveFailed") : t("notify.addFailed"));
       showFormError(message);
       toast(message, { tone: "danger" });
       return;
     }
     form.reset();
+    editingChannel = null;
     dialog.close();
-    setStatusKey("notify.added");
-    toast(t("notify.added"));
+    if (editing) {
+      toast(t("notify.updated"));
+    } else {
+      setStatusKey("notify.added");
+      toast(t("notify.added"));
+    }
     await loadChannels();
   } catch (error) {
     if (isUnauthorized(error)) return;
-    showFormError(t("notify.addFailed"));
-    toast(t("notify.addFailed"), { tone: "danger" });
+    showFormError(editing ? t("notify.saveFailed") : t("notify.addFailed"));
+    toast(editing ? t("notify.saveFailed") : t("notify.addFailed"), { tone: "danger" });
   } finally {
     button.disabled = false;
     button.textContent = t("notify.addSubmit");
@@ -576,23 +622,27 @@ async function submitChannel(event) {
 function readForm() {
   const payload = new FormData(form);
   const body = { kind: selectedKind };
+  // In edit mode a blank URL field means "keep the stored one" — only a
+  // non-empty replacement gets host-checked here (the server re-validates
+  // the merged config either way). Creation keeps the strict checks.
   if (selectedKind === "wecom") {
     const webhook = String(payload.get("webhook_url") || "").trim();
-    if (!wecomHostOk(webhook)) return { error: t("notify.wecomHost") };
+    if (!wecomHostOk(webhook) && (webhook || !editingChannel)) return { error: t("notify.wecomHost") };
   }
   if (selectedKind === "webhook") {
     const webhook = String(payload.get("url") || "").trim();
-    if (!httpUrlOk(webhook)) return { error: t("notify.webhookUrlInvalid") };
+    if (!httpUrlOk(webhook) && (webhook || !editingChannel)) return { error: t("notify.webhookUrlInvalid") };
     body.url = webhook;
+    body.note = String(payload.get("note") || "").trim();
     return body;
   }
   if (selectedKind === "feishu") {
     const webhook = String(payload.get("webhook_url") || "").trim();
-    if (!feishuHostOk(webhook)) return { error: t("notify.feishuHost") };
+    if (!feishuHostOk(webhook) && (webhook || !editingChannel)) return { error: t("notify.feishuHost") };
   }
   if (selectedKind === "dingtalk") {
     const webhook = String(payload.get("webhook_url") || "").trim();
-    if (!dingtalkHostOk(webhook)) return { error: t("notify.dingtalkHost") };
+    if (!dingtalkHostOk(webhook) && (webhook || !editingChannel)) return { error: t("notify.dingtalkHost") };
   }
   for (const [key, value] of payload.entries()) {
     const text = String(value).trim();
@@ -607,7 +657,7 @@ function readForm() {
     const from = String(payload.get("from") || "").trim();
     if (emailMode === "resend") {
       const key = String(payload.get("resend_api_key") || "").trim();
-      if (!key) return { error: t("notify.resendKeyRequired") };
+      if (!key && !editingChannel) return { error: t("notify.resendKeyRequired") };
       if (!emailOk(to) || !emailOk(from)) return { error: t("notify.emailInvalid") };
       body.resend_api_key = key;
       return body;
@@ -709,7 +759,7 @@ function renderChannel(channel) {
   edit.type = "button";
   edit.className = "secondary";
   edit.textContent = t("notify.edit");
-  edit.addEventListener("click", () => openView(channel));
+  edit.addEventListener("click", () => openEdit(channel));
   const testButton = document.createElement("button");
   testButton.type = "button";
   testButton.className = "secondary";
@@ -865,6 +915,7 @@ function describe(channel) {
   if (channel.kind === "telegram") return `chat ${config.chat_id || ""} · token ${config.bot_token || ""}`;
   if (channel.kind === "wecom") return `Webhook · ${hostOf(config.webhook_url)}`;
   if (channel.kind === "webhook") return `Webhook · ${hostOf(config.url)}`;
+  if (channel.kind === "notifyx") return config.team ? `密钥 ${config.api_key || ""} · 群组 ${config.team}` : `密钥 ${config.api_key || ""}`;
   if (channel.kind === "bark") return `${hostOf(config.server)} · ${maskTail(config.device_key)}`;
   if (channel.kind === "feishu" || channel.kind === "dingtalk") {
     return config.secret ? `Webhook · ${hostOf(config.webhook_url)} · ${t("notify.signed")}` : `Webhook · ${hostOf(config.webhook_url)}`;
@@ -956,50 +1007,6 @@ function secretField(label, name) {
   const wrap = field(label, name, "", "new-password");
   wrap.querySelector("input").type = "password";
   return wrap;
-}
-
-function viewField(label, value) {
-  const wrap = document.createElement("label");
-  wrap.append(label);
-  const input = document.createElement("input");
-  input.value = value == null ? "" : String(value);
-  input.readOnly = true;
-  input.tabIndex = -1;
-  wrap.append(input);
-  return wrap;
-}
-
-function viewFieldsFor(channel) {
-  const config = channel.config || {};
-  if (channel.kind === "telegram") {
-    return [viewField("Bot token", config.bot_token), viewField("Chat ID", config.chat_id)];
-  }
-  if (channel.kind === "wecom") {
-    return [viewField("Webhook URL", config.webhook_url)];
-  }
-  if (channel.kind === "webhook") {
-    return [viewField("Webhook URL", config.url)];
-  }
-  if (channel.kind === "bark") {
-    return [viewField("Device key", config.device_key), viewField(t("notify.server"), config.server)];
-  }
-  if (channel.kind === "feishu" || channel.kind === "dingtalk") {
-    return [viewField("Webhook URL", config.webhook_url), viewField(t("notify.signSecretOptional"), config.secret || t("notify.notSet"))];
-  }
-  if (config.resend_api_key) {
-    return [viewField(t("notify.emailTo"), config.to), viewField(t("notify.emailFrom"), config.from), viewField("Resend API Key", config.resend_api_key)];
-  }
-  if (config.webhook_url) {
-    return [viewField(t("notify.emailTo"), config.to), viewField(t("notify.emailFrom"), config.from), viewField("Webhook URL", config.webhook_url)];
-  }
-  return [
-    viewField(t("notify.emailTo"), config.to),
-    viewField(t("notify.emailFrom"), config.from),
-    viewField(t("notify.smtpHost"), config.smtp_host),
-    viewField(t("notify.smtpUser"), config.smtp_username),
-    viewField(t("notify.smtpPassword"), config.smtp_password),
-    viewField(t("notify.port"), 465),
-  ];
 }
 
 function portNote() {

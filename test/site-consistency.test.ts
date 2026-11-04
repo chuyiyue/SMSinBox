@@ -688,7 +688,8 @@ describe("site consistency", () => {
     expect(users).toContain('id="features-panel"');
     expect(users).toContain("功能设置");
     expect(users).toContain("短信翻译");
-    expect(users).toContain("翻译由 Workers AI 完成");
+    expect(usersJs).toContain("已开启，新收到的非简体中文短信会自动翻译成简体中文");
+    expect(usersJs).toContain("开启后，新收到的非简体中文短信会自动翻译成简体中文");
     expect(users).toContain('id="translate-toggle"');
     expect(usersJs).toContain("/api/v1/me/preferences");
     expect(usersJs).toContain('method: "PATCH"');
@@ -747,7 +748,7 @@ describe("site consistency", () => {
     const tableStart = inbox.indexOf("SENDER_LOGOS");
     const table = inbox.slice(tableStart, inbox.indexOf("];", tableStart));
     const slugs = [...table.matchAll(/\["([a-z0-9]+)", \[/g)].map((match) => match[1]);
-    expect(slugs.length).toBe(34);
+    expect(slugs.length).toBe(39);
     for (const slug of slugs) {
       expect(existsSync(`public/logos/${slug}.svg`), `public/logos/${slug}.svg`).toBe(true);
     }
