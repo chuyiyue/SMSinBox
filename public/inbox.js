@@ -881,6 +881,13 @@ const SENDER_LOGOS = [
   ["orange", ["orange"]],
   ["dhl", ["dhl"]],
   ["fedex", ["fedex"]],
+  // These five were removed from newer simple-icons releases; the SVGs
+  // are vendored from simple-icons 9.21.0 instead.
+  ["microsoft", ["microsoft"]],
+  ["amazon", ["amazon"]],
+  ["tmobile", ["tmobile"]],
+  ["linkedin", ["linkedin"]],
+  ["openai", ["openai", "chatgpt"]],
 ];
 const SENDER_LOGO_MAP = new Map();
 for (const [slug, aliases] of SENDER_LOGOS) {
