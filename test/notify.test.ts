@@ -5,6 +5,7 @@ import {
   defaultDeps,
   deliverChannels,
   parseChannelInput,
+  recordPushResults,
   redactConfig,
   renderNotification,
   scheduleNotify,
@@ -235,6 +236,24 @@ describe("notification text and config", () => {
       from: "sms@example.com",
       webhook_url: "https://169.254.169.254/mail",
     }).ok).toBe(false);
+    const resend = parseChannelInput({
+      kind: "email",
+      to: "you@example.com",
+      from: "sms@resend.dev",
+      resend_api_key: "re_1234567890",
+    });
+    expect(resend.ok).toBe(true);
+    if (resend.ok) expect(resend.config).toMatchObject({ resend_api_key: "re_1234567890" });
+    expect(parseChannelInput({
+      kind: "email",
+      to: "you@example.com",
+      from: "sms@resend.dev",
+      resend_api_key: "",
+    }).ok).toBe(false);
+    const webhook = parseChannelInput({ kind: "webhook", url: "https://example.com/hook?token=abc123" });
+    expect(webhook.ok).toBe(true);
+    if (webhook.ok) expect(webhook.config).toEqual({ url: "https://example.com/hook?token=abc123" });
+    expect(parseChannelInput({ kind: "webhook", url: "ftp://example.com/hook" }).ok).toBe(false);
   });
 
   it("masks secrets but keeps the address that the user needs to recognize", () => {
@@ -249,10 +268,87 @@ describe("notification text and config", () => {
     expect(wecom.ok).toBe(true);
     if (!wecom.ok) return;
     expect(JSON.stringify(redactConfig(wecom.kind, wecom.config))).not.toContain("abcDEF123456");
+    const webhook = parseChannelInput({ kind: "webhook", url: "https://example.com/hook?token=abc123" });
+    expect(webhook.ok).toBe(true);
+    if (webhook.ok) expect(JSON.stringify(redactConfig(webhook.kind, webhook.config))).not.toContain("abc123");
     expect(scrub(`failed bot${TOKEN} key=abcDEF123456`)).toBe("failed bot*** key=***");
     expect(scrub(`failed bot${TOKEN} key=abcDEF123456`)).not.toContain("AAHabc");
     expect(scrub(`failed https://oapi.dingtalk.com/robot/send?access_token=abcDEF&timestamp=1&sign=xyz`))
       .toBe("failed https://oapi.dingtalk.com/robot/send?access_token=***&timestamp=1&sign=***");
+  });
+
+  it("sends Resend email requests and scrubs invalid API key errors", async () => {
+    const calls: Array<{ url: string; headers: Record<string, string>; body: string }> = [];
+    const results = await deliverChannels(
+      [channel({ kind: "email", config: { to: "you@example.com", from: "sms@resend.dev", resend_api_key: "re_1234567890" } })],
+      { title: "验证码 123456", text: "pixel · 10086\n2026-01-02T03:04:05.000Z\n您的验证码是 123456" },
+      {
+        fetch: async (input, init) => {
+          const headers = Object.fromEntries(new Headers(init?.headers ?? {}).entries());
+          calls.push({ url: String(input), headers, body: String(init?.body ?? "") });
+          return Response.json({ id: "mail_123" }, { status: 200 });
+        },
+        openSmtp: async () => {
+          throw new Error("unused");
+        },
+      },
+    );
+    expect(results[0]?.ok).toBe(true);
+    expect(calls[0]?.url).toBe("https://api.resend.com/emails");
+    expect(calls[0]?.headers.authorization).toBe("Bearer re_1234567890");
+    expect(JSON.parse(calls[0]?.body ?? "{}")).toMatchObject({
+      from: "sms@resend.dev",
+      to: "you@example.com",
+      subject: "验证码 123456",
+      text: "pixel · 10086\n2026-01-02T03:04:05.000Z\n您的验证码是 123456",
+    });
+
+    const failed = await deliverChannels(
+      [channel({ kind: "email", config: { to: "you@example.com", from: "sms@resend.dev", resend_api_key: "re_bad" } })],
+      { title: "验证码 123456", text: "正文" },
+      {
+        fetch: async () => Response.json({ message: "invalid API key" }, { status: 401 }),
+        openSmtp: async () => {
+          throw new Error("unused");
+        },
+      },
+    );
+    expect(failed[0]?.ok).toBe(false);
+    expect(failed[0]?.error).toBe("invalid API key");
+    expect(JSON.stringify(failed)).not.toContain("re_bad");
+  });
+
+  it("records webhook delivery results in push logs using the webhook kind", async () => {
+    const calls: unknown[][] = [];
+    const db = {
+      prepare(_sql: string) {
+        let args: unknown[] = [];
+        const statement = {
+          bind(...values: unknown[]) {
+            args = values;
+            return statement;
+          },
+          async run() {
+            calls.push(args);
+            return { meta: { changes: 1 } };
+          },
+        };
+        return statement;
+      },
+    } as unknown as D1Database;
+    await recordPushResults(
+      authedEnv(db),
+      "user-1",
+      "sms",
+      { title: "Webhook 测试", text: "正文" },
+      [channel({ id: "webhook-result", kind: "webhook", config: { url: "https://example.com/hook?token=abc123" } })],
+      [{ id: "webhook-result", kind: "webhook", ok: true }],
+      "sms-1",
+      "10086",
+    );
+    expect(calls[0]?.[4]).toBe("webhook");
+    expect(String(calls[0]?.[8])).toContain("正文");
+    expect(JSON.stringify(calls[0])).not.toContain("abc123");
   });
 });
 

@@ -24,8 +24,14 @@ const KINDS = [
   {
     kind: "email",
     label: "邮件",
-    hint: "Webhook 或 SMTP",
+    hint: "Webhook / SMTP / Resend",
     icon: '<use href="/icons.svg#icon-mail"/>',
+  },
+  {
+    kind: "webhook",
+    label: "Webhook",
+    hint: "自定义 JSON",
+    icon: '<use href="/icons.svg#icon-link"/>',
   },
   {
     kind: "feishu",
@@ -376,6 +382,13 @@ function renderFields() {
     );
     return;
   }
+  if (selectedKind === "webhook") {
+    fields.append(
+      field("Webhook URL", "url", "https://example.com/webhook", "off"),
+      help("在哪里获取", "任何能接收 POST JSON 的地址，推送时发送 title 与 text 两个字段。"),
+    );
+    return;
+  }
   if (selectedKind === "feishu") {
     const input = field("Webhook URL", "webhook_url", "https://open.feishu.cn/open-apis/bot/v2/hook/", "off");
     const error = document.createElement("p");
@@ -432,6 +445,13 @@ function renderFields() {
       extra.append(help("在哪里获取", "HTTPS 地址；通知包含收件与发件邮箱。"));
       return;
     }
+    if (emailMode === "resend") {
+      extra.append(
+        secretField("Resend API Key", "resend_api_key"),
+        help("在哪里获取", "到 resend.com 的 API Keys 页面创建密钥；发件邮箱必须是已验证域名下的地址。", "https://resend.com/docs/api-reference/introduction"),
+      );
+      return;
+    }
     extra.append(
       field("SMTP 主机", "smtp_host", "smtp.example.com", "off"),
       field("SMTP 用户名", "smtp_username", "smtp-user", "off"),
@@ -439,7 +459,7 @@ function renderFields() {
       portNote(),
     );
   };
-  for (const [mode, label] of [["webhook", "Webhook"], ["smtp", "SMTP"]]) {
+  for (const [mode, label] of [["webhook", "Webhook"], ["smtp", "SMTP"], ["resend", "Resend"]]) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "segment";
@@ -500,6 +520,12 @@ function readForm() {
     const webhook = String(payload.get("webhook_url") || "").trim();
     if (!wecomHostOk(webhook)) return { error: "企业微信 Webhook 必须是 qyapi.weixin.qq.com 的 https 地址" };
   }
+  if (selectedKind === "webhook") {
+    const webhook = String(payload.get("url") || "").trim();
+    if (!httpUrlOk(webhook)) return { error: "Webhook URL 必须是 http/https 地址" };
+    body.url = webhook;
+    return body;
+  }
   if (selectedKind === "feishu") {
     const webhook = String(payload.get("webhook_url") || "").trim();
     if (!feishuHostOk(webhook)) return { error: "飞书 Webhook 必须是 open.feishu.cn 的 https 地址" };
@@ -511,9 +537,22 @@ function readForm() {
   for (const [key, value] of payload.entries()) {
     const text = String(value).trim();
     if (!text) continue;
-    if (selectedKind === "email" && emailMode === "webhook" && key.startsWith("smtp_")) continue;
-    if (selectedKind === "email" && emailMode === "smtp" && key === "webhook_url") continue;
+    if (selectedKind === "email" && emailMode === "webhook" && (key.startsWith("smtp_") || key === "resend_api_key")) continue;
+    if (selectedKind === "email" && emailMode === "smtp" && (key === "webhook_url" || key === "resend_api_key")) continue;
+    if (selectedKind === "email" && emailMode === "resend" && (key === "webhook_url" || key.startsWith("smtp_"))) continue;
     body[key] = text;
+  }
+  if (selectedKind === "email") {
+    const to = String(payload.get("to") || "").trim();
+    const from = String(payload.get("from") || "").trim();
+    if (emailMode === "resend") {
+      const key = String(payload.get("resend_api_key") || "").trim();
+      if (!key) return { error: "Resend API Key 不能为空" };
+      if (!emailOk(to) || !emailOk(from)) return { error: "收件邮箱或发件邮箱无效" };
+      body.resend_api_key = key;
+      return body;
+    }
+    if (!emailOk(to) || !emailOk(from)) return { error: "收件邮箱或发件邮箱无效" };
   }
   return body;
 }
@@ -741,10 +780,12 @@ function describe(channel) {
   const config = channel.config || {};
   if (channel.kind === "telegram") return `chat ${config.chat_id || ""} · token ${config.bot_token || ""}`;
   if (channel.kind === "wecom") return `Webhook · ${hostOf(config.webhook_url)}`;
+  if (channel.kind === "webhook") return `Webhook · ${hostOf(config.url)}`;
   if (channel.kind === "bark") return `${hostOf(config.server)} · ${maskTail(config.device_key)}`;
   if (channel.kind === "feishu" || channel.kind === "dingtalk") {
     return config.secret ? `Webhook · ${hostOf(config.webhook_url)} · 已签名` : `Webhook · ${hostOf(config.webhook_url)}`;
   }
+  if (config.resend_api_key) return `${config.from || ""} → ${config.to || ""} · Resend`;
   if (config.webhook_url) return `${config.from || ""} → ${config.to || ""} · Webhook ${hostOf(config.webhook_url)}`;
   return `${config.from || ""} → ${config.to || ""} · ${config.smtp_host || "SMTP"}`;
 }
@@ -765,7 +806,7 @@ function emptyChannels() {
   // No add button here: the topbar already carries the page's 添加渠道.
   return emptyState({
     title: "还没有推送渠道",
-    text: "短信入库后，可以推到 Telegram、企业微信、Bark、飞书、钉钉或邮箱。",
+    text: "短信入库后，可以推到 Telegram、企业微信、Bark、飞书、钉钉、Webhook 或邮箱。",
   });
 }
 
@@ -776,6 +817,26 @@ function wecomHostOk(value) {
   } catch {
     return false;
   }
+}
+
+function httpUrlOk(value) {
+  try {
+    const url = new URL(value);
+    if (!("http:" === url.protocol || "https:" === url.protocol)) return false;
+    if (url.username || url.password) return false;
+    const host = url.hostname.toLowerCase();
+    if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return false;
+    if (host === "metadata.google.internal" || host === "metadata.google.com") return false;
+    if (host === "127.0.0.1" || host === "::1") return false;
+    if (host.startsWith("fc") || host.startsWith("fd") || host.startsWith("ff")) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function emailOk(value) {
+  return /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(String(value || ""));
 }
 
 function feishuHostOk(value) {
@@ -833,11 +894,17 @@ function viewFieldsFor(channel) {
   if (channel.kind === "wecom") {
     return [viewField("Webhook URL", config.webhook_url)];
   }
+  if (channel.kind === "webhook") {
+    return [viewField("Webhook URL", config.url)];
+  }
   if (channel.kind === "bark") {
     return [viewField("Device key", config.device_key), viewField("服务器", config.server)];
   }
   if (channel.kind === "feishu" || channel.kind === "dingtalk") {
     return [viewField("Webhook URL", config.webhook_url), viewField("签名密钥（可选）", config.secret || "未设置")];
+  }
+  if (config.resend_api_key) {
+    return [viewField("收件邮箱", config.to), viewField("发件邮箱", config.from), viewField("Resend API Key", config.resend_api_key)];
   }
   if (config.webhook_url) {
     return [viewField("收件邮箱", config.to), viewField("发件邮箱", config.from), viewField("Webhook URL", config.webhook_url)];
