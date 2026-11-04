@@ -75,6 +75,7 @@ function startView() {
   addButton = document.querySelector("#add-channel");
   lastTest.clear();
   renderKindGrid();
+  wirePageTabs();
   initShell({
     onLogout: () => logout().catch(() => setError("退出失败")),
     onRefresh: () => loadChannels().catch((error) => {
@@ -102,6 +103,28 @@ function startView() {
     if (viewToken === token) viewToken += 1;
     if (dialog?.open) dialog.close();
   };
+}
+
+// 添加渠道 belongs to 系统推送. The external tab is a placeholder, so the
+// button hides while that panel is showing.
+function wirePageTabs() {
+  const systemTab = document.querySelector("#ntab-system");
+  const externalTab = document.querySelector("#ntab-external");
+  const systemPanel = document.querySelector("#npanel-system");
+  const externalPanel = document.querySelector("#npanel-external");
+  if (!systemTab || !externalTab || !systemPanel || !externalPanel || !addButton) return;
+  const activate = (name) => {
+    const external = name === "external";
+    systemTab.classList.toggle("is-active", !external);
+    systemTab.setAttribute("aria-selected", external ? "false" : "true");
+    externalTab.classList.toggle("is-active", external);
+    externalTab.setAttribute("aria-selected", external ? "true" : "false");
+    systemPanel.hidden = external;
+    externalPanel.hidden = !external;
+    addButton.hidden = external;
+  };
+  systemTab.addEventListener("click", () => activate("system"));
+  externalTab.addEventListener("click", () => activate("external"));
 }
 
 function renderKindGrid() {
