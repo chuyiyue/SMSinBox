@@ -329,29 +329,44 @@ describe("notification text and config", () => {
     expect(parseChannelInput({ kind: "notifyx", api_key: "" }).ok).toBe(false);
     expect(parseChannelInput({ kind: "notifyx", api_key: "has space" }).ok).toBe(false);
 
-    const withChannel = parseChannelInput({ kind: "notifyx", api_key: "nxkey1234567890", channel: "ios" });
-    expect(withChannel.ok).toBe(true);
-    if (withChannel.ok) {
-      expect(withChannel.config).toEqual({ api_key: "nxkey1234567890", channel: "ios" });
-      expect(redactConfig(withChannel.kind, withChannel.config)).toEqual({ api_key: "****7890", channel: "ios" });
+    const withTeam = parseChannelInput({ kind: "notifyx", api_key: "nxkey1234567890", team: "1234567890" });
+    expect(withTeam.ok).toBe(true);
+    if (withTeam.ok) {
+      expect(withTeam.config).toEqual({ api_key: "nxkey1234567890", team: "1234567890" });
+      expect(redactConfig(withTeam.kind, withTeam.config)).toEqual({ api_key: "****7890", team: "1234567890" });
     }
-    expect(parseChannelInput({ kind: "notifyx", api_key: "nxkey1234567890", channel: "bad channel!" }).ok).toBe(false);
-    const channelCalls: Array<{ url: string }> = [];
-    const channelResults = await deliverChannels(
-      [channel({ kind: "notifyx", config: { api_key: "nxkey1234567890", channel: "ios" } })],
+    expect(parseChannelInput({ kind: "notifyx", api_key: "nxkey1234567890", team: "bad team!" }).ok).toBe(false);
+    const teamCalls: Array<{ url: string; body: string }> = [];
+    const teamResults = await deliverChannels(
+      [channel({ kind: "notifyx", config: { api_key: "nxkey1234567890", team: "1234567890" } })],
       { title: "标题", text: "正文内容" },
       {
-        fetch: async (input) => {
-          channelCalls.push({ url: String(input) });
-          return new Response(JSON.stringify({ success: true }), { status: 200 });
+        fetch: async (input, init) => {
+          teamCalls.push({ url: String(input), body: String(init?.body ?? "") });
+          // NotifyX's real queued response has no `success` field.
+          return Response.json({ id: 1743064120638044200, message: "消息已加入队列", status: "queued" });
         },
         openSmtp: async () => {
           throw new Error("unused");
         },
       },
     );
-    expect(channelResults[0]?.ok).toBe(true);
-    expect(channelCalls[0]?.url).toBe("https://www.notifyx.cn/api/v1/send/nxkey1234567890?channel=ios");
+    expect(teamResults[0]?.ok).toBe(true);
+    expect(teamCalls[0]?.url).toBe("https://www.notifyx.cn/api/v1/send/nxkey1234567890");
+    expect(JSON.parse(teamCalls[0]?.body ?? "{}")).toEqual({ title: "标题", content: "正文内容", team: "1234567890" });
+
+    const explicitFailure = await deliverChannels(
+      [channel({ kind: "notifyx", config: { api_key: "nxkey1234567890" } })],
+      { title: "标题", text: "正文内容" },
+      {
+        fetch: async () => Response.json({ success: false, error: "Invalid API key" }),
+        openSmtp: async () => {
+          throw new Error("unused");
+        },
+      },
+    );
+    expect(explicitFailure[0]?.ok).toBe(false);
+    expect(explicitFailure[0]?.error).toBe("Invalid API key");
 
     const calls: Array<{ url: string; body: string }> = [];
     const results = await deliverChannels(

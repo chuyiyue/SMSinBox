@@ -39,8 +39,8 @@ export interface WebhookConfig {
 
 export interface NotifyxConfig {
   api_key: string;
-  /** Required by NotifyX when one key is bound to several downstream channels. */
-  channel?: string;
+  /** Optional NotifyX group id (the API's `team` field) for group delivery. */
+  team?: string;
 }
 
 export interface FeishuConfig {
@@ -194,8 +194,8 @@ export function redactConfig(kind: NotifyKind, config: ChannelConfig): Record<st
   }
   if (kind === "notifyx") {
     const notifyx = config as NotifyxConfig;
-    return notifyx.channel
-      ? { api_key: mask(notifyx.api_key), channel: notifyx.channel }
+    return notifyx.team
+      ? { api_key: mask(notifyx.api_key), team: notifyx.team }
       : { api_key: mask(notifyx.api_key) };
   }
   const email = config as EmailConfig;
@@ -452,17 +452,24 @@ async function deliverOne(channel: StoredChannel, payload: NotifyText, deps: Not
     // The API key travels in the URL path, so errors must never quote
     // the URL — only NotifyX's own error text or the bare status.
     const config = channel.config as NotifyxConfig;
-    const channelQuery = config.channel ? `?channel=${encodeURIComponent(config.channel)}` : "";
-    const response = await deps.fetch(`https://www.notifyx.cn/api/v1/send/${encodeURIComponent(config.api_key)}${channelQuery}`, {
+    const response = await deps.fetch(`https://www.notifyx.cn/api/v1/send/${encodeURIComponent(config.api_key)}`, {
       method: "POST",
       redirect: "manual",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title: payload.title, content: payload.text }),
+      body: JSON.stringify({
+        title: payload.title.slice(0, 100),
+        content: payload.text.slice(0, 2000),
+        ...(config.team ? { team: config.team } : {}),
+      }),
       signal: AbortSignal.timeout(8_000),
     });
     const parsed = await readJsonLimited(response);
     const record = asRecord(parsed);
-    if (!response.ok || !record || record.success !== true) {
+    // NotifyX answers a queued message with { id, message, status: "queued" }
+    // (no success flag at all), so success = HTTP ok with no explicit
+    // failure marker — never require a `success` field NotifyX doesn't send.
+    const failed = !response.ok || record?.success === false || typeof record?.error === "string";
+    if (failed) {
       const message = typeof record?.error === "string" ? record.error : `NotifyX 返回 ${response.status}`;
       throw new Error(scrub(message));
     }
@@ -638,11 +645,11 @@ function parseWebhook(record: Record<string, unknown>): { ok: true; kind: "webho
 function parseNotifyx(record: Record<string, unknown>): { ok: true; kind: "notifyx"; config: NotifyxConfig } | { ok: false; error: string } {
   const key = stringField(record, "api_key");
   if (!key || key.length > 256 || /\s/.test(key)) return { ok: false, error: "NotifyX API 密钥无效" };
-  const channel = stringField(record, "channel");
-  if (channel && (channel.length > 64 || !/^[A-Za-z0-9_-]+$/.test(channel))) {
-    return { ok: false, error: "NotifyX 渠道标识只能包含字母、数字、下划线和连字符" };
+  const team = stringField(record, "team");
+  if (team && (team.length > 32 || !/^[A-Za-z0-9_-]+$/.test(team))) {
+    return { ok: false, error: "NotifyX 群组 ID 只能包含字母、数字、下划线和连字符" };
   }
-  const config: NotifyxConfig = channel ? { api_key: key, channel } : { api_key: key };
+  const config: NotifyxConfig = team ? { api_key: key, team } : { api_key: key };
   return { ok: true, kind: "notifyx", config };
 }
 
