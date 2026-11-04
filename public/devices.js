@@ -314,8 +314,8 @@ function showCredentials({ deviceId, token, pushUrl }) {
   const warn = tokenBox.querySelector(".callout");
   if (warn) {
     warn.textContent = boxes.showBearer
-      ? "Bearer token 只显示这一次，关闭后无法再次查看。推送链接已保存，可随时查看。"
-      : "推送链接已保存，可随时在「推送配置」里查看和复制。";
+      ? "Bearer token 只显示这一次，关闭后无法再次查看。推送链接已保存，可随时查看"
+      : "推送链接已保存，可随时在「推送配置」里查看和复制";
   }
   if (!boxes.showBox) return;
   form.hidden = true;
