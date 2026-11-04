@@ -1,7 +1,7 @@
 import { insertPushLogs, listNotifyChannels, type PushLogInput } from "./db";
 import { logError, logInfo } from "./log";
 import { openSmtpSocket, sendSmtp, type LineSocket } from "./smtp";
-import { sourceLangLabel } from "./translate";
+import { sourceLangLabel, sourceLangLabelEn } from "./translate";
 import type { NotifyChannelRow } from "./types";
 
 export const MAX_NOTIFY_CHANNELS = 10;
@@ -109,6 +109,7 @@ export function renderNotification(input: {
   receivedAt: number;
   translatedContent: string | null;
   sourceLang: string | null;
+  locale?: "zh-CN" | "en";
 }): NotifyText {
   const who = input.from.trim() || "未知号码";
   const title = truncate(input.code ? `验证码 ${input.code}` : `新短信 ${who}`, 80);
@@ -120,14 +121,20 @@ export function renderNotification(input: {
 }
 
 // Translation on top, original underneath, one blank line between them.
-// No translation keeps the body as the original content alone.
+// No translation keeps the body as the original content alone. The framing
+// lines follow the system language (the owner's UI locale).
 function notificationBody(input: {
   content: string;
   translatedContent: string | null;
   sourceLang: string | null;
+  locale?: "zh-CN" | "en";
 }): string {
   const translated = input.translatedContent;
   if (translated == null || translated.trim() === "") return input.content;
+  if (input.locale === "en") {
+    const label = `(Originally in ${sourceLangLabelEn(input.sourceLang)})`;
+    return `${label}\n${translated}\n\n(Original)\n${input.content}`;
+  }
   const label = `（原文为${sourceLangLabel(input.sourceLang)}）`;
   return `${label}\n${translated}\n\n（原文）\n${input.content}`;
 }
@@ -248,6 +255,7 @@ export async function notifyStoredSms(
     receivedAt: number;
     translatedContent: string | null;
     sourceLang: string | null;
+    locale?: "zh-CN" | "en";
   },
   deps: NotifyDeps = defaultDeps(),
 ): Promise<NotifyResult[]> {

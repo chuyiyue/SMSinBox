@@ -15,7 +15,7 @@ import {
   insertMessage,
   isUniqueViolation,
   RATE_LIMIT_PER_MINUTE,
-  readAdminTranslateEnabled,
+  readAdminTranslatePrefs,
   touchDevice,
 } from "../db";
 import { recognizeCode } from "../code-recognition";
@@ -155,7 +155,7 @@ async function storeSms(
 
   const recognized = await recognizeCode(env, parsed.sms.content);
   const code = recognized.code;
-  const translation = await loadTranslation(env, parsed.sms.content);
+  const { translation, locale } = await loadTranslation(env, parsed.sms.content);
   const sealed = await sealMessage(contentKey, {
     content: parsed.sms.content,
     code,
@@ -208,6 +208,7 @@ async function storeSms(
       receivedAt: parsed.sms.receivedAt,
       translatedContent: translation?.translated ?? null,
       sourceLang: translation?.sourceLang ?? null,
+      locale,
     }),
   );
   return json({ ok: true, id, code });
@@ -215,17 +216,20 @@ async function storeSms(
 
 // Preference lookup and the model call both fail closed. A throw, a timeout,
 // or a rejected translation leaves the two columns null and still stores the SMS.
+// The admin's UI locale doubles as the translation target and is returned
+// alongside so the push render can speak the same language.
 async function loadTranslation(
   env: Env,
   content: string,
-): Promise<{ translated: string; sourceLang: string } | null> {
+): Promise<{ translation: { translated: string; sourceLang: string } | null; locale: "zh-CN" | "en" }> {
   try {
-    const enabled = await readAdminTranslateEnabled(env.DB);
-    if (!enabled) return null;
-    return await translateSmsContent(env, content);
+    const prefs = await readAdminTranslatePrefs(env.DB);
+    if (!prefs.enabled) return { translation: null, locale: prefs.locale };
+    const translation = await translateSmsContent(env, content, prefs.locale);
+    return { translation, locale: prefs.locale };
   } catch (error) {
     logError({ message: "sms_translate_failed", error: errorText(error) });
-    return null;
+    return { translation: null, locale: "zh-CN" };
   }
 }
 

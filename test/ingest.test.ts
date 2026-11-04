@@ -62,6 +62,7 @@ type UserRow = {
   role: string;
   disabled_at: number | null;
   translate_enabled?: number;
+  locale?: string;
 };
 
 type SessionRow = {
@@ -171,7 +172,9 @@ function createDb() {
           }
           if (sql.includes("translate_enabled") && sql.includes("FROM users")) {
             const admin = state.users.find((row) => row.role === "admin" && row.disabled_at == null);
-            return admin ? { translate_enabled: admin.translate_enabled ?? 0 } : null;
+            return admin
+              ? { translate_enabled: admin.translate_enabled ?? 0, locale: admin.locale ?? "zh-CN" }
+              : null;
           }
           throw new Error(`unhandled first: ${sql}`);
         },
@@ -720,13 +723,14 @@ describe("translation on ingest", () => {
     return { run } as unknown as Env["AI"];
   }
 
-  function enableTranslation(state: State, enabled: number): void {
+  function enableTranslation(state: State, enabled: number, locale?: string): void {
     state.users.push({
       id: USER_ID,
       username: "ada",
       role: "admin",
       disabled_at: null,
       translate_enabled: enabled,
+      ...(locale ? { locale } : {}),
     });
   }
 
@@ -790,6 +794,52 @@ describe("translation on ingest", () => {
     expect(response.status).toBe(200);
     expect(harness.state.messages).toHaveLength(1);
     expect(harness.state.messages[0]).toMatchObject({
+      translated_content: null,
+      source_lang: null,
+    });
+    expect(run.mock.calls.some((call) => String(call[0]).includes("m2m100"))).toBe(false);
+  });
+
+  it("translates into English when the admin locale is en", async () => {
+    const harness = createDb();
+    await seedDevice(harness.state, TOKEN);
+    enableTranslation(harness.state, 1, "en");
+    const SIMPLIFIED = "您的包裹今天早上已到达大堂。";
+    const run = vi.fn(async (...args: unknown[]) => {
+      if (String(args[0]).includes("m2m100")) return { translated_text: ENGLISH };
+      return { response: "NONE" };
+    });
+    const response = await handleSms(
+      smsRequest(TOKEN, smsBody(SIMPLIFIED)),
+      envFor(harness.db, "", aiBinding(run)),
+      waitCtx().ctx,
+    );
+    expect(response.status).toBe(200);
+    expect(harness.state.messages[0]).toMatchObject({
+      content: SIMPLIFIED,
+      translated_content: ENGLISH,
+      source_lang: "zh-Hans",
+    });
+    const m2mCall = run.mock.calls.find((call) => String(call[0]).includes("m2m100"));
+    expect(m2mCall?.[1]).toMatchObject({ source_lang: "chinese", target_lang: "english" });
+  });
+
+  it("leaves English messages untranslated when the admin locale is en", async () => {
+    const harness = createDb();
+    await seedDevice(harness.state, TOKEN);
+    enableTranslation(harness.state, 1, "en");
+    const run = vi.fn(async (...args: unknown[]) => {
+      if (String(args[0]).includes("m2m100")) return { translated_text: CHINESE };
+      return { response: "NONE" };
+    });
+    const response = await handleSms(
+      smsRequest(TOKEN, smsBody(ENGLISH)),
+      envFor(harness.db, "", aiBinding(run)),
+      waitCtx().ctx,
+    );
+    expect(response.status).toBe(200);
+    expect(harness.state.messages[0]).toMatchObject({
+      content: ENGLISH,
       translated_content: null,
       source_lang: null,
     });
