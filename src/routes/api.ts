@@ -37,6 +37,7 @@ import {
   insertDevice,
   insertMessage,
   insertNotifyChannel,
+  listPushLogs,
   updateNotifyChannelNote,
   insertUser,
   isUniqueViolation,
@@ -113,6 +114,7 @@ import {
   MAX_NOTIFY_CHANNELS,
   notifyStoredSms,
   parseChannelInput,
+  recordPushResults,
   redactConfig,
   scheduleNotify,
 } from "../notify";
@@ -228,6 +230,10 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
   if (path === "/api/v1/messages") {
     if (method !== "GET") return methodNotAllowed("GET");
     return list(request, env, url);
+  }
+  if (path === "/api/v1/notify/history") {
+    if (method !== "GET") return methodNotAllowed("GET");
+    return notifyHistory(request, env, url);
   }
   const messageMatch = /^\/api\/v1\/messages\/([^/]+)$/.exec(path);
   if (messageMatch?.[1]) {
@@ -884,6 +890,21 @@ async function listNotifications(request: Request, env: Env): Promise<Response> 
   return json({ ok: true, channels });
 }
 
+async function notifyHistory(request: Request, env: Env, url: URL): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const limit = boundedInt(url.searchParams.get("limit"), 50, 100);
+  const offsetRaw = url.searchParams.get("offset");
+  const offsetValue = offsetRaw === null || offsetRaw.trim() === "" ? 0 : Number(offsetRaw);
+  const offset = Number.isSafeInteger(offsetValue) && offsetValue >= 0 ? offsetValue : 0;
+  const result = await listPushLogs(env.DB, user.id, limit, offset);
+  return json({
+    ok: true,
+    items: result.items.map((item) => ({ ...item, ok: item.ok === 1 })),
+    total: result.total,
+  });
+}
+
 async function createNotification(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
@@ -985,11 +1006,11 @@ async function testNotification(request: Request, env: Env, rawId: string): Prom
   const row = await findNotifyChannel(env.DB, user.id, id);
   const channel = row ? channelFromRow(row) : null;
   if (!channel) return json({ ok: false, error: "渠道不存在" }, 404);
-  const [result] = await deliverChannels(
-    [channel],
-    { title: "SMSinBox 测试", text: "这是一条测试通知，不包含短信内容。" },
-    defaultDeps(),
-  );
+  const payload = { title: "SMSinBox 测试", text: "这是一条测试通知，不包含短信内容。" };
+  const channels = [channel];
+  const results = await deliverChannels(channels, payload, defaultDeps());
+  await recordPushResults(env, user.id, "test", payload, channels, results, null, null);
+  const [result] = results;
   if (!result?.ok) {
     // Delivery errors can carry raw runtime text; the owner only needs
     // the outcome here — the detail is already logged by deliverChannels.
@@ -1107,6 +1128,7 @@ async function testDevice(request: Request, env: Env, ctx: WaitCtx, rawId: strin
   });
   scheduleNotify(ctx, () =>
     notifyStoredSms(env, user.id, {
+      messageId,
       from,
       content,
       code,
@@ -1634,4 +1656,3 @@ async function renameApiTokenEndpoint(request: Request, env: Env, rawId: string)
   logInfo({ message: "api_token_renamed", token_id: id, user_id: auth.id });
   return json({ ok: true, id, name });
 }
-

@@ -279,6 +279,8 @@ describe("site consistency", () => {
     expect(toolbar).toContain("系统推送");
     expect(toolbar).toContain('id="ntab-external"');
     expect(toolbar).toContain("外部推送");
+    expect(toolbar).toContain('id="ntab-history"');
+    expect(toolbar).toContain("推送历史");
     expect(toolbar).toContain('id="add-channel"');
     expect(toolbar).toContain('class="primary"');
     expect(html).toContain('id="notify-list"');
@@ -289,9 +291,18 @@ describe("site consistency", () => {
     expect(external).toContain("<h2>外部推送</h2>");
     expect(external).not.toContain("<button");
     expect(external).not.toContain("<form");
+    const history = html.slice(html.indexOf('id="npanel-history"'), html.indexOf("</section>", html.indexOf('id="npanel-history"')));
+    expect(history).toContain('id="notify-history-list"');
+    expect(history).toContain('id="notify-history-error"');
+    expect(history).toContain('id="notify-history-more"');
+    expect(history).toContain('id="notify-history-end"');
     expect(js).toContain('querySelector("#ntab-system")');
     expect(js).toContain('querySelector("#ntab-external")');
-    expect(js).toContain("addButton.hidden = external");
+    expect(js).toContain('querySelector("#ntab-history")');
+    expect(js).toContain('querySelector("#npanel-history")');
+    expect(js).toContain("addButton.hidden = name !== \"system\"");
+    expect(js).toContain("/api/v1/notify/history?limit=50&offset=");
+    expect(js).toContain("还没有推送记录。短信推送到渠道后会记在这里。");
     expect(css).toMatch(/\.notify-toolbar \{[^}]*display: flex;[^}]*flex-wrap: wrap;/);
     expect(css).toContain(".notify-actions { display: flex; gap: 8px; margin-left: auto; }");
   });

@@ -1116,6 +1116,84 @@ export async function setUserTranslateEnabled(db: D1Database, userId: string, en
   await db.prepare("UPDATE users SET translate_enabled = ? WHERE id = ?").bind(enabled ? 1 : 0, userId).run();
 }
 
+export interface PushLogInput {
+  id: string;
+  userId: string;
+  channelId: string;
+  channelName: string;
+  channelKind: string;
+  source: "sms" | "test";
+  messageId: string | null;
+  sender: string | null;
+  preview: string;
+  ok: boolean;
+  error: string | null;
+  createdAt: number;
+}
+
+export interface PushLogRow {
+  id: string;
+  created_at: number;
+  channel_name: string;
+  channel_kind: string;
+  source: "sms" | "test";
+  message_id: string | null;
+  sender: string | null;
+  preview: string;
+  ok: number;
+  error: string | null;
+}
+
+export async function insertPushLogs(db: D1Database, logs: PushLogInput[]): Promise<void> {
+  for (const log of logs) {
+    await db
+      .prepare(
+        `INSERT INTO push_logs (
+           id, user_id, channel_id, channel_name, channel_kind, source, message_id, sender,
+           preview, ok, error, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        log.id,
+        log.userId,
+        log.channelId,
+        log.channelName,
+        log.channelKind,
+        log.source,
+        log.messageId,
+        log.sender,
+        log.preview,
+        log.ok ? 1 : 0,
+        log.error,
+        log.createdAt,
+      )
+      .run();
+  }
+}
+
+export async function listPushLogs(
+  db: D1Database,
+  userId: string,
+  limit: number,
+  offset: number,
+): Promise<{ items: PushLogRow[]; total: number }> {
+  const count = await db
+    .prepare("SELECT COUNT(*) AS total FROM push_logs WHERE user_id = ?")
+    .bind(userId)
+    .first<{ total: number }>();
+  const result = await db
+    .prepare(
+      `SELECT id, created_at, channel_name, channel_kind, source, message_id, sender, preview, ok, error
+       FROM push_logs
+       WHERE user_id = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT ? OFFSET ?`,
+    )
+    .bind(userId, limit, offset)
+    .all<PushLogRow>();
+  return { items: result.results, total: count?.total ?? 0 };
+}
+
 export async function findMessageByHash(
   db: D1Database,
   contentHash: string,
@@ -1297,6 +1375,7 @@ export async function purgeExpired(db: D1Database, now: number, retention: strin
   const messageCutoff = now - days * 24 * 60 * 60 * 1000;
   const rateCutoff = now - 2 * 24 * 60 * 60 * 1000;
   const messages = await db.prepare("DELETE FROM messages WHERE created_at < ?").bind(messageCutoff).run();
+  const pushLogs = await db.prepare("DELETE FROM push_logs WHERE created_at < ?").bind(messageCutoff).run();
   const sessions = await db.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(now).run();
   const rates = await db.prepare("DELETE FROM rate_limits WHERE window_start < ?").bind(rateCutoff).run();
   const tickets = await db.prepare("DELETE FROM totp_tickets WHERE expires_at < ?").bind(now).run();
@@ -1304,6 +1383,7 @@ export async function purgeExpired(db: D1Database, now: number, retention: strin
     message: "retention_complete",
     retention_days: days,
     messages: messages.meta.changes,
+    push_logs: pushLogs.meta.changes,
     sessions: sessions.meta.changes,
     rate_limits: rates.meta.changes,
     totp_tickets: tickets.meta.changes,
