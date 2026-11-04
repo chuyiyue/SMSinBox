@@ -4,9 +4,9 @@ import { bytesToHex } from "./auth";
 // entirely; password login does not read these.
 declare global {
   interface Env {
-    GITHUB_CLIENT_ID?: string;
-    GITHUB_CLIENT_SECRET?: string;
-    ADMIN_GITHUB_USERNAME?: string;
+    GH_CLIENT_ID?: string;
+    GH_CLIENT_SECRET?: string;
+    ADMIN_GH_USERNAME?: string;
   }
 }
 
@@ -21,9 +21,9 @@ export const GITHUB_LOGIN_RE = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/
 export type GithubSettings = { clientId: string; clientSecret: string; adminUsername: string };
 
 export function githubSettings(env: Env): GithubSettings | null {
-  const clientId = env.GITHUB_CLIENT_ID?.trim() ?? "";
-  const clientSecret = env.GITHUB_CLIENT_SECRET?.trim() ?? "";
-  const adminUsername = env.ADMIN_GITHUB_USERNAME?.trim() ?? "";
+  const clientId = env.GH_CLIENT_ID?.trim() ?? "";
+  const clientSecret = env.GH_CLIENT_SECRET?.trim() ?? "";
+  const adminUsername = env.ADMIN_GH_USERNAME?.trim() ?? "";
   if (!clientId || !clientSecret || !adminUsername) return null;
   return { clientId, clientSecret, adminUsername };
 }
