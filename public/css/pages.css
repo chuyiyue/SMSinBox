@@ -724,6 +724,9 @@
   gap: var(--space-5);
   align-items: start;
 }
+/* A hidden half (e.g. GitHub login when the feature is off) leaves the
+   other half the full row instead of a stranded half column. */
+.account-pair:has(> [hidden]) { grid-template-columns: 1fr; }
 @media (max-width: 767px) {
   .account-pair { grid-template-columns: 1fr; }
 }
