@@ -817,6 +817,24 @@
 .setup-details > summary { font-size: var(--fs-md); }
 .setup-details > summary::marker { color: var(--text-3); }
 
+/* Guide values copy on click: the value itself is the button, so it must
+   not pick up the base black-fill button look or its hover. */
+.copy-value {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.copy-value:hover { background: var(--bg-sunken); border-color: var(--border-strong); }
+.copy-value.is-copied { background: var(--success-soft); color: var(--success-text); border-color: transparent; }
+
 /* Unified mobile drawer breakpoint (< 640px). Note: replaces legacy @media (max-width: 640px) */
 @media (max-width: 639px) {
   .page { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
