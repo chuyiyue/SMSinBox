@@ -26,22 +26,26 @@
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-sun"/></svg>
               <span class="btn-label sr-only">主题：自动</span>
             </button>
-            <button id="add-token" class="primary" type="button">新建 Token</button>
             <button id="refresh" class="ghost icon-btn" type="button" aria-label="刷新">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/icons.svg#icon-refresh"/></svg>
             </button>
           </div>
         </header>
         <div class="page">
+          <div class="api-toolbar">
+            <div class="tabs api-tabs" role="tablist" aria-label="API 与 MCP 分区">
+              <button id="tab-token" class="tab is-active" type="button" role="tab" aria-selected="true" aria-controls="token-panel" data-tab="tokens">令牌管理</button>
+              <button id="tab-mcp" class="tab" type="button" role="tab" aria-selected="false" aria-controls="mcp-panel" data-tab="mcp" tabindex="-1">MCP 接入</button>
+              <button id="tab-permissions" class="tab" type="button" role="tab" aria-selected="false" aria-controls="permissions-panel" data-tab="permissions" tabindex="-1">权限管理</button>
+              <button id="tab-docs" class="tab" type="button" role="tab" aria-selected="false" aria-controls="api-panel" data-tab="docs" tabindex="-1">外部 API 文档</button>
+            </div>
+            <div class="api-actions">
+              <button id="add-token" class="primary" type="button">新建 Token</button>
+            </div>
+          </div>
+
           <p id="page-error" class="callout danger" hidden></p>
           <p id="page-status" class="callout ok" hidden></p>
-
-          <div class="tabs api-tabs" role="tablist" aria-label="API 与 MCP 分区">
-            <button id="tab-token" class="tab is-active" type="button" role="tab" aria-selected="true" aria-controls="token-panel" data-tab="tokens">令牌管理</button>
-            <button id="tab-mcp" class="tab" type="button" role="tab" aria-selected="false" aria-controls="mcp-panel" data-tab="mcp" tabindex="-1">MCP 接入</button>
-            <button id="tab-permissions" class="tab" type="button" role="tab" aria-selected="false" aria-controls="permissions-panel" data-tab="permissions" tabindex="-1">权限管理</button>
-            <button id="tab-docs" class="tab" type="button" role="tab" aria-selected="false" aria-controls="api-panel" data-tab="docs" tabindex="-1">外部 API 文档</button>
-          </div>
 
           <!-- Token management -->
           <section id="token-panel" class="panel stack tab-panel" role="tabpanel" aria-labelledby="tab-token" data-panel="tokens">
