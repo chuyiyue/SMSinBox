@@ -108,7 +108,7 @@ describe("notification text and config", () => {
       translatedContent: null,
       sourceLang: null,
     });
-    expect(note.title).toBe("pixel · 验证码 654321");
+    expect(note.title).toBe("来自pixel的新短信 · 验证码 654321");
     expect(note.text).toContain("pixel · 10086");
     expect(note.text).toContain("2026-01-02T03:04:05.000Z");
     expect([...note.text].length).toBe(501);
@@ -127,7 +127,7 @@ describe("notification text and config", () => {
       sourceLang: null,
     });
     expect(note).toEqual({
-      title: "pixel · 验证码 123456",
+      title: "来自pixel的新短信 · 验证码 123456",
       text: "pixel · 10086\n2026-01-02T03:04:05.000Z\n您的验证码是 123456",
     });
     const blank = renderNotification({
@@ -151,22 +151,22 @@ describe("notification text and config", () => {
       sourceLang: null,
     };
     // zh-CN, with and without a code.
-    expect(renderNotification({ ...base, code: "654321", deviceName: "OnePlus 15T" }).title).toBe("OnePlus 15T · 验证码 654321");
-    expect(renderNotification({ ...base, code: null, deviceName: "OnePlus 15T" }).title).toBe("OnePlus 15T · 新短信 10086");
+    expect(renderNotification({ ...base, code: "654321", deviceName: "OnePlus 15T" }).title).toBe("来自OnePlus 15T的新短信 · 验证码 654321");
+    expect(renderNotification({ ...base, code: null, deviceName: "OnePlus 15T" }).title).toBe("来自OnePlus 15T的新短信");
     // en, with and without a code.
-    expect(renderNotification({ ...base, code: "654321", deviceName: "OnePlus 15T", locale: "en" }).title).toBe("OnePlus 15T · Code 654321");
-    expect(renderNotification({ ...base, code: null, deviceName: "OnePlus 15T", locale: "en" }).title).toBe("OnePlus 15T · New SMS from 10086");
+    expect(renderNotification({ ...base, code: "654321", deviceName: "OnePlus 15T", locale: "en" }).title).toBe("New SMS from OnePlus 15T · Code 654321");
+    expect(renderNotification({ ...base, code: null, deviceName: "OnePlus 15T", locale: "en" }).title).toBe("New SMS from OnePlus 15T");
     // A blank sender falls back per language in the title.
     expect(renderNotification({ ...base, from: " ", code: null, deviceName: "OnePlus 15T", locale: "en" }).title).toBe(
-      "OnePlus 15T · New SMS from unknown number",
+      "New SMS from OnePlus 15T",
     );
-    expect(renderNotification({ ...base, from: " ", code: null, deviceName: "OnePlus 15T" }).title).toBe("OnePlus 15T · 新短信 未知号码");
+    expect(renderNotification({ ...base, from: " ", code: null, deviceName: "OnePlus 15T" }).title).toBe("来自OnePlus 15T的新短信");
     // A missing device name falls back per language.
-    expect(renderNotification({ ...base, code: "654321", deviceName: "" }).title).toBe("设备 · 验证码 654321");
-    expect(renderNotification({ ...base, code: "654321", deviceName: "", locale: "en" }).title).toBe("Device · Code 654321");
+    expect(renderNotification({ ...base, code: "654321", deviceName: "" }).title).toBe("来自设备的新短信 · 验证码 654321");
+    expect(renderNotification({ ...base, code: "654321", deviceName: "", locale: "en" }).title).toBe("New SMS from Device · Code 654321");
     // An over-long device name is cut to 24 characters plus an ellipsis
     // before it joins the title.
-    expect(renderNotification({ ...base, code: "654321", deviceName: "D".repeat(30) }).title).toBe(`${"D".repeat(24)}… · 验证码 654321`);
+    expect(renderNotification({ ...base, code: "654321", deviceName: "D".repeat(30) }).title).toBe(`来自${"D".repeat(24)}…的新短信 · 验证码 654321`);
     // The body keeps its pre-change format byte for byte, in en too.
     const enNote = renderNotification({ ...base, code: "654321", deviceName: "OnePlus 15T", locale: "en" });
     expect(enNote.text).toBe("OnePlus 15T · 10086\n2026-01-02T03:04:05.000Z\n您的验证码是 654321");
@@ -182,7 +182,7 @@ describe("notification text and config", () => {
       translatedContent: "您的验证码是 482913，请勿泄露。",
       sourceLang: "en",
     });
-    expect(note.title).toBe("pixel · 验证码 482913");
+    expect(note.title).toBe("来自pixel的新短信 · 验证码 482913");
     expect(note.text).toBe(
       [
         "pixel · 10086",
@@ -208,7 +208,7 @@ describe("notification text and config", () => {
       translatedContent: "您的验证码是 482913",
       sourceLang: "zh-Hant",
     });
-    expect(traditional.title).toBe("设备 · 新短信 未知号码");
+    expect(traditional.title).toBe("来自设备的新短信");
     expect(traditional.text).toContain("（原文为繁体中文）\n您的验证码是 482913\n\n（原文）\n您的驗證碼是 482913");
 
     const unknown = renderNotification({
