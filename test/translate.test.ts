@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AI_MODEL } from "../src/code-recognition";
 import {
+  FALLBACK_MODEL,
   M2M_LANG_NAME,
   M2M_MODEL,
   M2M_TARGET_LANG,
@@ -88,6 +88,7 @@ describe("M2M_LANG_NAME", () => {
     });
     expect(M2M_TARGET_LANG).toEqual({ "zh-CN": "chinese", en: "english" });
     expect(M2M_MODEL).toBe("@cf/meta/m2m100-1.2b");
+    expect(FALLBACK_MODEL).toBe("@cf/google/gemma-4-26b-a4b-it");
     expect(TRANSLATE_TIMEOUT_MS).toBe(6_000);
   });
 });
@@ -190,7 +191,7 @@ describe("translateSmsContent", () => {
       sourceLang: "en",
     });
     expect(thrown).toHaveBeenCalledWith(
-      AI_MODEL,
+      FALLBACK_MODEL,
       expect.objectContaining({
         messages: [
           { role: "system", content: expect.stringContaining("en") },
@@ -324,7 +325,7 @@ describe("translateSmsContent with an English system language", () => {
       sourceLang: "zh-Hans",
     });
     expect(run).toHaveBeenCalledWith(
-      AI_MODEL,
+      FALLBACK_MODEL,
       expect.objectContaining({
         messages: [
           { role: "system", content: expect.stringContaining("into English") },
