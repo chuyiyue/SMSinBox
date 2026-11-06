@@ -21,6 +21,7 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       GH_CLIENT_ID_SECRET: ${{ secrets.GH_CLIENT_ID }}
       GH_CLIENT_SECRET_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
+      AI_MODEL_SECRET: ${{ secrets.AI_MODEL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,6 +46,13 @@ jobs:
           fi
           if [[ -n "$GH_CLIENT_SECRET_SECRET" ]]; then
             printf '%s' "$GH_CLIENT_SECRET_SECRET" | npx wrangler secret put GH_CLIENT_SECRET
+          fi
+
+      - name: Sync AI model secret to Worker
+        shell: bash
+        run: |
+          if [[ -n "$AI_MODEL_SECRET" ]]; then
+            printf '%s' "$AI_MODEL_SECRET" | npx wrangler secret put AI_MODEL
           fi
 
       - name: Apply remote D1 migrations

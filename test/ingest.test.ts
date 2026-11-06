@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bytesToBase64Url, sha256Hex } from "../src/auth";
+import { AI_TIMEOUT_MS } from "../src/code-recognition";
 import {
   deleteDevice,
   deleteUserCascade,
@@ -683,7 +684,7 @@ describe("code recognition on ingest", () => {
     // after the fake timeout fires, the ingest continues through real
     // async work (crypto, storage promises) that one big advance can
     // starve — that starvation is what made this test flaky under load.
-    for (let t = 0; t < 4000; t += 100) {
+    for (let t = 0; t < AI_TIMEOUT_MS; t += 100) {
       await vi.advanceTimersByTimeAsync(100);
       await new Promise((resolve) => setImmediate(resolve));
     }

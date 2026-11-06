@@ -1,14 +1,16 @@
+import { DEFAULT_AI_MODEL, readChatResponse, resolveAiModel } from "./ai-model";
 import { extractCode, foldDigits } from "./extract";
 import { errorText, logError } from "./log";
 import type { CodeSource } from "./types";
 
-// Keep this in sync with wrangler.jsonc. The fp8 variant is the same Llama 3.1
-// 8B instruction model with lower latency/cost on Workers AI.
-export const AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8";
-export const AI_TIMEOUT_MS = 4000;
+export const AI_TIMEOUT_MS = 6000;
 
-// A code is at most 8 characters, so a small ceiling is enough and bounds cost.
-const AI_MAX_TOKENS = 16;
+// The unified model (ai-model.ts) is a reasoning model: it spends a
+// few hundred tokens thinking before it answers, so the 16-token
+// ceiling that suited the previous non-reasoning model would cut every
+// answer off before the code appears. 512 leaves headroom while still
+// bounding cost; the AI path only runs when the regex found nothing.
+const AI_MAX_TOKENS = 512;
 const CANDIDATE_RE = /^(?=.*\d)[A-Za-z0-9]{4,8}$/;
 
 const SYSTEM_PROMPT = [
@@ -31,7 +33,7 @@ export async function recognizeCode(env: Env, content: string): Promise<Recogniz
   const regexCode = extractCode(content);
   if (regexCode !== null) return { code: regexCode, source: "regex" };
 
-  const aiCode = await extractCodeWithAi(env.AI, content);
+  const aiCode = await extractCodeWithAi(env.AI, content, AI_TIMEOUT_MS, resolveAiModel(env));
   return aiCode === null ? { code: null, source: null } : { code: aiCode, source: "workers-ai" };
 }
 
@@ -40,11 +42,12 @@ export async function extractCodeWithAi(
   ai: Ai | undefined,
   content: string,
   timeoutMs = AI_TIMEOUT_MS,
+  model: string = DEFAULT_AI_MODEL,
 ): Promise<string | null> {
   if (!ai || typeof ai.run !== "function") return null;
   try {
     const output = await withTimeout(
-      ai.run(AI_MODEL, {
+      ai.run(model, {
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content },
@@ -63,10 +66,12 @@ export async function extractCodeWithAi(
 }
 
 function readAiResponse(output: unknown): string | null {
-  if (typeof output !== "object" || output === null) return null;
-  const response = (output as { response?: unknown }).response;
-  if (typeof response !== "string") return null;
-  const text = response.trim();
+  // Shared dual-shape reader (ai-model.ts): accepts the native
+  // { response } shape and the OpenAI chat-completion shape the
+  // unified default model returns.
+  const raw = readChatResponse(output);
+  if (raw === null) return null;
+  const text = raw.trim();
   if (!text || text.toUpperCase() === "NONE") return null;
   return text;
 }
