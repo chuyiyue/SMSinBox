@@ -112,12 +112,24 @@ export function renderNotification(input: {
   locale?: "zh-CN" | "en";
 }): NotifyText {
   const who = input.from.trim() || "未知号码";
-  const title = truncate(input.code ? `验证码 ${input.code}` : `新短信 ${who}`, 80);
+  // The title leads with the device name so a phone notification banner
+  // shows which device received the SMS at first glance, and it follows
+  // the system language like the body's framing lines do. The body text
+  // below keeps its existing format unchanged.
+  const en = input.locale === "en";
+  const device = truncate(input.deviceName || (en ? "Device" : "设备"), 24);
+  let title: string;
+  if (en) {
+    const titleWho = input.from.trim() || "unknown number";
+    title = input.code ? `${device} · Code ${input.code}` : `${device} · New SMS from ${titleWho}`;
+  } else {
+    title = input.code ? `${device} · 验证码 ${input.code}` : `${device} · 新短信 ${who}`;
+  }
   const text = truncate(
     `${input.deviceName || "设备"} · ${who}\n${new Date(input.receivedAt).toISOString()}\n${notificationBody(input)}`,
     500,
   );
-  return { title, text };
+  return { title: truncate(title, 80), text };
 }
 
 // Translation on top, original underneath, one blank line between them.
