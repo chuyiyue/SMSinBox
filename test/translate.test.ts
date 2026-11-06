@@ -219,6 +219,28 @@ describe("translateSmsContent", () => {
     });
   });
 
+  it("accepts the OpenAI chat-completion shape from the gemma fallback", async () => {
+    // @cf/google/gemma-4-26b-a4b-it returns
+    // { choices: [{ message: { content } }] } instead of { response }.
+    const run = vi.fn(async (...args: unknown[]) => {
+      if (args[0] === M2M_MODEL) throw new Error("m2m down");
+      return {
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: CHINESE },
+            finish_reason: "stop",
+          },
+        ],
+      };
+    });
+    await expect(translateSmsContent(envWithAi(aiBinding(run)), ENGLISH)).resolves.toEqual({
+      translated: CHINESE,
+      sourceLang: "en",
+    });
+    expect(run).toHaveBeenCalledWith(FALLBACK_MODEL, expect.objectContaining({ temperature: 0 }));
+  });
+
   it("returns null when both models fail, and the log omits the SMS body", async () => {
     const errors: string[] = [];
     vi.spyOn(console, "error").mockImplementation((line) => {
