@@ -1,3 +1,4 @@
+import { readChatResponse, resolveAiModel } from "./ai-model";
 import { errorText, logError } from "./log";
 
 // Many-to-many translation. Cloudflare's published example passes full
@@ -5,14 +6,11 @@ import { errorText, logError } from "./log";
 export const M2M_MODEL = "@cf/meta/m2m100-1.2b";
 
 // Chat-model fallback for translations m2m100 rejects or cannot serve.
-// This used to share the code-recognition model
-// (@cf/meta/llama-3.1-8b-instruct-fp8), which Cloudflare deprecates on
-// 2026-11-15, so the fallback now carries its own model and the two
-// features can move independently. The replacement is the model
-// Cloudflare recommends for smaller-model needs in its 2026-11-05
-// deprecation notice. gemma-4 answers in the OpenAI chat-completion
-// shape instead of the native { response } shape; readLlama accepts both.
-export const FALLBACK_MODEL = "@cf/google/gemma-4-26b-a4b-it";
+// The model is the shared AI model resolved in ai-model.ts (the
+// AI_MODEL Worker secret when configured, otherwise the built-in
+// default) — the same model code recognition uses. The default model
+// answers in the OpenAI chat-completion shape instead of the native
+// { response } shape; readLlama accepts both via readChatResponse.
 export const TRANSLATE_TIMEOUT_MS = 6_000;
 
 // Translations always land in the system language: the UI locale of the
@@ -242,7 +240,7 @@ export async function translateSmsContent(
   try {
     const primary = await runM2M(env.AI, content, sourceLang, target);
     if (primary.ok) return { translated: primary.text, sourceLang };
-    const fallback = await runLlama(env.AI, content, sourceLang, target);
+    const fallback = await runLlama(env.AI, resolveAiModel(env), content, sourceLang, target);
     if (fallback.ok) return { translated: fallback.text, sourceLang };
     const error = `${primary.error}; ${fallback.error}`.slice(0, 180);
     logError({ message: "sms_translate_failed", source_lang: sourceLang, error });
@@ -283,6 +281,7 @@ async function runM2M(
 
 async function runLlama(
   ai: Ai | undefined,
+  model: string,
   content: string,
   sourceLang: string,
   target: TranslateTarget,
@@ -290,7 +289,7 @@ async function runLlama(
   if (!ai || typeof ai.run !== "function") return { ok: false, error: "ai_unavailable" };
   try {
     const output = await withTimeout(
-      ai.run(FALLBACK_MODEL, {
+      ai.run(model, {
         messages: [
           { role: "system", content: llamaSystemPrompt(sourceLang, target) },
           { role: "user", content },
@@ -338,29 +337,13 @@ function readM2M(output: unknown): string | null {
 }
 
 function readLlama(output: unknown): string | null {
-  if (typeof output !== "object" || output === null) return null;
-  // The llama models answer in the Workers AI native shape
-  // ({ response: "..." }); gemma-4 answers in the OpenAI chat-completion
-  // shape ({ choices: [{ message: { content } }] }). Accept both so the
-  // fallback keeps working across model swaps.
-  const response = (output as { response?: unknown }).response;
-  if (typeof response === "string") {
-    const text = cleanTranslation(response);
-    return text || null;
-  }
-  const choices = (output as { choices?: unknown }).choices;
-  if (Array.isArray(choices) && choices.length > 0) {
-    const message = (choices[0] as { message?: unknown }).message;
-    const content =
-      typeof message === "object" && message !== null
-        ? (message as { content?: unknown }).content
-        : undefined;
-    if (typeof content === "string") {
-      const text = cleanTranslation(content);
-      return text || null;
-    }
-  }
-  return null;
+  // Shared dual-shape reader (ai-model.ts): the native { response }
+  // shape and the OpenAI chat-completion shape are both accepted, so
+  // the fallback keeps working across model swaps.
+  const raw = readChatResponse(output);
+  if (raw === null) return null;
+  const text = cleanTranslation(raw);
+  return text || null;
 }
 
 function cleanTranslation(raw: string): string {

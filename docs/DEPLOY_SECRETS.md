@@ -8,6 +8,7 @@
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账号 ID：`df9099b08aefcec67ce14c18f00c7b52`。 |
 | `GH_CLIENT_ID` | GitHub OAuth App 的 Client ID。 |
 | `GH_CLIENT_SECRET` | GitHub OAuth App 的 Client Secret。 |
+| `AI_MODEL` | 统一 AI 模型名：翻译兜底与验证码识别共用这一个模型。部署时同步为同名 Worker secret，代码读到就用它；不设置时用代码内置默认值 `@cf/google/gemma-4-26b-a4b-it`。 |
 
 GitHub 管理员不单设机密：共用既有的 Worker 机密 `ADMIN_USERNAME`（密码登录的那个用户名）。只要上面两个 GH_ 机密配好，`ADMIN_USERNAME` 就同时成为 GitHub 登录的管理员校验名（不区分大小写）；只有这个 GitHub 账号、或已经绑定过的账号，能使用 GitHub 登录。
 
@@ -25,4 +26,4 @@ https://sms.1791147.xyz/api/v1/auth/github/callback
 
 部署工作流在推送到 `main` 或手动触发时运行：安装依赖、测试、将已设置的 OAuth secrets 同步到 Worker，再应用远程 D1 迁移并部署。OAuth 对应的 repository secret 为空或未设置时，工作流会跳过该项，不会用空值覆盖已有 Worker secret。Cloudflare API token 和账号 ID 则必须配置，Wrangler 才能连接 Cloudflare。
 
-本地手动部署仍可沿用 README 中的 Wrangler 命令。若启用 GitHub OAuth，在本地部署前需要自行用 `npx wrangler secret put` 设置 Worker secrets：`GH_CLIENT_ID` 和 `GH_CLIENT_SECRET`（流水线会把仓库机密 `GH_CLIENT_ID` / `GH_CLIENT_SECRET` 同步成这两个）。管理员用户名与密码使用既有 Worker secrets `ADMIN_USERNAME` / `ADMIN_PASSWORD`，不会由该流水线同步。
+本地手动部署仍可沿用 README 中的 Wrangler 命令。若启用 GitHub OAuth，在本地部署前需要自行用 `npx wrangler secret put` 设置 Worker secrets：`GH_CLIENT_ID` 和 `GH_CLIENT_SECRET`（流水线会把仓库机密 `GH_CLIENT_ID` / `GH_CLIENT_SECRET` 同步成这两个）。管理员用户名与密码使用既有 Worker secrets `ADMIN_USERNAME` / `ADMIN_PASSWORD`，不会由该流水线同步。`AI_MODEL` 同理：流水线会把仓库机密 `AI_MODEL` 同步成同名 Worker secret；仓库机密为空时跳过，Worker 继续用内置默认模型。

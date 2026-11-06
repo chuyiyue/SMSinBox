@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_AI_MODEL } from "../src/ai-model";
 import {
-  FALLBACK_MODEL,
   M2M_LANG_NAME,
   M2M_MODEL,
   M2M_TARGET_LANG,
@@ -13,8 +13,8 @@ import {
   translateSmsContent,
 } from "../src/translate";
 
-function envWithAi(ai: Env["AI"] | undefined): Env {
-  return { AI: ai } as unknown as Env;
+function envWithAi(ai: Env["AI"] | undefined, aiModel?: string): Env {
+  return { AI: ai, AI_MODEL: aiModel } as unknown as Env;
 }
 
 function aiBinding(run: (...args: unknown[]) => unknown): Env["AI"] {
@@ -88,7 +88,7 @@ describe("M2M_LANG_NAME", () => {
     });
     expect(M2M_TARGET_LANG).toEqual({ "zh-CN": "chinese", en: "english" });
     expect(M2M_MODEL).toBe("@cf/meta/m2m100-1.2b");
-    expect(FALLBACK_MODEL).toBe("@cf/google/gemma-4-26b-a4b-it");
+    expect(DEFAULT_AI_MODEL).toBe("@cf/google/gemma-4-26b-a4b-it");
     expect(TRANSLATE_TIMEOUT_MS).toBe(6_000);
   });
 });
@@ -191,7 +191,7 @@ describe("translateSmsContent", () => {
       sourceLang: "en",
     });
     expect(thrown).toHaveBeenCalledWith(
-      FALLBACK_MODEL,
+      DEFAULT_AI_MODEL,
       expect.objectContaining({
         messages: [
           { role: "system", content: expect.stringContaining("en") },
@@ -238,7 +238,7 @@ describe("translateSmsContent", () => {
       translated: CHINESE,
       sourceLang: "en",
     });
-    expect(run).toHaveBeenCalledWith(FALLBACK_MODEL, expect.objectContaining({ temperature: 0 }));
+    expect(run).toHaveBeenCalledWith(DEFAULT_AI_MODEL, expect.objectContaining({ temperature: 0 }));
   });
 
   it("returns null when both models fail, and the log omits the SMS body", async () => {
@@ -335,6 +335,17 @@ describe("translateSmsContent with an English system language", () => {
     });
   });
 
+  it("uses the AI_MODEL env override as the fallback model", async () => {
+    const run = vi.fn(async (...args: unknown[]) => {
+      if (args[0] === M2M_MODEL) throw new Error("m2m down");
+      return { choices: [{ message: { role: "assistant", content: CHINESE } }] };
+    });
+    await expect(
+      translateSmsContent(envWithAi(aiBinding(run), "@cf/test/custom-model"), ENGLISH),
+    ).resolves.toEqual({ translated: CHINESE, sourceLang: "en" });
+    expect(run).toHaveBeenCalledWith("@cf/test/custom-model", expect.objectContaining({ temperature: 0 }));
+  });
+
   it("prompts llama in English when m2m100 fails for an English target", async () => {
     // Short enough to stay within the llama path's 3x length cap.
     const llamaResult = "Your package arrived this morning.";
@@ -347,7 +358,7 @@ describe("translateSmsContent with an English system language", () => {
       sourceLang: "zh-Hans",
     });
     expect(run).toHaveBeenCalledWith(
-      FALLBACK_MODEL,
+      DEFAULT_AI_MODEL,
       expect.objectContaining({
         messages: [
           { role: "system", content: expect.stringContaining("into English") },
