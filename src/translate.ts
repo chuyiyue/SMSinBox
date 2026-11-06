@@ -1,9 +1,17 @@
-import { AI_MODEL as LLAMA_MODEL } from "./code-recognition";
 import { errorText, logError } from "./log";
 
 // Many-to-many translation. Cloudflare's published example passes full
 // language names ("english", "french"), not ISO codes.
 export const M2M_MODEL = "@cf/meta/m2m100-1.2b";
+
+// Chat-model fallback for translations m2m100 rejects or cannot serve.
+// This used to share the code-recognition model
+// (@cf/meta/llama-3.1-8b-instruct-fp8), which Cloudflare deprecates on
+// 2026-11-15, so the fallback now carries its own model and the two
+// features can move independently. The replacement is the model
+// Cloudflare recommends for smaller-model needs in its 2026-11-05
+// deprecation notice.
+export const FALLBACK_MODEL = "@cf/google/gemma-4-26b-a4b-it";
 export const TRANSLATE_TIMEOUT_MS = 6_000;
 
 // Translations always land in the system language: the UI locale of the
@@ -281,7 +289,7 @@ async function runLlama(
   if (!ai || typeof ai.run !== "function") return { ok: false, error: "ai_unavailable" };
   try {
     const output = await withTimeout(
-      ai.run(LLAMA_MODEL, {
+      ai.run(FALLBACK_MODEL, {
         messages: [
           { role: "system", content: llamaSystemPrompt(sourceLang, target) },
           { role: "user", content },
