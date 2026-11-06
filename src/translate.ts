@@ -10,7 +10,8 @@ export const M2M_MODEL = "@cf/meta/m2m100-1.2b";
 // 2026-11-15, so the fallback now carries its own model and the two
 // features can move independently. The replacement is the model
 // Cloudflare recommends for smaller-model needs in its 2026-11-05
-// deprecation notice.
+// deprecation notice. gemma-4 answers in the OpenAI chat-completion
+// shape instead of the native { response } shape; readLlama accepts both.
 export const FALLBACK_MODEL = "@cf/google/gemma-4-26b-a4b-it";
 export const TRANSLATE_TIMEOUT_MS = 6_000;
 
@@ -338,10 +339,28 @@ function readM2M(output: unknown): string | null {
 
 function readLlama(output: unknown): string | null {
   if (typeof output !== "object" || output === null) return null;
+  // The llama models answer in the Workers AI native shape
+  // ({ response: "..." }); gemma-4 answers in the OpenAI chat-completion
+  // shape ({ choices: [{ message: { content } }] }). Accept both so the
+  // fallback keeps working across model swaps.
   const response = (output as { response?: unknown }).response;
-  if (typeof response !== "string") return null;
-  const text = cleanTranslation(response);
-  return text || null;
+  if (typeof response === "string") {
+    const text = cleanTranslation(response);
+    return text || null;
+  }
+  const choices = (output as { choices?: unknown }).choices;
+  if (Array.isArray(choices) && choices.length > 0) {
+    const message = (choices[0] as { message?: unknown }).message;
+    const content =
+      typeof message === "object" && message !== null
+        ? (message as { content?: unknown }).content
+        : undefined;
+    if (typeof content === "string") {
+      const text = cleanTranslation(content);
+      return text || null;
+    }
+  }
+  return null;
 }
 
 function cleanTranslation(raw: string): string {
