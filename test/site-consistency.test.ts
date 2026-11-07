@@ -483,6 +483,14 @@ describe("site consistency", () => {
     expect(css).toMatch(/\.ui-drawer-overlay:hover \{ background: var\(--overlay\); \}/);
   });
 
+  it("lets mobile dialogs span the full width instead of the UA max-width cap", () => {
+    // A native dialog keeps the UA max-width (below 100%) unless the author
+    // resets it; the mobile sheet sets width: 100% with zeroed margins, so
+    // the cap would trim the sheet and leave it hugging the left edge.
+    const css = readFileSync("public/css/components.css", "utf8");
+    expect(css).toMatch(/dialog\.modal \{[^}]*max-width: none;/);
+  });
+
   it("renders the primary nav from a single registry", () => {
     const registry = readFileSync("public/registry.js", "utf8");
     expect(registry).toContain("window.SMSINBOX_MODULES");

@@ -285,6 +285,10 @@ dialog.modal {
   inset: 0;
   height: fit-content;
   margin: auto;
+  /* The UA stylesheet caps a dialog's max-width below 100%. On mobile the
+     sheet is meant to span the full width; without this the cap silently
+     trims it and, with the margins zeroed there, pins it to the left. */
+  max-width: none;
 }
 
 dialog.modal::backdrop { background: var(--overlay); }
