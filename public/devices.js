@@ -776,7 +776,8 @@ function pushLine(device, view) {
     const code = document.createElement("code");
     const pushId = pushIdOf(view.pushUrl);
     code.textContent = pushId;
-    code.title = pushId;
+    // No title tooltip: the ID is already fully visible, and the native
+    // tooltip only paints a duplicate box over the buttons below.
     line.append(code);
   } else {
     const span = document.createElement("span");
