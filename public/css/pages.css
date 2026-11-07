@@ -11,7 +11,7 @@
 .filters {
   display: flex;
   flex: 1 1 640px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--space-2) var(--space-3);
   align-items: end;
   min-width: 0;
@@ -20,10 +20,15 @@
 /* Fields grow to share the row: when one control leaves the bar (a
    segment, a field), the others fill the space instead of leaving a
    hole. Nothing in the bar is fixed-width except the segmented range,
-   which sizes to its labels. Fields may shrink below their basis
-   (min-width: 0): when the manage toggle widens into 删除（N), the
-   fields and the search box give up the room and the bar keeps its
-   shape instead of wrapping the range onto a staggered second band. */
+   which sizes to its labels. The form must NOT wrap internally on
+   desktop widths: flex line-breaking uses hypothetical (basis) sizes,
+   so a wide-enough-on-paper row still dropped the range onto a
+   staggered second band and bottom-aligned the search box against it.
+   Instead the fields shrink below their basis (min-width: 0): when the
+   manage toggle widens into 删除（N), the device/number fields and the
+   search box give up the room and everything else keeps its place.
+   Wrapping returns in the <=1100px layout below, where stacking the
+   bar into full rows is deliberate. */
 .filters .filter-field {
   flex: 1 1 170px;
   min-width: 0;
@@ -102,7 +107,7 @@
    range on its own line — instead of half-squeezed rows that overlap. */
 @media (max-width: 1100px) {
   .filter-search-field { flex: 1 1 100%; }
-  .filters { flex: 1 1 100%; }
+  .filters { flex: 1 1 100%; flex-wrap: wrap; }
   .filters .filter-field { flex: 1 1 150px; }
   .filters .filter-range { flex: 1 1 100%; }
 }
