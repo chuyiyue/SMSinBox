@@ -399,10 +399,10 @@
 /* Pager under the message list: prev / page info / next on one row.
    Buttons keep the 40px control height of the filter bar; the info
    segment never wraps, so the row holds together on narrow phones. */
-.pager { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 16px; }
+.pager { display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%; margin-top: var(--space-6); padding: 16px; }
 .pager button { flex: none; min-height: 40px; }
 .pager-info { color: var(--text-3); font-size: var(--fs-sm); white-space: nowrap; }
-@media (max-width: 639px) { .pager { gap: 8px; padding: 12px 0; } }
+@media (max-width: 639px) { .pager { gap: 8px; margin-top: var(--space-5); padding: 12px 0; } }
 .chips:empty { display: none; }
 
 /* Cards size to their own content: expanding one card must not stretch
