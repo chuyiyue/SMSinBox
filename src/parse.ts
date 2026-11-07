@@ -27,7 +27,6 @@ export function parseSmsPayload(contentType: string | null, body: string, now: n
       from: clip(pick(fields.map, ["from", "sender"]) ?? "", 80),
       to: clip(pick(fields.map, ["to"]) ?? "", 80),
       content,
-      deviceName: clip(pick(fields.map, ["device"]) ?? "", 64),
       sim: clip(pick(fields.map, ["sim"]) ?? "", 32),
       receivedAt: received.receivedAt,
       receivedAtSource: received.source,
@@ -67,7 +66,6 @@ function parseDeviceTime(raw: string | undefined): number | null {
 export function buildRawPayload(body: string, sms: SmsInput): string {
   return JSON.stringify({
     sim: sms.sim,
-    device: sms.deviceName,
     received_at: sms.receivedAt,
     received_at_source: sms.receivedAtSource,
     body,

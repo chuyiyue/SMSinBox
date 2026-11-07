@@ -223,7 +223,7 @@ describe("setup guide", () => {
     expect(MESSAGES.en["devices.typePreviewNote"]).toBe(MESSAGES.en["devices.typeNote"]);
     expect(MESSAGES["zh-CN"]["guide.ios.legacy3d"]).toBe("（设备类型）不用再填：填了也会忽略，类型以服务端保存的选择为准");
     expect(MESSAGES.en["guide.ios.legacy3d"]).toBe(
-      "(device type) no longer needs to be sent: it is ignored when present, and the type saved on the server wins",
+      "no longer needs to be sent: it is ignored when present, and the type saved on the server wins",
     );
   });
 

@@ -2,7 +2,6 @@ export interface SmsInput {
   from: string;
   to: string;
   content: string;
-  deviceName: string;
   sim: string;
   receivedAt: number;
   // "device" when the client supplied a usable timestamp, "server" when we had

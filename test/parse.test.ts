@@ -22,7 +22,6 @@ describe("parseSmsPayload", () => {
     expect(primary.sms).toMatchObject({
       from: "10086",
       content: "验证码 123456",
-      deviceName: "Pixel",
       sim: "1",
       to: "13800138000",
       receivedAt: Date.parse("2026-10-30T12:00:00Z"),

@@ -25,7 +25,7 @@ import { addFact, credentialBoxes, describeDevice, DEVICE_TYPES, isStale, presen
 import { closeDeviceDetail, openDeviceDetail, removeDevice, runPush } from "./device-detail.js";
 import { applyI18n, t } from "./i18n.js";
 
-const TEMPLATE = '{"from":"{{FROM}}","content":"{{SMS}}","timestamp":"{{RECEIVE_TIME}}","device":"{{DEVICE_NAME}}","sim":"{{CARD_SLOT}}"}';
+const TEMPLATE = '{"from":"{{FROM}}","content":"{{SMS}}","timestamp":"{{RECEIVE_TIME}}","sim":"{{CARD_SLOT}}"}';
 let form;
 let platformField;
 let deviceGroups = [];
@@ -59,7 +59,7 @@ function curlSampleText() {
     `curl -X POST '${webhookUrl}' \\`,
     "  -H 'Authorization: Bearer <token>' \\",
     "  -H 'Content-Type: application/json' \\",
-    `  -d '{"from":"10086","content":"${content}","device":"Android"}'`,
+    `  -d '{"from":"10086","content":"${content}"}'`,
   ].join("\n");
 }
 

@@ -1,6 +1,6 @@
 # iOS 接入
 
-iPhone 没有安卓那种常驻短信转发器。SMSinBox 用「快捷指令」的个人信息自动化：短信到达后，向创建设备时给出的那一条推送链接发送 JSON。链接形如 `https://<你的域名>/api/v1/ingest/<32 位十六进制密钥>`。正文是 `{ "from", "content", "timestamp", "device": "iOS" }`，标头只有 `Content-Type: application/json`。不要加 `Authorization`。
+iPhone 没有安卓那种常驻短信转发器。SMSinBox 用「快捷指令」的个人信息自动化：短信到达后，向创建设备时给出的那一条推送链接发送 JSON。链接形如 `https://<你的域名>/api/v1/ingest/<32 位十六进制密钥>`。正文是 `{ "from", "content", "timestamp" }`，标头只有 `Content-Type: application/json`。不要加 `Authorization`。
 
 手机上只装一次统一快捷指令。每台设备只贴自己的推送链接。要不要只收验证码，改这条自动化的条件，不要再装第二套主快捷指令。
 
@@ -32,7 +32,7 @@ iPhone 没有安卓那种常驻短信转发器。SMSinBox 用「快捷指令」�
 
 - https://www.icloud.com/shortcuts/f7880f724c5443aebffc1ab5c5b7788f
 
-分享里的「推送链接」文本默认为空，可安全转发此链接。导入后在快捷指令里贴上你自己的推送链接（32 位十六进制密钥）。`from`＝信息 › 发件人，`content`＝信息 › 内容，`timestamp`＝当前日期，`device`＝`iOS`。不要使用来路不明的其它分享链接。
+分享里的「推送链接」文本默认为空，可安全转发此链接。导入后在快捷指令里贴上你自己的推送链接（32 位十六进制密钥）。`from`＝信息 › 发件人，`content`＝信息 › 内容，`timestamp`＝当前日期。不要使用来路不明的其它分享链接。
 
 ## 准备推送链接
 
@@ -114,7 +114,6 @@ iOS 26 和 iOS 27 的差别主要在自动化的入口和开关名称。26 及�
    - `from`：变量「发件人」（来自「信息 › 发件人」）
    - `content`：**信息 › 内容**（不要用「快捷指令输入」）
    - `timestamp`：当前日期
-   - `device`：文本 `iOS`
 5. 看「获取 URL 内容」返回的文字，命中就通知并停止，否则继续：
    - 包含「请求过于频繁」：`未写入：请求过于频繁（429）。请稍后再试。`
    - 包含「推送链接」：`未写入：推送链接无效或已撤销（401）。请在设备页轮换后重贴链接。`
@@ -140,7 +139,7 @@ iOS 26 和 iOS 27 的差别主要在自动化的入口和开关名称。26 及�
    - `Authorization`：第三个文本（以 Bearer 开头的那个）
    - `Content-Type`：`application/json`
    - 请求体类型：JSON
-   - `from`、`content`、`timestamp`、`device` 与上面相同
+   - `from`、`content`、`timestamp` 与上面相同
 5. 只要验证码、并且快捷指令自己要停掉无关短信时，在「获取 URL 内容」之前加一个「如果」：快捷指令输入包含「验证码」，否则如果包含 `code`，否则「停止快捷指令」。
 
 设备页只提供统一模板一个下载。收藏夹里的 `?variant=code` 仍会下载旧的关键词模板。新的安装不要用它。

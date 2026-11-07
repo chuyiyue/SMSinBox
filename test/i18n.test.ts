@@ -31,7 +31,6 @@ describe("locale dictionary", () => {
       "guide.ios.autoFilterAfter",
       "guide.ios.legacy1After",
       "guide.ios.legacy2d",
-      "guide.ios.manual5f",
     ]);
     for (const key of zh) {
       if (TAIL_FRAGMENTS.has(key)) continue;
