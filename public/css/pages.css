@@ -706,6 +706,10 @@
   .time-inline { display: inline; margin-left: auto; white-space: nowrap; flex: none; font-variant-numeric: tabular-nums; }
   .chip-slot { justify-self: start; margin-top: var(--space-1); }
   .device-facts { grid-template-columns: 1fr; }
+  /* Device cards keep the two-half facts row on phones too (Roye):
+     platform and message count sit side by side, each left-aligned;
+     the detail drawer and doc examples keep the single column. */
+  .device .device-facts { grid-template-columns: 1fr 1fr; }
   .system-facts { grid-template-columns: 1fr; }
   .session-row { align-items: stretch; flex-direction: column; }
   .session-row button { width: 100%; }

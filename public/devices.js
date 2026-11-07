@@ -683,9 +683,9 @@ function renderDevice(device, entry) {
 
   const facts = document.createElement("dl");
   facts.className = "device-facts";
-  addFact(facts, t("devices.platform"), view.platformDetail, { wide: true });
+  addFact(facts, t("devices.platform"), view.platformDetail);
   if (total !== null) addFact(facts, t("devices.messageCountLabel"), t("devices.messageCount", { count: total }));
-  addFact(facts, t("devices.pushLink"), null, { wide: true, node: pushLine(device, view) });
+  addFact(facts, t("devices.pushId"), null, { wide: true, node: pushLine(device, view) });
 
   const actions = document.createElement("div");
   actions.className = "actions device-actions";
@@ -737,6 +737,17 @@ function renderDevice(device, entry) {
   });
   actions.append(more);
 
+  if (view.pushUrl) {
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.textContent = t("devices.copyLink");
+    copy.addEventListener("click", (event) => {
+      event.stopPropagation();
+      flashLabel(event.currentTarget, view.pushUrl, t("devices.copyLink"));
+    });
+    actions.append(copy);
+  }
+
   if (isStale(view.received)) {
     const note = document.createElement("p");
     note.className = "stale-note";
@@ -748,22 +759,25 @@ function renderDevice(device, entry) {
   return row;
 }
 
+// The card shows only the push ID (the credential segment of the push
+// URL); the full link stays in the device detail's push settings and is
+// what the copy button in the actions row copies.
+function pushIdOf(pushUrl) {
+  const match = /\/ingest\/([^/?#]+)/.exec(pushUrl);
+  if (match) return match[1];
+  const segments = String(pushUrl).split("/").filter(Boolean);
+  return segments.length ? segments[segments.length - 1] : String(pushUrl);
+}
+
 function pushLine(device, view) {
   const line = document.createElement("div");
   line.className = "device-id";
   if (view.pushUrl) {
     const code = document.createElement("code");
-    code.textContent = view.pushUrl;
-    code.title = view.pushUrl;
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "secondary";
-    button.textContent = t("devices.copyLink");
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      flashLabel(event.currentTarget, view.pushUrl, t("devices.copyLink"));
-    });
-    line.append(code, button);
+    const pushId = pushIdOf(view.pushUrl);
+    code.textContent = pushId;
+    code.title = pushId;
+    line.append(code);
   } else {
     const span = document.createElement("span");
     span.className = "subtle";
