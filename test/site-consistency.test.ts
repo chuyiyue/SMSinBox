@@ -289,6 +289,27 @@ describe("site consistency", () => {
     expect(hints.length).toBe(entries.length);
   });
 
+  it("shows only the recipient on notify channel cards", () => {
+    // Roye: the one line under a channel's name names who receives its
+    // pushes — never a key, token, sender or transport detail — and the
+    // card carries no test-status row.
+    const js = readFileSync("public/notify.js", "utf8");
+    const describe = js.slice(js.indexOf("function describe(channel)"), js.indexOf("function retryState"));
+    expect(describe).toContain("chat ${config.chat_id");
+    expect(describe).toContain("config.to");
+    expect(describe).toContain("maskTail(config.device_key)");
+    expect(describe).toContain("hostOf(config.webhook_url)");
+    expect(describe).toContain("hostOf(config.url)");
+    expect(describe).not.toContain("bot_token");
+    expect(describe).not.toContain("api_key");
+    expect(describe).not.toContain("config.from");
+    expect(describe).not.toContain("smtp_host");
+    expect(describe).not.toContain("密钥");
+    expect(describe).not.toContain("Webhook ·");
+    expect(js).not.toContain("lastTest");
+    expect(js).not.toContain("channel-test");
+  });
+
   it("keeps the notify page actions in the body toolbar beside the tabs", () => {
     const html = readFileSync("public/notify.html", "utf8");
     const js = readFileSync("public/notify.js", "utf8");
