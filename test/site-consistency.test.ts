@@ -777,7 +777,7 @@ describe("site consistency", () => {
     const inbox = readFileSync("public/inbox.js", "utf8");
     expect(inbox).toContain("senderLogoSlug");
     expect(inbox).toContain("/logos/");
-    expect(inbox).toContain('"/logo.png"');
+    expect(inbox).toContain('"/logo-full.png"');
 
     // Every brand the sender table can produce ships its logo file.
     const tableStart = inbox.indexOf("SENDER_LOGOS");
@@ -798,7 +798,7 @@ describe("site consistency", () => {
     const avatarStart = inbox.indexOf("function avatarNode");
     const avatar = inbox.slice(avatarStart, inbox.indexOf("\n}", avatarStart));
     const brandAt = avatar.indexOf("senderLogoSlug");
-    const systemAt = avatar.indexOf('"/logo.png"');
+    const systemAt = avatar.indexOf('"/logo-full.png"');
     const flagAt = avatar.indexOf("flagCountryForNumber");
     expect(brandAt).toBeGreaterThan(-1);
     expect(systemAt).toBeGreaterThan(brandAt);

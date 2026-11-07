@@ -1033,11 +1033,12 @@ function avatarNode(message) {
     return node;
   }
   // Internal test messages come from the system itself: use its logo.
-  // The app icon is a full-bleed design, so it fills the avatar circle
-  // exactly like a flag does instead of sitting as a glyph on a disc.
+  // The full-bleed variant fills the avatar circle exactly like a flag
+  // does; the plain app icon is a squircle with transparent corners and
+  // would show the disc behind it at the diagonals.
   if (String(from ?? "").trim().toLowerCase() === "smsinbox") {
     node.classList.add("has-logo-fill");
-    const img = logoImg("/logo.png");
+    const img = logoImg("/logo-full.png");
     img.className = "avatar-logo-fill";
     node.append(img);
     return node;

@@ -31,6 +31,7 @@ const PRECACHE = [
   "/users.js",
   "/vendor/qrcode.mjs",
   "/logo.png",
+  "/logo-full.png",
   "/icon-192.png",
   "/icon-512.png",
   "/icons.svg",
