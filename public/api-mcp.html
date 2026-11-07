@@ -81,8 +81,8 @@
                 <dd data-i18n="api.authValue">Bearer Token（与 REST API 共用）</dd>
               </div>
               <div class="span-2">
-                <dt data-i18n="api.readonlyTools">只读工具 (7 个)</dt>
-                <dd><code>list_messages</code>, <code>search_messages</code>, <code>get_message</code>, <code>get_latest_otp</code>, <code>search_otp</code>, <code>list_devices</code>, <code>get_device_status</code></dd>
+                <dt data-i18n="api.readonlyTools">工具 (10 个)</dt>
+                <dd><code>list_messages</code>, <code>search_messages</code>, <code>get_message</code>, <code>get_latest_otp</code>, <code>search_otp</code>, <code>list_devices</code>, <code>get_device_status</code>, <code>create_device</code>, <code>get_device_push_url</code>, <code>rotate_device_push_url</code></dd>
               </div>
             </div>
 
@@ -224,6 +224,14 @@
             <label class="scope-option">
               <input type="checkbox" name="permissions" value="devices:status" checked />
               <span><strong>devices:status</strong> - <span data-i18n="api.permStatusDesc">查看设备在线状态与最后上报时间</span></span>
+            </label>
+            <label class="scope-option">
+              <input type="checkbox" name="permissions" value="devices:create" />
+              <span><strong>devices:create</strong> - <span data-i18n="api.permCreateDesc">通过 API / MCP 创建新设备</span></span>
+            </label>
+            <label class="scope-option">
+              <input type="checkbox" name="permissions" value="devices:push" />
+              <span><strong>devices:push</strong> - <span data-i18n="api.permPushDesc">获取与轮换设备的推送链接</span></span>
             </label>
           </fieldset>
 

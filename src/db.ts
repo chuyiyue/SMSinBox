@@ -1844,6 +1844,46 @@ export async function getExtDevice(
     .first<DeviceRecord>();
 }
 
+/**
+ * Push-link view of one device for the external API: same scope semantics
+ * as getExtDevice (out-of-scope reads as "not found"), plus the push state
+ * and the stored-secret URL rebuilt exactly like listDevices does. The
+ * pushUrl is a path only; callers prefix the request origin. An active
+ * device whose secret was never stored (legacy rows) yields pushUrl null.
+ */
+export async function getExtDevicePush(
+  db: D1Database,
+  userId: string,
+  deviceId: string,
+  scopeDeviceIds: string[], // empty = all devices
+  contentKey?: ContentKey,
+): Promise<{ id: string; name: string; push: PushState; pushUrl: string | null } | null> {
+  if (scopeDeviceIds.length > 0 && !scopeDeviceIds.includes(deviceId)) {
+    return null;
+  }
+  const row = await db
+    .prepare(
+      `SELECT id, name, push_token_hash, push_revoked_at, push_token_enc
+       FROM devices WHERE id = ? AND user_id = ?`,
+    )
+    .bind(deviceId, userId)
+    .first<{
+      id: string;
+      name: string;
+      push_token_hash: string | null;
+      push_revoked_at: number | null;
+      push_token_enc: string | null;
+    }>();
+  if (!row) return null;
+  const push = pushState(row.push_token_hash, row.push_revoked_at);
+  let pushUrl: string | null = null;
+  if (push === "active" && row.push_token_enc) {
+    const token = await revealPushSecret(contentKey, row.push_token_enc);
+    if (token) pushUrl = `/api/v1/ingest/${token}`;
+  }
+  return { id: row.id, name: row.name, push, pushUrl };
+}
+
 export async function getLastMessageTimeForDevice(db: D1Database, deviceId: string): Promise<number | null> {
   const row = await db
     .prepare("SELECT MAX(received_at) AS last_at FROM messages WHERE device_id = ?")
