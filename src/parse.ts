@@ -27,7 +27,6 @@ export function parseSmsPayload(contentType: string | null, body: string, now: n
       from: clip(pick(fields.map, ["from", "sender"]) ?? "", 80),
       to: clip(pick(fields.map, ["to"]) ?? "", 80),
       content,
-      deviceName: clip(pick(fields.map, ["device"]) ?? "", 64),
       sim: clip(pick(fields.map, ["sim"]) ?? "", 32),
       receivedAt: received.receivedAt,
       receivedAtSource: received.source,
@@ -67,7 +66,6 @@ function parseDeviceTime(raw: string | undefined): number | null {
 export function buildRawPayload(body: string, sms: SmsInput): string {
   return JSON.stringify({
     sim: sms.sim,
-    device: sms.deviceName,
     received_at: sms.receivedAt,
     received_at_source: sms.receivedAtSource,
     body,
@@ -76,15 +74,15 @@ export function buildRawPayload(body: string, sms: SmsInput): string {
 
 export function readRawMeta(raw: string | null): {
   sim: string;
-  device: string;
   receivedAtSource: "device" | "server" | "unknown";
 } {
-  if (!raw) return { sim: "", device: "", receivedAtSource: "unknown" };
+  // A device string may still sit in raw_payload. It is not read back: the
+  // device name and type come from the saved device row.
+  if (!raw) return { sim: "", receivedAtSource: "unknown" };
   try {
-    const value = JSON.parse(raw) as { sim?: unknown; device?: unknown; received_at_source?: unknown };
+    const value = JSON.parse(raw) as { sim?: unknown; received_at_source?: unknown };
     return {
       sim: typeof value.sim === "string" ? value.sim : "",
-      device: typeof value.device === "string" ? value.device : "",
       // Rows written before the source marker existed cannot be classified
       // reliably, so say unknown instead of guessing.
       receivedAtSource:
@@ -93,7 +91,7 @@ export function readRawMeta(raw: string | null): {
           : "unknown",
     };
   } catch {
-    return { sim: "", device: "", receivedAtSource: "unknown" };
+    return { sim: "", receivedAtSource: "unknown" };
   }
 }
 

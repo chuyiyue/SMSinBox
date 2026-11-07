@@ -27,8 +27,6 @@ export function deviceTypeOf(value: unknown): DeviceType | null;
 
 export function sidebarDeviceIcon(device: { platform?: string | null } | null | undefined): string;
 
-export function platformFromReport(value: unknown): PlatformView;
-
 export function platformFromPreselect(value: unknown): PlatformView | null;
 
 export function platformBadge(platform: PlatformView | null | undefined): string;
@@ -66,7 +64,6 @@ export function credentialBoxes(input: { token?: string | null; pushUrl?: string
 
 export interface PanelMessage {
   device_id?: string | null;
-  reported_device?: string | null;
   received_at?: number | null;
 }
 

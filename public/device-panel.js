@@ -72,14 +72,6 @@ export function deviceTypeOf(value) {
   return TYPE_BY_VALUE.get(TYPE_ALIASES[text] ?? text) ?? null;
 }
 
-export function platformFromReport(value) {
-  const text = String(value ?? "").trim();
-  if (!text) return { key: "unknown", label: t("devices.notReported"), icon: "icon-type-other" };
-  const type = deviceTypeOf(text);
-  if (type) return { key: type.value, label: type.label, icon: type.icon };
-  return { key: "reported", label: text, icon: "icon-type-other" };
-}
-
 export function platformBadge(platform) {
   if (!platform || platform.key === "unknown") return t("devices.notReported");
   if (platform.key === "reported") return "Other";
@@ -91,9 +83,8 @@ export function platformDetail(platform) {
   return platform.label;
 }
 
-// The type chosen for the device (at creation, or later in the detail
-// drawer's advanced settings). A specific choice is authoritative
-// everywhere; reports only fill in for unset/Other (see describeDevice).
+// The type saved on the device (at creation, or later in the detail
+// drawer's advanced settings). Message reports never change it.
 export function platformFromPreselect(value) {
   const text = String(value ?? "").trim();
   if (!text) return null;
@@ -152,16 +143,13 @@ export function latestByDevice(messages) {
 
 export function describeDevice(device, latest) {
   const push = device?.push === "active" || device?.push === "revoked" ? device.push : "none";
-  // The type the owner chose wins (Roye): list, detail and sidebar must
-  // all show the selected type. A reported type only supplies the answer
-  // when nothing specific was chosen (unset, or Other).
-  const reported = platformFromReport(latest?.reported_device);
-  const chosen = platformFromPreselect(device?.platform);
-  const platform = chosen && chosen.key !== "other"
-    ? chosen
-    : reported.key !== "unknown"
-      ? reported
-      : (chosen ?? reported);
+  // Platform comes only from the type saved on the server. A device string
+  // on the latest message does not change the list, the detail, or the badge.
+  const platform = platformFromPreselect(device?.platform) ?? {
+    key: "unknown",
+    label: t("devices.notReported"),
+    icon: "icon-type-other",
+  };
   const received = receiveTime(device, latest);
   return {
     name: String(device?.name || ""),

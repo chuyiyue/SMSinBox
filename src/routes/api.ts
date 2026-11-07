@@ -1267,7 +1267,6 @@ async function testDevice(request: Request, env: Env, ctx: WaitCtx, rawId: strin
       from,
       to: "",
       content,
-      deviceName: device.name,
       sim: "",
       receivedAt: now,
       receivedAtSource: "server",

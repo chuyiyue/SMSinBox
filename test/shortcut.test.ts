@@ -130,7 +130,7 @@ describe("shortcut plist", () => {
     expect(plist).not.toContain("Webhook URL");
     expect(plist).not.toContain("设备 Token");
     expect(plist).not.toMatch(/<key>ActionIndex<\/key>\s*<integer>2<\/integer>/);
-    for (const field of ["from", "content", "timestamp", "device"]) {
+    for (const field of ["from", "content", "timestamp"]) {
       expect(plist).toContain(`<string>${field}</string>`);
     }
     expect(plist).toContain("ExtensionInput");

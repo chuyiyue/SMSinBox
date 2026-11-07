@@ -2,7 +2,6 @@ export interface SmsInput {
   from: string;
   to: string;
   content: string;
-  deviceName: string;
   sim: string;
   receivedAt: number;
   // "device" when the client supplied a usable timestamp, "server" when we had
@@ -40,7 +39,6 @@ export interface MessageView {
   code: string | null;
   code_source: CodeSource | null;
   sim: string;
-  reported_device: string;
   received_at: number;
   received_at_source: "device" | "server" | "unknown";
   created_at: number;

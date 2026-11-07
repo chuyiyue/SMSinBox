@@ -1455,7 +1455,6 @@ async function revealMessage(row: MessageRecord, key: ContentKey): Promise<Messa
     code: await revealCode(key, row.code, encrypted),
     code_source: row.code === null ? null : row.code_source,
     sim: meta.sim,
-    reported_device: meta.device,
     received_at: row.received_at,
     received_at_source: meta.receivedAtSource,
     created_at: row.created_at,
