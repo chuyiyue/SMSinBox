@@ -1,5 +1,5 @@
 import { t } from "./i18n.js";
-import { api, emptyState, errorState, formatDateTime, formatTime, initShell, isUnauthorized, loadNav, logout, openModal, showNotice, statusDot, toast } from "./common.js";
+import { api, emptyState, errorState, formatDateTime, initShell, isUnauthorized, loadNav, logout, openModal, showNotice, statusDot, toast } from "./common.js";
 import { registerView } from "./shell.js";
 
 const MAX_CHANNELS = 10;
@@ -95,7 +95,6 @@ let bannerStatusKey = "";
 let historyItems = [];
 let historyState = "idle";
 let historyErrorWasReset = true;
-const lastTest = new Map();
 
 function startView() {
   viewToken += 1;
@@ -126,7 +125,6 @@ function startView() {
   historyItems = [];
   historyState = "idle";
   historyErrorWasReset = true;
-  lastTest.clear();
   renderKindGrid();
   wirePageTabs();
   const onLocale = () => {
@@ -743,13 +741,15 @@ function renderChannel(channel) {
   title.append(nameNode, hintText);
   head.append(badge, title, enabledDot(channel.enabled));
 
-  const masked = document.createElement("p");
-  masked.className = "channel-mask";
-  masked.textContent = describe(channel);
-
-  const test = document.createElement("div");
-  test.className = "channel-test";
-  test.append(testStatus(channel));
+  // The card shows only who receives the pushes (Roye); keys, tokens
+  // and signing state stay in the editor. A channel with no recipient
+  // line (NotifyX without a group) renders no row at all.
+  const recipient = describe(channel);
+  const masked = recipient ? document.createElement("p") : null;
+  if (masked) {
+    masked.className = "channel-mask";
+    masked.textContent = recipient;
+  }
 
   // One 2x2 grid, one button family (Roye): edit/test first, then the
   // enable/disable fill toggle and delete.
@@ -778,7 +778,7 @@ function renderChannel(channel) {
   remove.addEventListener("click", () => removeChannel(channel));
   actions.append(edit, testButton, toggle, remove);
 
-  row.append(head, masked, test, actions);
+  row.append(head, ...(masked ? [masked] : []), actions);
   return row;
 }
 
@@ -789,23 +789,6 @@ function enabledDot(enabled) {
   return status;
 }
 
-function testStatus(channel) {
-  const record = lastTest.get(channel.id);
-  if (!record) {
-    const empty = document.createElement("span");
-    empty.className = "channel-test-empty";
-    empty.textContent = t("notify.notTested");
-    return empty;
-  }
-  const status = record.ok ? t("notify.testOk") : t("notify.testFailed");
-  return statusDot(record.ok ? "ok" : "bad", t("notify.testResult", { status, time: formatTime(record.at) }));
-}
-
-function paintTest(channel) {
-  const row = list.querySelector(`[data-channel-id="${channel.id}"]`);
-  row?.querySelector(".channel-test")?.replaceChildren(testStatus(channel));
-}
-
 async function sendTest(channel, button) {
   button.disabled = true;
   button.textContent = t("notify.sending");
@@ -813,26 +796,22 @@ async function sendTest(channel, button) {
     const tested = await api(`/api/v1/notifications/${channel.id}/test`, { method: "POST", body: "{}" });
     if (!tested.response.ok || !tested.data.ok) {
       const message = tested.data.error || t("notify.testFailed");
-      lastTest.set(channel.id, { ok: false, at: Date.now() });
       if (tested.data.error) setError(tested.data.error);
       else setErrorKey("notify.testFailed");
       setStatus("");
       toast(message, { tone: "danger" });
       return;
     }
-    lastTest.set(channel.id, { ok: true, at: Date.now() });
     setError("");
     setStatusKey("notify.testSent");
     toast(t("notify.testSent"));
   } catch (error) {
     if (isUnauthorized(error)) return;
-    lastTest.set(channel.id, { ok: false, at: Date.now() });
     setErrorKey("notify.testFailed");
     toast(t("notify.testFailed"), { tone: "danger" });
   } finally {
     button.disabled = false;
     button.textContent = t("notify.test");
-    paintTest(channel);
   }
 }
 
@@ -910,19 +889,19 @@ function maskTail(value) {
   return `****${raw.slice(-4)}`;
 }
 
+// Recipient only (Roye): the one line under a channel's name says who
+// receives its pushes — never a key, token, sender or transport detail.
+// An empty string means the card renders no recipient row at all.
 function describe(channel) {
   const config = channel.config || {};
-  if (channel.kind === "telegram") return `chat ${config.chat_id || ""} · token ${config.bot_token || ""}`;
-  if (channel.kind === "wecom") return `Webhook · ${hostOf(config.webhook_url)}`;
-  if (channel.kind === "webhook") return `Webhook · ${hostOf(config.url)}`;
-  if (channel.kind === "notifyx") return config.team ? `密钥 ${config.api_key || ""} · 群组 ${config.team}` : `密钥 ${config.api_key || ""}`;
-  if (channel.kind === "bark") return `${hostOf(config.server)} · ${maskTail(config.device_key)}`;
-  if (channel.kind === "feishu" || channel.kind === "dingtalk") {
-    return config.secret ? `Webhook · ${hostOf(config.webhook_url)} · ${t("notify.signed")}` : `Webhook · ${hostOf(config.webhook_url)}`;
-  }
-  if (config.resend_api_key) return `${config.from || ""} → ${config.to || ""} · Resend`;
-  if (config.webhook_url) return `${config.from || ""} → ${config.to || ""} · Webhook ${hostOf(config.webhook_url)}`;
-  return `${config.from || ""} → ${config.to || ""} · ${config.smtp_host || "SMTP"}`;
+  if (channel.kind === "telegram") return `chat ${config.chat_id || ""}`;
+  if (channel.kind === "wecom") return hostOf(config.webhook_url);
+  if (channel.kind === "webhook") return hostOf(config.url);
+  if (channel.kind === "notifyx") return config.team ? `群组 ${config.team}` : "";
+  if (channel.kind === "bark") return maskTail(config.device_key);
+  if (channel.kind === "feishu" || channel.kind === "dingtalk") return hostOf(config.webhook_url);
+  if (channel.kind === "email") return config.to || "";
+  return "";
 }
 
 function retryState(message) {
