@@ -552,10 +552,11 @@
     transform: translateX(-100%);
     box-shadow: var(--shadow-3);
     /* Pin the drawer to the dynamic viewport and lay it out as a fixed
-       column: brand and nav on top, the device list flexes and scrolls
-       in the middle, and the account footer (avatar + name) always
-       stays visible at the bottom instead of ending up below the
-       browser chrome where it could not be reached. */
+       column: brand and nav on top, the device list anchored to the
+       bottom directly above the account footer (scrolling internally
+       when it outgrows the space), and the account footer (avatar +
+       name) always stays visible at the bottom instead of ending up
+       below the browser chrome where it could not be reached. */
     height: 100dvh;
     max-height: 100dvh;
     overflow: hidden;
@@ -565,13 +566,13 @@
   .sidebar-footer { flex: none; }
   .sidebar-nav a { font-size: var(--fs-md); min-height: 44px; }
   .sidebar-devices {
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     min-height: 0;
     max-height: none;
-    margin-top: 8px;
+    margin-top: auto;
     overflow-y: auto;
   }
-  .sidebar-footer { margin-top: auto; }
+  .sidebar-footer { margin-top: 8px; }
   .sidebar.is-open { transform: translateX(0); }
   .main { margin-left: 0; }
   .topbar { padding: calc(10px + env(safe-area-inset-top)) 16px 10px; }
