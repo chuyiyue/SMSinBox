@@ -493,9 +493,8 @@ describe("handleSms bearer", () => {
   });
 
   it("accepts a payload without the optional device field", async () => {
-    // The reported device type is optional: devices that cannot send it
-    // still deliver, and the card falls back to the type preselected at
-    // creation time.
+    // Omitting device still stores the message. A device string in the body
+    // is copied into raw_payload and is not used as the device type.
     const harness = createDb();
     await seedDevice(harness.state, TOKEN);
     const pending = waitCtx();

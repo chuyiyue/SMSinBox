@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSmsPayload, resolveReceivedAt } from "../src/parse";
+import { parseSmsPayload, readRawMeta, resolveReceivedAt } from "../src/parse";
 
 const NOW = Date.parse("2026-10-31T00:00:00Z");
 
@@ -123,5 +123,15 @@ describe("parseSmsPayload", () => {
       expect(late.sms.receivedAt).toBe(Date.UTC(2020, 0, 1));
       expect(late.sms.receivedAtSource).toBe("device");
     }
+  });
+
+  it("does not read a stored device string back out of raw payload", () => {
+    const meta = readRawMeta(
+      JSON.stringify({ sim: "1", device: "iOS", received_at_source: "device", body: "{}" }),
+    );
+    expect(meta).toEqual({ sim: "1", receivedAtSource: "device" });
+    expect(meta).not.toHaveProperty("device");
+    expect(readRawMeta(null)).toEqual({ sim: "", receivedAtSource: "unknown" });
+    expect(readRawMeta("not-json")).toEqual({ sim: "", receivedAtSource: "unknown" });
   });
 });

@@ -40,7 +40,6 @@ export interface MessageView {
   code: string | null;
   code_source: CodeSource | null;
   sim: string;
-  reported_device: string;
   received_at: number;
   received_at_source: "device" | "server" | "unknown";
   created_at: number;

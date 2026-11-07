@@ -76,15 +76,15 @@ export function buildRawPayload(body: string, sms: SmsInput): string {
 
 export function readRawMeta(raw: string | null): {
   sim: string;
-  device: string;
   receivedAtSource: "device" | "server" | "unknown";
 } {
-  if (!raw) return { sim: "", device: "", receivedAtSource: "unknown" };
+  // A device string may still sit in raw_payload. It is not read back: the
+  // device name and type come from the saved device row.
+  if (!raw) return { sim: "", receivedAtSource: "unknown" };
   try {
-    const value = JSON.parse(raw) as { sim?: unknown; device?: unknown; received_at_source?: unknown };
+    const value = JSON.parse(raw) as { sim?: unknown; received_at_source?: unknown };
     return {
       sim: typeof value.sim === "string" ? value.sim : "",
-      device: typeof value.device === "string" ? value.device : "",
       // Rows written before the source marker existed cannot be classified
       // reliably, so say unknown instead of guessing.
       receivedAtSource:
@@ -93,7 +93,7 @@ export function readRawMeta(raw: string | null): {
           : "unknown",
     };
   } catch {
-    return { sim: "", device: "", receivedAtSource: "unknown" };
+    return { sim: "", receivedAtSource: "unknown" };
   }
 }
 

@@ -7,7 +7,6 @@ import {
   describeDevice,
   latestByDevice,
   platformFromPreselect,
-  platformFromReport,
   selectSidebarDevices,
   sidebarDeviceIcon,
   pushActions,
@@ -67,15 +66,7 @@ describe("device panel status", () => {
     expect(pushConfirm("delete", "客厅")).toBeNull();
   });
 
-  it("reads platform from the latest reported device field", () => {
-    expect(platformFromReport("")).toEqual({ key: "unknown", label: "尚未上报", icon: "icon-type-other" });
-    expect(platformFromReport("  iOS ")).toEqual({ key: "ios", label: "iOS", icon: "icon-type-ios" });
-    expect(platformFromReport("android")).toEqual({ key: "android", label: "Android", icon: "icon-type-android" });
-    expect(platformFromReport("Windows")).toEqual({ key: "windows", label: "Windows", icon: "icon-type-windows" });
-    expect(platformFromReport("Pixel 8")).toEqual({ key: "reported", label: "Pixel 8", icon: "icon-type-other" });
-  });
-
-  it("falls back to the chosen device type until a report arrives", () => {
+  it("shows the type saved on the device", () => {
     // Device types are operating systems with English labels; the retired
     // phone/computer presets fold into Other, routers into OpenWrt.
     expect(platformFromPreselect("phone")).toEqual({ key: "other", label: "Other", icon: "icon-type-other" });
@@ -94,29 +85,56 @@ describe("device panel status", () => {
     expect(preset.platformBadge).toBe("macOS");
     expect(preset.platformDetail).toBe("macOS");
 
-    // A report fills in when the choice is not specific (phone → Other);
-    // a specific choice wins over a conflicting report (Roye).
-    const reported = describeDevice(
-      { ...DEVICE, platform: "phone" },
-      { device_id: DEVICE.id, reported_device: "iOS", received_at: 20 },
-    );
-    expect(reported.platform.key).toBe("ios");
     const chosen = describeDevice(
       { ...DEVICE, platform: "android" },
-      { device_id: DEVICE.id, reported_device: "iOS", received_at: 20 },
+      { device_id: DEVICE.id, received_at: 20 },
     );
     expect(chosen.platform.key).toBe("android");
     expect(chosen.platformBadge).toBe("Android");
-    const silent = describeDevice(
+    expect(chosen.platformDetail).toBe("Android");
+    const folded = describeDevice(
       { ...DEVICE, platform: "router" },
-      { device_id: DEVICE.id, reported_device: "", received_at: 20 },
+      { device_id: DEVICE.id, received_at: 20 },
     );
-    expect(silent.platform).toEqual({ key: "openwrt", label: "OpenWrt", icon: "icon-type-openwrt" });
+    expect(folded.platform).toEqual({ key: "openwrt", label: "OpenWrt", icon: "icon-type-openwrt" });
 
     expect(sidebarDeviceIcon({ platform: "linux" })).toBe("icon-type-linux");
     expect(sidebarDeviceIcon({ platform: "router" })).toBe("icon-type-openwrt");
     expect(sidebarDeviceIcon({ platform: "" })).toBe("icon-type-other");
     expect(sidebarDeviceIcon(null)).toBe("icon-type-other");
+  });
+
+  it("ignores a reported device type on the latest message", () => {
+    const latest = {
+      device_id: DEVICE.id,
+      reported_device: "iOS",
+      received_at: 20,
+    };
+    const unset = describeDevice(DEVICE, latest);
+    expect(unset.platform).toEqual({ key: "unknown", label: "尚未上报", icon: "icon-type-other" });
+    expect(unset.platformBadge).toBe("尚未上报");
+    expect(unset.platformDetail).toBe("尚未上报");
+    expect(unset.platformDetail).not.toContain("iOS");
+    // latest is still the source of the most recent receive time.
+    expect(unset.received).toEqual({ kind: "message", at: 20 });
+
+    const other = describeDevice({ ...DEVICE, platform: "other" }, latest);
+    expect(other.platform).toEqual({ key: "other", label: "Other", icon: "icon-type-other" });
+    expect(other.platformBadge).toBe("Other");
+    expect(other.platformDetail).toBe("Other");
+
+    const pixel = { ...latest, reported_device: "Pixel 8" };
+    const phone = describeDevice({ ...DEVICE, platform: "phone" }, pixel);
+    expect(phone.platform.key).toBe("other");
+    expect(phone.platformDetail).toBe("Other");
+    expect(phone.platformDetail).not.toContain("Pixel");
+
+    const android = describeDevice({ ...DEVICE, platform: "android" }, latest);
+    const quiet = describeDevice({ ...DEVICE, platform: "android" }, { device_id: DEVICE.id, received_at: 20 });
+    expect(android.platform).toEqual(quiet.platform);
+    expect(android.platformBadge).toBe("Android");
+    expect(android.platformDetail).toBe("Android");
+    expect(android.platformDetail).not.toContain("iOS");
   });
 
   it("caps the sidebar list at five and prefers pinned devices", () => {
@@ -144,20 +162,24 @@ describe("device panel status", () => {
     expect(waiting.id).toBe(DEVICE.id);
 
     const ios = describeDevice(
-      { ...DEVICE, push: "active", last_seen_at: 10 },
-      { device_id: DEVICE.id, reported_device: "iOS", received_at: 20 },
+      { ...DEVICE, platform: "ios", push: "active", last_seen_at: 10 },
+      { device_id: DEVICE.id, received_at: 20 },
     );
     expect(ios.platform.label).toBe("iOS");
     expect(ios.platformBadge).toBe("iOS");
+    expect(ios.platformDetail).toBe("iOS");
     expect(ios.received).toEqual({ kind: "message", at: 20 });
 
-    const tested = describeDevice(DEVICE, {
+    const named = {
       device_id: DEVICE.id,
       reported_device: DEVICE.name,
       received_at: 30,
-    });
+    };
+    const tested = describeDevice({ ...DEVICE, platform: "other" }, named);
     expect(tested.platformBadge).toBe("Other");
-    expect(tested.platformDetail).toContain("我的 iPhone");
+    expect(tested.platformDetail).toBe("Other");
+    expect(tested.platformDetail).not.toContain("我的 iPhone");
+    expect(tested.received).toEqual({ kind: "message", at: 30 });
   });
 
   it("uses the latest received message or last-seen time for stale detection", () => {
@@ -167,13 +189,14 @@ describe("device panel status", () => {
   });
 
   it("keeps the newest message for each device", () => {
+    const later = { device_id: "a", received_at: 5 };
     const map = latestByDevice([
-      { device_id: "a", received_at: 1, reported_device: "old" },
-      { device_id: "a", received_at: 5, reported_device: "iOS" },
-      { device_id: "a", received_at: 5, reported_device: "iOS-later" },
-      { device_id: "", received_at: 9, reported_device: "skip" },
+      { device_id: "a", received_at: 1 },
+      { device_id: "a", received_at: 5 },
+      later,
+      { device_id: "", received_at: 9 },
     ]);
-    expect(map.get("a")?.reported_device).toBe("iOS-later");
+    expect(map.get("a")).toBe(later);
     expect(map.size).toBe(1);
   });
 });
@@ -188,7 +211,20 @@ describe("setup guide", () => {
     expect(html).toContain("未签名版文件");
     expect(html).toContain("信息 › 内容");
     expect(html).not.toContain("尚未发布");
-    expect(html).toContain("已收到 iOS 短信");
+    expect(html).toContain("设备类型以这里的选择为准，短信上报不会改变它");
+    expect(html).toContain("（设备类型）不用再填：填了也会忽略，类型以服务端保存的选择为准");
+    expect(html).toContain("不用再填：填了也会忽略，类型以服务端保存的选择为准");
+    expect(html).toContain("设备类型以服务端保存的选择为准，短信上报不会改变它");
+    expect(html).not.toContain("按上报");
+    expect(html).not.toContain("已收到 iOS 短信");
+    expect(MESSAGES["zh-CN"]["devices.typeNote"]).toBe("设备类型以这里的选择为准，短信上报不会改变它");
+    expect(MESSAGES.en["devices.typeNote"]).toBe("The type is whatever is chosen here; message reports do not change it");
+    expect(MESSAGES["zh-CN"]["devices.typePreviewNote"]).toBe(MESSAGES["zh-CN"]["devices.typeNote"]);
+    expect(MESSAGES.en["devices.typePreviewNote"]).toBe(MESSAGES.en["devices.typeNote"]);
+    expect(MESSAGES["zh-CN"]["guide.ios.legacy3d"]).toBe("（设备类型）不用再填：填了也会忽略，类型以服务端保存的选择为准");
+    expect(MESSAGES.en["guide.ios.legacy3d"]).toBe(
+      "(device type) no longer needs to be sent: it is ignored when present, and the type saved on the server wins",
+    );
   });
 
   it("makes the guide's key values copy on click", () => {

@@ -26,7 +26,6 @@ function sample(overrides: Partial<MessageView> = {}): MessageView {
     code: "123456",
     code_source: "regex",
     sim: "1",
-    reported_device: "pixel",
     received_at: 2_000,
     received_at_source: "device",
     created_at: 2_000,

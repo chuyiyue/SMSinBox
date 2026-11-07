@@ -51,7 +51,7 @@
                 <div id="device-platform-mount"></div>
                 <button type="submit" data-i18n="devices.addDevice">添加设备</button>
               </form>
-              <p class="subtle" data-i18n="devices.typePreviewNote">设备类型只是预选：短信上报的类型与它不一致时，会按上报的类型显示</p>
+              <p class="subtle" data-i18n="devices.typePreviewNote">设备类型以这里的选择为准，短信上报不会改变它</p>
               <div id="token-box" class="token-box stack" hidden role="status">
                 <p class="callout note" data-i18n="devices.tokenOnce">Bearer token 只显示这一次，关闭后无法再次查看</p>
                 <div id="bearer-wrap" class="stack" hidden>
@@ -166,7 +166,7 @@
                       <li data-i18n="guide.ios.autoSwitch">打开自动化开关，关掉「运行前询问」；有「锁定时允许运行」也一并打开。手机重启后要先解锁一次，自动化才会恢复</li>
                     </ul>
                   </li>
-                  <li><strong data-i18n="guide.ios.testTitle">发一条短信测试</strong><span data-i18n="guide.ios.testBody">用另一台手机给这台 iPhone 发一条包含「验证码 123456」的短信：收件箱里能看到、设备卡的「最近活动」也更新了，就是接通了。设备卡上的「发送测试消息」只往服务器里写一条，不经过手机，没法用它验证自动化；收到真实短信后，设备卡会标明已收到 iOS 短信</span></li>
+                  <li><strong data-i18n="guide.ios.testTitle">发一条短信测试</strong><span data-i18n="guide.ios.testBody">用另一台手机给这台 iPhone 发一条包含「验证码 123456」的短信：收件箱里能看到、设备卡的「最近活动」也更新了，就是接通了。设备卡上的「发送测试消息」只往服务器里写一条，不经过手机，没法用它验证自动化。设备类型以服务端保存的选择为准，短信上报不会改变它</span></li>
                 </ol>
                 <h3 data-i18n="guide.ios.troubleTitle">出问题时</h3>
                 <ul>
@@ -190,7 +190,7 @@
                   <ol>
                     <li><span data-i18n="guide.ios.legacy1Before">已经装好的旧快捷指令不用改，继续 POST 到 </span><button type="button" class="copy-value guide-sms-url"></button><span data-i18n="guide.ios.legacy1After"></span></li>
                     <li><span data-i18n="guide.ios.legacy2a">请求头带 </span><button type="button" class="copy-value guide-auth" data-i18n="guide.api.authHeader"></button><span data-i18n="guide.ios.legacy2b">，再加一对：键 </span><button type="button" class="copy-value" data-copy="Content-Type">Content-Type</button><span data-i18n="guide.ios.legacy2c">、值 </span><button type="button" class="copy-value" data-copy="application/json">application/json</button><span data-i18n="guide.ios.legacy2d"></span></li>
-                    <li><span data-i18n="guide.ios.legacy3a">请求体字段是 </span><code>from</code><span data-i18n="guide.ios.legacy3b">、</span><code>content</code><span data-i18n="guide.ios.legacy3b">、</span><code>timestamp</code><span data-i18n="guide.ios.legacy3b">、</span><code>device</code><span data-i18n="guide.ios.legacy3c">。其中 </span><code>device</code><span data-i18n="guide.ios.legacy3d">（设备类型）选填：不填按添加设备时预选的类型显示；填了且与预选不一致时，按上报的显示</span></li>
+                    <li><span data-i18n="guide.ios.legacy3a">请求体字段是 </span><code>from</code><span data-i18n="guide.ios.legacy3b">、</span><code>content</code><span data-i18n="guide.ios.legacy3b">、</span><code>timestamp</code><span data-i18n="guide.ios.legacy3b">、</span><code>device</code><span data-i18n="guide.ios.legacy3c">。其中 </span><code>device</code><span data-i18n="guide.ios.legacy3d">（设备类型）不用再填：填了也会忽略，类型以服务端保存的选择为准</span></li>
                     <li data-i18n="guide.ios.legacy4">设备 token 丢了没法找回，只能删除设备重新添加</li>
                   </ol>
                 </details>
@@ -227,7 +227,7 @@
                     <tr><td data-label="字段" data-i18n-attr="data-label:guide.api.colField">from</td><td data-label="别名" data-i18n-attr="data-label:guide.api.colAlias">sender</td><td data-label="说明" data-i18n="guide.api.fieldFrom" data-i18n-attr="data-label:guide.api.colDesc">发件人号码或名称</td></tr>
                     <tr><td data-label="字段" data-i18n-attr="data-label:guide.api.colField">timestamp</td><td data-label="别名" data-i18n-attr="data-label:guide.api.colAlias">receive_time</td><td data-label="说明" data-i18n="guide.api.fieldTimestamp" data-i18n-attr="data-label:guide.api.colDesc">接收时间</td></tr>
                     <tr><td data-label="字段" data-i18n-attr="data-label:guide.api.colField">to</td><td data-label="别名" data-i18n="guide.api.noAlias" data-i18n-attr="data-label:guide.api.colAlias">没有别名</td><td data-label="说明" data-i18n="guide.api.fieldTo" data-i18n-attr="data-label:guide.api.colDesc">收件号码</td></tr>
-                    <tr><td data-label="字段" data-i18n-attr="data-label:guide.api.colField">device</td><td data-label="别名" data-i18n="guide.api.noAlias" data-i18n-attr="data-label:guide.api.colAlias">没有别名</td><td data-label="说明" data-i18n="guide.api.fieldDevice" data-i18n-attr="data-label:guide.api.colDesc">设备类型，如 Android、iOS</td></tr>
+                    <tr><td data-label="字段" data-i18n-attr="data-label:guide.api.colField">device</td><td data-label="别名" data-i18n="guide.api.noAlias" data-i18n-attr="data-label:guide.api.colAlias">没有别名</td><td data-label="说明" data-i18n="guide.api.fieldDevice" data-i18n-attr="data-label:guide.api.colDesc">不用再填：填了也会忽略，类型以服务端保存的选择为准</td></tr>
                     <tr><td data-label="字段" data-i18n-attr="data-label:guide.api.colField">sim</td><td data-label="别名" data-i18n="guide.api.noAlias" data-i18n-attr="data-label:guide.api.colAlias">没有别名</td><td data-label="说明" data-i18n="guide.api.fieldSim" data-i18n-attr="data-label:guide.api.colDesc">SIM 卡槽，如 SIM1</td></tr>
                   </tbody>
                 </table>
