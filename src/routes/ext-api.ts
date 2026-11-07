@@ -3,18 +3,22 @@
 
 import { resolveContentKey } from "../crypto";
 import {
+  findDeviceGroup,
   getExtDevice,
+  getExtDevicePush,
   getExtMessage,
   getLastMessageTimeForDevice,
   getLatestExtOtp,
   listExtDevices,
   listExtMessages,
   listExtOtp,
+  setDeviceGroup,
 } from "../db";
 import { json } from "../http";
 import { compileLikeQuery } from "../search";
 import type { MessageView } from "../types";
 import { APP_VERSION } from "../version";
+import { createDeviceForUser, rotateDevicePushForUser } from "./api";
 import {
   deriveDeviceStatus,
   deviceInScope,
@@ -23,6 +27,7 @@ import {
   extOkPaged,
   hasPermission,
   requireExtToken,
+  type AuthedToken,
 } from "./ext-auth";
 
 type WaitCtx = { waitUntil(promise: Promise<unknown>): void };
@@ -52,9 +57,9 @@ export async function handleExtApi(request: Request, env: Env, _ctx: WaitCtx = {
     return new Response(null, {
       status: 204,
       headers: {
-        allow: "GET, OPTIONS",
+        allow: "GET, POST, OPTIONS",
         "access-control-allow-origin": "*",
-        "access-control-allow-methods": "GET, OPTIONS",
+        "access-control-allow-methods": "GET, POST, OPTIONS",
         "access-control-allow-headers": "Authorization, Content-Type",
       },
     });
@@ -109,14 +114,27 @@ export async function handleExtApi(request: Request, env: Env, _ctx: WaitCtx = {
   }
 
   if (path === "/api/ext/v1/devices") {
-    if (method !== "GET") return extError(405, "METHOD_NOT_ALLOWED", "Method not allowed");
-    return handleListDevices(env, token);
+    if (method === "GET") return handleListDevices(env, token);
+    if (method === "POST") return handleCreateDevice(request, env, token);
+    return extError(405, "METHOD_NOT_ALLOWED", "Method not allowed");
   }
 
   const deviceStatusMatch = /^\/api\/ext\/v1\/devices\/([^/]+)\/status$/.exec(path);
   if (deviceStatusMatch?.[1]) {
     if (method !== "GET") return extError(405, "METHOD_NOT_ALLOWED", "Method not allowed");
     return handleGetDeviceStatus(deviceStatusMatch[1], env, token);
+  }
+
+  const devicePushUrlMatch = /^\/api\/ext\/v1\/devices\/([^/]+)\/push-url$/.exec(path);
+  if (devicePushUrlMatch?.[1]) {
+    if (method !== "GET") return extError(405, "METHOD_NOT_ALLOWED", "Method not allowed");
+    return handleGetDevicePushUrl(devicePushUrlMatch[1], request, env, token);
+  }
+
+  const devicePushRotateMatch = /^\/api\/ext\/v1\/devices\/([^/]+)\/push-url\/rotate$/.exec(path);
+  if (devicePushRotateMatch?.[1]) {
+    if (method !== "POST") return extError(405, "METHOD_NOT_ALLOWED", "Method not allowed");
+    return handleRotateDevicePushUrl(devicePushRotateMatch[1], request, env, token);
   }
 
   return extError(404, "NOT_FOUND", "Endpoint not found");
@@ -302,6 +320,150 @@ async function handleGetDeviceStatus(deviceId: string, env: Env, token: import("
   });
 }
 
+async function handleCreateDevice(request: Request, env: Env, token: AuthedToken): Promise<Response> {
+  if (!hasPermission(token, "devices:create")) {
+    return extError(403, "PERMISSION_DENIED", "Permission devices:create required");
+  }
+
+  let bodyValue: unknown;
+  try {
+    bodyValue = await request.json();
+  } catch {
+    return extError(400, "BAD_REQUEST", "Request body must be valid JSON");
+  }
+  if (!bodyValue || typeof bodyValue !== "object" || Array.isArray(bodyValue)) {
+    return extError(400, "BAD_REQUEST", "Request body must be a JSON object");
+  }
+  const record = bodyValue as Record<string, unknown>;
+
+  // `type` is accepted as an alias for `platform`; validation itself is
+  // the shared console one inside createDeviceForUser.
+  const normalized: Record<string, unknown> = { ...record };
+  if (normalized.platform === undefined && typeof record.type === "string") {
+    normalized.platform = record.type;
+  }
+
+  // group_id is optional; when given it must name one of the owner's
+  // groups (checked up front so a bad id never leaves a stray device).
+  let groupId: string | null = null;
+  if (typeof record.group_id === "string" && record.group_id.trim()) {
+    groupId = record.group_id.trim();
+    const group = await findDeviceGroup(env.DB, token.user_id, groupId);
+    if (!group) {
+      return extError(400, "BAD_REQUEST", "Device group not found");
+    }
+  } else if (record.group_id !== undefined && record.group_id !== null) {
+    return extError(400, "BAD_REQUEST", "group_id must be a string");
+  }
+
+  const created = await createDeviceForUser(env, token.user_id, normalized);
+  if (!created.ok) {
+    if (created.status === 503) {
+      return extError(503, "NOT_CONFIGURED", created.error);
+    }
+    return extError(400, "BAD_REQUEST", created.error);
+  }
+
+  // Creation is allowed even when the token's device scope is limited:
+  // the new device is NOT silently added to the scope, so later
+  // push-url reads/rotations for it still go through scope checks.
+  let appliedGroupId: string | null = null;
+  if (groupId) {
+    appliedGroupId = (await setDeviceGroup(env.DB, token.user_id, created.id, groupId)) ? groupId : null;
+  }
+
+  const origin = new URL(request.url).origin;
+  return extOk({
+    device: {
+      id: created.id,
+      name: created.name,
+      platform: created.platform,
+      created_at: created.createdAt,
+      last_seen_at: null,
+      group_id: appliedGroupId,
+      push: "active",
+    },
+    // Issued once at creation, exactly like the console flow.
+    push_url: `${origin}/api/v1/ingest/${created.pushToken}`,
+    token: created.token,
+    token_type: "Bearer",
+    token_expires_at: created.tokenExpiresAt,
+  });
+}
+
+async function handleGetDevicePushUrl(
+  deviceId: string,
+  request: Request,
+  env: Env,
+  token: AuthedToken,
+): Promise<Response> {
+  if (!hasPermission(token, "devices:push")) {
+    return extError(403, "PERMISSION_DENIED", "Permission devices:push required");
+  }
+
+  const contentKey = resolveContentKey(env.CONTENT_KEY);
+  const row = await getExtDevicePush(env.DB, token.user_id, deviceId, token.device_scope, contentKey);
+  if (!row) {
+    // Missing and out-of-scope devices are indistinguishable on purpose.
+    return extError(404, "NOT_FOUND", "Device not found");
+  }
+  if (row.push === "none") {
+    return extError(409, "PUSH_NOT_ISSUED", "This device has no push URL yet");
+  }
+  if (row.push === "revoked") {
+    return extError(409, "PUSH_REVOKED", "The push URL for this device has been revoked");
+  }
+  if (!row.pushUrl) {
+    // Active link whose plaintext was never stored (legacy device): the
+    // console shows the same state and offers rotation as the way out.
+    return extError(409, "PUSH_URL_NOT_STORED", "The push URL for this device is not stored; rotate it to reveal a new one");
+  }
+
+  const origin = new URL(request.url).origin;
+  return extOk({
+    id: row.id,
+    name: row.name,
+    push: "active",
+    push_url: `${origin}${row.pushUrl}`,
+  });
+}
+
+async function handleRotateDevicePushUrl(
+  deviceId: string,
+  request: Request,
+  env: Env,
+  token: AuthedToken,
+): Promise<Response> {
+  if (!hasPermission(token, "devices:push")) {
+    return extError(403, "PERMISSION_DENIED", "Permission devices:push required");
+  }
+
+  // Scope gate first, with the same not-found semantics as every other
+  // device endpoint, so rotation cannot probe devices outside the scope.
+  const device = await getExtDevice(env.DB, token.user_id, deviceId, token.device_scope);
+  if (!device) {
+    return extError(404, "NOT_FOUND", "Device not found");
+  }
+
+  const rotated = await rotateDevicePushForUser(env, token.user_id, deviceId);
+  if (!rotated.ok) {
+    if (rotated.reason === "no_push") {
+      return extError(409, "PUSH_NOT_ISSUED", "This device has no push URL to rotate");
+    }
+    if (rotated.reason === "not_found") {
+      return extError(404, "NOT_FOUND", "Device not found");
+    }
+    return extError(409, "CONFLICT", "Push URL state changed; please retry");
+  }
+
+  const origin = new URL(request.url).origin;
+  return extOk({
+    id: deviceId,
+    push: "active",
+    push_url: `${origin}/api/v1/ingest/${rotated.pushToken}`,
+  });
+}
+
 function parseBoundedInt(val: string | null, fallback: number, min: number, max: number): number {
   if (!val) return fallback;
   const parsed = Number(val);
@@ -322,7 +484,8 @@ export function getOpenApiSpec(): Record<string, unknown> {
     info: {
       title: "SMSinBox External API",
       version: APP_VERSION,
-      description: "Read-only external REST API for SMS messages, verification codes (OTP), and device status",
+      description:
+        "External REST API for SMS messages, verification codes (OTP), and devices: reads and status for every token, plus device creation and push-URL management for tokens holding the devices:create / devices:push permissions",
     },
     servers: [
       {
@@ -433,6 +596,33 @@ export function getOpenApiSpec(): Record<string, unknown> {
             "403": { description: "Permission devices:read required" },
           },
         },
+        post: {
+          summary: "Create a device",
+          description:
+            "Create a device for the token owner (same validation as the console). The response carries the new device and its full push_url, issued once at creation",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["name"],
+                  properties: {
+                    name: { type: "string", description: "Device name, 1-64 characters" },
+                    platform: { type: "string", description: "Platform/type, e.g. android, ios, openwrt (default other)" },
+                    type: { type: "string", description: "Alias for platform" },
+                    group_id: { type: "string", description: "Optional device group ID owned by the token owner" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Created device with push_url" },
+            "400": { description: "Validation failed" },
+            "403": { description: "Permission devices:create required" },
+          },
+        },
       },
       "/devices/{id}/status": {
         get: {
@@ -442,6 +632,33 @@ export function getOpenApiSpec(): Record<string, unknown> {
           responses: {
             "200": { description: "Device status" },
             "404": { description: "Device not found or out of scope" },
+          },
+        },
+      },
+      "/devices/{id}/push-url": {
+        get: {
+          summary: "Get a device's push URL",
+          description:
+            "Return the full push URL of a device inside the token scope, rebuilt from the stored secret. Devices whose link was never stored (legacy) answer 409 PUSH_URL_NOT_STORED",
+          parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+          responses: {
+            "200": { description: "Full push URL" },
+            "403": { description: "Permission devices:push required" },
+            "404": { description: "Device not found or out of scope" },
+            "409": { description: "No live push URL (never issued, revoked, or not stored)" },
+          },
+        },
+      },
+      "/devices/{id}/push-url/rotate": {
+        post: {
+          summary: "Rotate a device's push URL",
+          description: "Issue a new push URL for the device; the old URL stops working immediately",
+          parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+          responses: {
+            "200": { description: "New push URL" },
+            "403": { description: "Permission devices:push required" },
+            "404": { description: "Device not found or out of scope" },
+            "409": { description: "Device has no push URL to rotate" },
           },
         },
       },

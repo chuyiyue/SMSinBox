@@ -617,13 +617,13 @@ describe("MCP Server (/mcp)", () => {
     expect(pingRes.result).toEqual({});
   });
 
-  it("lists all 7 read-only tools on tools/list", async () => {
+  it("lists all 10 tools on tools/list", async () => {
     const toolsRes = await expectStatus(
       await call("/mcp", jsonInit({ jsonrpc: "2.0", method: "tools/list", id: 3 }), undefined, mcpToken),
       200,
     );
     const tools = (toolsRes.result as { tools: Array<{ name: string }> }).tools;
-    expect(tools.length).toBe(7);
+    expect(tools.length).toBe(10);
     const names = tools.map((t) => t.name);
     expect(names).toEqual([
       "list_messages",
@@ -633,6 +633,9 @@ describe("MCP Server (/mcp)", () => {
       "search_otp",
       "list_devices",
       "get_device_status",
+      "create_device",
+      "get_device_push_url",
+      "rotate_device_push_url",
     ]);
   });
 
@@ -839,5 +842,322 @@ describe("MCP Server (/mcp)", () => {
       404,
     );
     expect(unknownMethod.error).toMatchObject({ code: -32601 });
+  });
+});
+
+describe("External device management (REST + MCP)", () => {
+  // Legacy device: push link active on paper, but the plaintext secret was
+  // never stored (pre-0012 row), so its URL cannot be rebuilt.
+  const deviceCId = "44444444-4444-4444-8444-444444444444";
+  // Device whose push link was revoked.
+  const deviceDId = "55555555-5555-4555-8555-555555555555";
+  let fullToken = "";
+  let createToken = "";
+  let pushScopedToken = "";
+  let createPushScopedToken = "";
+  let readToken = "";
+  let groupId = "";
+  let createdDeviceId = "";
+  let createdPushUrl = "";
+
+  async function makeToken(name: string, permissions: string[], deviceScope: string[]): Promise<string> {
+    const res = await expectStatus(
+      await call("/api/v1/api-tokens", jsonInit({ name, permissions, device_scope: deviceScope }), adminCookie),
+      200,
+    );
+    return res.token as string;
+  }
+
+  function pushTokenOf(pushUrl: string): string {
+    return pushUrl.split("/ingest/")[1] ?? "";
+  }
+
+  async function mcpCall(token: string, name: string, args: Record<string, unknown>) {
+    const res = await expectStatus(
+      await call(
+        "/mcp",
+        jsonInit({ jsonrpc: "2.0", method: "tools/call", id: 42, params: { name, arguments: args } }),
+        undefined,
+        token,
+      ),
+      200,
+    );
+    return res.result as {
+      isError?: boolean;
+      content: Array<{ text: string }>;
+      structuredContent?: { push_url?: string; device?: { id: string } } | null;
+    };
+  }
+
+  beforeAll(async () => {
+    fullToken = await makeToken(
+      "Mgmt Full",
+      ["messages:read", "otp:read", "devices:read", "devices:status", "devices:create", "devices:push"],
+      [],
+    );
+    createToken = await makeToken("Mgmt Create Only", ["devices:create"], []);
+    pushScopedToken = await makeToken("Mgmt Push Scoped", ["devices:push"], [deviceAId]);
+    createPushScopedToken = await makeToken("Mgmt Create+Push Scoped", ["devices:create", "devices:push"], [deviceAId]);
+    readToken = await makeToken("Mgmt Read Only", ["devices:read"], []);
+
+    const now = Date.now();
+    await runSql(
+      env.DB,
+      `INSERT INTO devices (id, user_id, name, platform, token_hash, secret, token_version, last_seen_at, created_at, push_token_hash)
+       VALUES (?, ?, ?, ?, ?, NULL, 1, ?, ?, ?)`,
+      [deviceCId, adminUserId, "Device Legacy", "other", "hash_c", now - 60_000, now - 300_000, "legacy_push_hash"],
+    );
+    await runSql(
+      env.DB,
+      `INSERT INTO devices (id, user_id, name, platform, token_hash, secret, token_version, last_seen_at, created_at, push_token_hash, push_revoked_at)
+       VALUES (?, ?, ?, ?, ?, NULL, 1, ?, ?, ?, ?)`,
+      [deviceDId, adminUserId, "Device Revoked", "other", "hash_d", now - 60_000, now - 300_000, "revoked_push_hash", now - 50_000],
+    );
+
+    const groupRes = await expectStatus(
+      await call("/api/v1/device-groups", jsonInit({ name: "Ext Group" }), adminCookie),
+      200,
+    );
+    groupId = (groupRes.group as { id: string }).id;
+  });
+
+  it("rejects device creation without devices:create (403)", async () => {
+    const denied = await expectStatus(
+      await call("/api/ext/v1/devices", jsonInit({ name: "Nope" }), undefined, readToken),
+      403,
+    );
+    expect((denied.error as { code: string }).code).toBe("PERMISSION_DENIED");
+
+    const deniedPushOnly = await expectStatus(
+      await call("/api/ext/v1/devices", jsonInit({ name: "Nope" }), undefined, pushScopedToken),
+      403,
+    );
+    expect((deniedPushOnly.error as { code: string }).code).toBe("PERMISSION_DENIED");
+  });
+
+  it("creates a device with devices:create and returns the full push_url", async () => {
+    const res = await expectStatus(
+      await call("/api/ext/v1/devices", jsonInit({ name: "Ext Phone", platform: "android" }), undefined, createToken),
+      200,
+    );
+    const data = res.data as {
+      device: { id: string; name: string; platform: string; group_id: string | null };
+      push_url: string;
+      token: string;
+    };
+    expect(data.device.name).toBe("Ext Phone");
+    expect(data.device.platform).toBe("android");
+    expect(data.device.group_id).toBeNull();
+    expect(data.push_url).toMatch(/^http:\/\/smsinbox\.test\/api\/v1\/ingest\/[0-9a-f]{32}$/);
+    expect(typeof data.token).toBe("string");
+    expect(data.token.length).toBeGreaterThan(10);
+    createdDeviceId = data.device.id;
+    createdPushUrl = data.push_url;
+
+    // `type` works as an alias for `platform`, like the payload field name.
+    const alias = await expectStatus(
+      await call("/api/ext/v1/devices", jsonInit({ name: "Type Alias", type: "ios" }), undefined, fullToken),
+      200,
+    );
+    expect((alias.data as { device: { platform: string } }).device.platform).toBe("ios");
+  });
+
+  it("validates the create body with the console rules", async () => {
+    const emptyName = await expectStatus(
+      await call("/api/ext/v1/devices", jsonInit({ name: "  " }), undefined, fullToken),
+      400,
+    );
+    expect((emptyName.error as { code: string }).code).toBe("BAD_REQUEST");
+
+    const longName = await expectStatus(
+      await call("/api/ext/v1/devices", jsonInit({ name: "x".repeat(65) }), undefined, fullToken),
+      400,
+    );
+    expect((longName.error as { code: string }).code).toBe("BAD_REQUEST");
+
+    const badGroup = await expectStatus(
+      await call(
+        "/api/ext/v1/devices",
+        jsonInit({ name: "Grouped", group_id: "99999999-9999-4999-8999-999999999999" }),
+        undefined,
+        fullToken,
+      ),
+      400,
+    );
+    expect((badGroup.error as { code: string }).code).toBe("BAD_REQUEST");
+  });
+
+  it("creates into a group when group_id is given", async () => {
+    const res = await expectStatus(
+      await call("/api/ext/v1/devices", jsonInit({ name: "Grouped Phone", group_id: groupId }), undefined, createToken),
+      200,
+    );
+    expect((res.data as { device: { group_id: string | null } }).device.group_id).toBe(groupId);
+  });
+
+  it("serves the stored push_url to devices:push and hides out-of-scope devices", async () => {
+    const got = await expectStatus(
+      await call(`/api/ext/v1/devices/${createdDeviceId}/push-url`, {}, undefined, fullToken),
+      200,
+    );
+    expect((got.data as { push_url: string }).push_url).toBe(createdPushUrl);
+
+    const denied = await expectStatus(
+      await call(`/api/ext/v1/devices/${createdDeviceId}/push-url`, {}, undefined, createToken),
+      403,
+    );
+    expect((denied.error as { code: string }).code).toBe("PERMISSION_DENIED");
+
+    // In-scope device that never had a link: state error, not a 404.
+    const none = await expectStatus(
+      await call(`/api/ext/v1/devices/${deviceAId}/push-url`, {}, undefined, pushScopedToken),
+      409,
+    );
+    expect((none.error as { code: string }).code).toBe("PUSH_NOT_ISSUED");
+
+    // Out-of-scope and nonexistent devices are indistinguishable.
+    const outOfScope = await call(`/api/ext/v1/devices/${deviceBId}/push-url`, {}, undefined, pushScopedToken);
+    expect(outOfScope.status).toBe(404);
+    const missing = await call(
+      "/api/ext/v1/devices/99999999-9999-4999-8999-999999999999/push-url",
+      {},
+      undefined,
+      pushScopedToken,
+    );
+    expect(missing.status).toBe(404);
+  });
+
+  it("reports legacy devices whose push secret was never stored", async () => {
+    const res = await expectStatus(
+      await call(`/api/ext/v1/devices/${deviceCId}/push-url`, {}, undefined, fullToken),
+      409,
+    );
+    expect((res.error as { code: string }).code).toBe("PUSH_URL_NOT_STORED");
+  });
+
+  it("rotates: the new URL replaces the old one and the old ingest token dies", async () => {
+    const denied = await expectStatus(
+      await call(`/api/ext/v1/devices/${createdDeviceId}/push-url/rotate`, jsonInit({}), undefined, createToken),
+      403,
+    );
+    expect((denied.error as { code: string }).code).toBe("PERMISSION_DENIED");
+
+    const outOfScope = await call(
+      `/api/ext/v1/devices/${deviceBId}/push-url/rotate`,
+      jsonInit({}),
+      undefined,
+      pushScopedToken,
+    );
+    expect(outOfScope.status).toBe(404);
+
+    const noPush = await expectStatus(
+      await call(`/api/ext/v1/devices/${deviceAId}/push-url/rotate`, jsonInit({}), undefined, fullToken),
+      409,
+    );
+    expect((noPush.error as { code: string }).code).toBe("PUSH_NOT_ISSUED");
+
+    const oldToken = pushTokenOf(createdPushUrl);
+    const rotated = await expectStatus(
+      await call(`/api/ext/v1/devices/${createdDeviceId}/push-url/rotate`, jsonInit({}), undefined, fullToken),
+      200,
+    );
+    const newPushUrl = (rotated.data as { push_url: string }).push_url;
+    expect(newPushUrl).not.toBe(createdPushUrl);
+    expect(pushTokenOf(newPushUrl)).not.toBe(oldToken);
+
+    const got = await expectStatus(
+      await call(`/api/ext/v1/devices/${createdDeviceId}/push-url`, {}, undefined, fullToken),
+      200,
+    );
+    expect((got.data as { push_url: string }).push_url).toBe(newPushUrl);
+
+    const oldIngest = await call(`/api/v1/ingest/${oldToken}`, jsonInit({ from: "10086", content: "您的验证码是 123456" }));
+    expect(oldIngest.status).toBe(401);
+    const newIngest = await call(
+      `/api/v1/ingest/${pushTokenOf(newPushUrl)}`,
+      jsonInit({ from: "10086", content: "您的验证码是 123456" }),
+    );
+    expect(newIngest.status).toBe(200);
+    createdPushUrl = newPushUrl;
+  });
+
+  it("revoked devices report PUSH_REVOKED and rotation revives them", async () => {
+    const revoked = await expectStatus(
+      await call(`/api/ext/v1/devices/${deviceDId}/push-url`, {}, undefined, fullToken),
+      409,
+    );
+    expect((revoked.error as { code: string }).code).toBe("PUSH_REVOKED");
+
+    const rotated = await expectStatus(
+      await call(`/api/ext/v1/devices/${deviceDId}/push-url/rotate`, jsonInit({}), undefined, fullToken),
+      200,
+    );
+    const newPushUrl = (rotated.data as { push_url: string }).push_url;
+    const got = await expectStatus(
+      await call(`/api/ext/v1/devices/${deviceDId}/push-url`, {}, undefined, fullToken),
+      200,
+    );
+    expect((got.data as { push_url: string }).push_url).toBe(newPushUrl);
+  });
+
+  it("scope-limited tokens may create, but the new device stays out of their scope", async () => {
+    const created = await expectStatus(
+      await call("/api/ext/v1/devices", jsonInit({ name: "Scoped Created" }), undefined, createPushScopedToken),
+      200,
+    );
+    const data = created.data as { device: { id: string }; push_url: string };
+    expect(data.push_url).toContain("/api/v1/ingest/");
+
+    const got = await call(`/api/ext/v1/devices/${data.device.id}/push-url`, {}, undefined, createPushScopedToken);
+    expect(got.status).toBe(404);
+    const rotated = await call(
+      `/api/ext/v1/devices/${data.device.id}/push-url/rotate`,
+      jsonInit({}),
+      undefined,
+      createPushScopedToken,
+    );
+    expect(rotated.status).toBe(404);
+  });
+
+  it("denies the MCP management tools without their permissions", async () => {
+    const createDenied = await mcpCall(readToken, "create_device", { name: "Nope" });
+    expect(createDenied.isError).toBe(true);
+    expect(createDenied.content[0]?.text).toContain("devices:create");
+
+    const pushDenied = await mcpCall(createToken, "get_device_push_url", { id: createdDeviceId });
+    expect(pushDenied.isError).toBe(true);
+    expect(pushDenied.content[0]?.text).toContain("devices:push");
+  });
+
+  it("creates and rotates through the MCP tools, mirroring REST", async () => {
+    const created = await mcpCall(fullToken, "create_device", { name: "MCP Phone", platform: "android" });
+    expect(created.isError).toBeFalsy();
+    const mcpDeviceId = created.structuredContent?.device?.id ?? "";
+    const mcpPushUrl = created.structuredContent?.push_url ?? "";
+    expect(mcpDeviceId).toBeTruthy();
+    expect(mcpPushUrl).toMatch(/\/api\/v1\/ingest\/[0-9a-f]{32}$/);
+    expect(created.content[0]?.text).toContain(mcpPushUrl);
+
+    const got = await mcpCall(fullToken, "get_device_push_url", { id: mcpDeviceId });
+    expect(got.isError).toBeFalsy();
+    expect(got.structuredContent?.push_url).toBe(mcpPushUrl);
+
+    const rotated = await mcpCall(fullToken, "rotate_device_push_url", { id: mcpDeviceId });
+    expect(rotated.isError).toBeFalsy();
+    expect(rotated.structuredContent?.push_url).toBeTruthy();
+    expect(rotated.structuredContent?.push_url).not.toBe(mcpPushUrl);
+  });
+
+  it("keeps MCP push tools inside the token scope", async () => {
+    const got = await mcpCall(pushScopedToken, "get_device_push_url", { id: deviceBId });
+    expect(got.isError).toBe(true);
+
+    const rotated = await mcpCall(pushScopedToken, "rotate_device_push_url", { id: deviceBId });
+    expect(rotated.isError).toBe(true);
+
+    // The legacy in-scope device surfaces the not-stored state, not the URL.
+    const legacy = await mcpCall(fullToken, "get_device_push_url", { id: deviceCId });
+    expect(legacy.isError).toBe(true);
+    expect(legacy.content[0]?.text).toContain("未保存明文");
   });
 });

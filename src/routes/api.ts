@@ -813,26 +813,43 @@ async function devices(request: Request, env: Env): Promise<Response> {
   return json({ ok: true, devices: list });
 }
 
-async function createDevice(request: Request, env: Env): Promise<Response> {
-  const user = await requireUser(request, env);
-  if (user instanceof Response) return user;
-  const body = await readJson(request);
-  if (!body.ok) return body.response;
-  const parsed = readDeviceBody(body.value);
-  if ("error" in parsed) return json({ ok: false, error: parsed.error }, 400);
-  if ((await countDevices(env.DB, user.id)) >= MAX_DEVICES) {
-    return json({ ok: false, error: "设备数量已达上限" }, 400);
+export type CreateDeviceForUserResult =
+  | {
+      ok: true;
+      id: string;
+      name: string;
+      platform: string;
+      createdAt: number;
+      token: string;
+      tokenExpiresAt: number;
+      pushToken: string;
+    }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Shared device-creation core: the admin console handler and the external
+ * API (devices:create) both go through here so validation, the device
+ * limit, JWT issuance and push-secret storage can never drift apart.
+ * `value` is the raw request body ({ name, platform }).
+ */
+export async function createDeviceForUser(
+  env: Env,
+  userId: string,
+  value: unknown,
+): Promise<CreateDeviceForUserResult> {
+  const parsed = readDeviceBody(value);
+  if ("error" in parsed) return { ok: false, status: 400, error: parsed.error };
+  if ((await countDevices(env.DB, userId)) >= MAX_DEVICES) {
+    return { ok: false, status: 400, error: "设备数量已达上限" };
   }
 
   const secret = resolveDeviceJwtSecret(env);
   if (!secret) {
-    return json(
-      {
-        ok: false,
-        error: "设备认证尚未配置。请先设置 DEVICE_JWT_SECRET（至少 16 个字符），再添加设备",
-      },
-      503,
-    );
+    return {
+      ok: false,
+      status: 503,
+      error: "设备认证尚未配置。请先设置 DEVICE_JWT_SECRET（至少 16 个字符），再添加设备",
+    };
   }
 
   const id = crypto.randomUUID();
@@ -848,7 +865,7 @@ async function createDevice(request: Request, env: Env): Promise<Response> {
   const pushToken = newPushToken();
   await insertDevice(env.DB, {
     id,
-    userId: user.id,
+    userId,
     name: parsed.name,
     platform: parsed.platform,
     tokenHash: issued.tokenHash,
@@ -857,20 +874,39 @@ async function createDevice(request: Request, env: Env): Promise<Response> {
     pushSecretStored: await sealSecret(env, pushToken),
     createdAt,
   });
-  logInfo({ message: "device_created", device_id: id, user_id: user.id, platform: parsed.platform, auth: "jwt" });
+  logInfo({ message: "device_created", device_id: id, user_id: userId, platform: parsed.platform, auth: "jwt" });
+  return {
+    ok: true,
+    id,
+    name: parsed.name,
+    platform: parsed.platform,
+    createdAt,
+    token: issued.token,
+    tokenExpiresAt: issued.expiresAt,
+    pushToken,
+  };
+}
+
+async function createDevice(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  if (user instanceof Response) return user;
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const created = await createDeviceForUser(env, user.id, body.value);
+  if (!created.ok) return json({ ok: false, error: created.error }, created.status);
   return json({
     ok: true,
     // One-time credential. Per-device HMAC signing is gone; auth is the
     // system-signed JWT or the push link.
-    token: issued.token,
+    token: created.token,
     token_type: "Bearer",
-    token_expires_at: issued.expiresAt,
-    push_url: ingestUrl(request, pushToken),
+    token_expires_at: created.tokenExpiresAt,
+    push_url: ingestUrl(request, created.pushToken),
     device: {
-      id,
-      name: parsed.name,
-      platform: parsed.platform,
-      created_at: createdAt,
+      id: created.id,
+      name: created.name,
+      platform: created.platform,
+      created_at: created.createdAt,
       last_seen_at: null,
       pinned_at: null,
       group_id: null,
@@ -905,26 +941,73 @@ async function updateDevicePush(request: Request, env: Env, rawId: string): Prom
   if (action === "issue" && state === "active") {
     return json({ ok: false, error: "推送链接仍有效，请改用轮换" }, 409);
   }
-  if (action === "rotate" && state === "none") {
-    return json({ ok: false, error: "还没有推送链接" }, 409);
+  if (action === "rotate") {
+    const rotated = await rotateDevicePushForUser(env, user.id, id);
+    if (!rotated.ok) return json({ ok: false, error: rotated.error }, rotated.status);
+    return json({
+      ok: true,
+      push_url: ingestUrl(request, rotated.pushToken),
+      device: { id, push: "active" },
+    });
   }
 
-  const pushToken = newPushToken();
-  const updated = await replaceDevicePushToken(
-    env.DB,
-    user.id,
-    id,
-    await sha256Hex(pushToken),
-    action,
-    await sealSecret(env, pushToken),
-  );
-  if (!updated) return json({ ok: false, error: "推送链接状态已变化" }, 409);
+  // action === "issue" on a device with no live link (none or revoked).
+  const pushToken = await replacePushWithNewToken(env, user.id, id, "issue");
+  if (!pushToken) return json({ ok: false, error: "推送链接状态已变化" }, 409);
   logInfo({ message: "device_push_issued", device_id: id, user_id: user.id, action });
   return json({
     ok: true,
     push_url: ingestUrl(request, pushToken),
     device: { id, push: "active" },
   });
+}
+
+/**
+ * Generates a fresh push token and atomically swaps it in (hash + sealed
+ * stored copy), returning the plaintext token, or null when the guarded
+ * update matched no row (the push state changed under us).
+ */
+async function replacePushWithNewToken(
+  env: Env,
+  userId: string,
+  deviceId: string,
+  action: "issue" | "rotate",
+): Promise<string | null> {
+  const pushToken = newPushToken();
+  const updated = await replaceDevicePushToken(
+    env.DB,
+    userId,
+    deviceId,
+    await sha256Hex(pushToken),
+    action,
+    await sealSecret(env, pushToken),
+  );
+  return updated ? pushToken : null;
+}
+
+export type RotateDevicePushResult =
+  | { ok: true; pushToken: string }
+  | { ok: false; status: number; error: string; reason: "not_found" | "no_push" | "state_changed" };
+
+/**
+ * Shared push-link rotation core: the admin console handler and the
+ * external API (devices:push) both rotate through here. A device whose
+ * link was revoked can be rotated back to active; a device that never
+ * had a link cannot be rotated.
+ */
+export async function rotateDevicePushForUser(
+  env: Env,
+  userId: string,
+  deviceId: string,
+): Promise<RotateDevicePushResult> {
+  const device = await findOwnedDevice(env.DB, userId, deviceId);
+  if (!device) return { ok: false, status: 404, error: "设备不存在", reason: "not_found" };
+  const state = pushState(device.push_token_hash, device.push_revoked_at);
+  if (state === "none") return { ok: false, status: 409, error: "还没有推送链接", reason: "no_push" };
+  const pushToken = await replacePushWithNewToken(env, userId, deviceId, "rotate");
+  if (!pushToken) return { ok: false, status: 409, error: "推送链接状态已变化", reason: "state_changed" };
+  logInfo({ message: "device_push_issued", device_id: deviceId, user_id: userId, action: "rotate" });
+  return { ok: true, pushToken };
 }
 
 function newPushToken(): string {

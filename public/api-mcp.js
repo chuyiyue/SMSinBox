@@ -37,6 +37,18 @@ const PERMISSION_DEFS = [
     description: () => t("api.permStatusDesc"),
     reads: () => t("api.permStatusReads"),
   },
+  {
+    key: "devices:create",
+    name: () => t("api.permCreateName"),
+    description: () => t("api.permCreateDesc"),
+    reads: () => t("api.permCreateReads"),
+  },
+  {
+    key: "devices:push",
+    name: () => t("api.permPushName"),
+    description: () => t("api.permPushDesc"),
+    reads: () => t("api.permPushReads"),
+  },
 ];
 
 const MCP_TOOLS = [
@@ -73,6 +85,21 @@ const MCP_TOOLS = [
   {
     name: "get_device_status",
     description: () => t("api.toolDeviceStatus"),
+    inputSchema: { id: "<device uuid>" },
+  },
+  {
+    name: "create_device",
+    description: () => t("api.toolCreateDevice"),
+    inputSchema: { name: "Pixel 9", platform: "android" },
+  },
+  {
+    name: "get_device_push_url",
+    description: () => t("api.toolGetPushUrl"),
+    inputSchema: { id: "<device uuid>" },
+  },
+  {
+    name: "rotate_device_push_url",
+    description: () => t("api.toolRotatePushUrl"),
     inputSchema: { id: "<device uuid>" },
   },
 ];
@@ -180,6 +207,44 @@ const API_ENDPOINTS = [
     ],
     request: "curl -H \"Authorization: Bearer <token>\" \"${base}/devices/<device-id>/status\"",
     response: JSON.stringify({ ok: true, data: { id: "<device-id>", name: "Device Alpha", platform: "ios", last_seen_at: 1710000000000, status: "online", last_message_at: 1710000000000 } }, null, 2),
+  },
+  {
+    method: "POST",
+    path: "/devices",
+    summary: () => t("api.createDeviceSummary"),
+    description: () => t("api.createDeviceDesc"),
+    permission: () => "devices:create",
+    params: [
+      { name: "name", required: true, meaning: () => t("api.paramDeviceName") },
+      { name: "platform", required: false, meaning: () => t("api.paramPlatform") },
+      { name: "group_id", required: false, meaning: () => t("api.paramGroupId") },
+    ],
+    request: "curl -X POST -H \"Authorization: Bearer <token>\" -H \"Content-Type: application/json\" -d '{\"name\":\"Pixel 9\",\"platform\":\"android\"}' \"${base}/devices\"",
+    response: JSON.stringify({ ok: true, data: { device: { id: "<device-id>", name: "Pixel 9", platform: "android", created_at: 1710000000000, last_seen_at: null, group_id: null, push: "active" }, push_url: "https://sms.example.com/api/v1/ingest/<push-token>", token: "<device-jwt>", token_type: "Bearer", token_expires_at: 1810000000000 } }, null, 2),
+  },
+  {
+    method: "GET",
+    path: "/devices/{id}/push-url",
+    summary: () => t("api.pushUrlSummary"),
+    description: () => t("api.pushUrlDesc"),
+    permission: () => "devices:push",
+    params: [
+      { name: "id", required: true, meaning: () => t("api.paramDeviceUuid") },
+    ],
+    request: "curl -H \"Authorization: Bearer <token>\" \"${base}/devices/<device-id>/push-url\"",
+    response: JSON.stringify({ ok: true, data: { id: "<device-id>", name: "Device Alpha", push: "active", push_url: "https://sms.example.com/api/v1/ingest/<push-token>" } }, null, 2),
+  },
+  {
+    method: "POST",
+    path: "/devices/{id}/push-url/rotate",
+    summary: () => t("api.rotatePushUrlSummary"),
+    description: () => t("api.rotatePushUrlDesc"),
+    permission: () => "devices:push",
+    params: [
+      { name: "id", required: true, meaning: () => t("api.paramDeviceUuid") },
+    ],
+    request: "curl -X POST -H \"Authorization: Bearer <token>\" \"${base}/devices/<device-id>/push-url/rotate\"",
+    response: JSON.stringify({ ok: true, data: { id: "<device-id>", push: "active", push_url: "https://sms.example.com/api/v1/ingest/<new-push-token>" } }, null, 2),
   },
 ];
 let tokenListEl;

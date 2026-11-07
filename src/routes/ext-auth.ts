@@ -10,9 +10,22 @@ import {
 import { json } from "../http";
 import type { ApiTokenRecord, ApiTokenView } from "../types";
 
-export type ExtPermission = "messages:read" | "otp:read" | "devices:read" | "devices:status";
+export type ExtPermission =
+  | "messages:read"
+  | "otp:read"
+  | "devices:read"
+  | "devices:status"
+  | "devices:create"
+  | "devices:push";
 
-export const EXT_PERMISSIONS: ExtPermission[] = ["messages:read", "otp:read", "devices:read", "devices:status"];
+export const EXT_PERMISSIONS: ExtPermission[] = [
+  "messages:read",
+  "otp:read",
+  "devices:read",
+  "devices:status",
+  "devices:create",
+  "devices:push",
+];
 
 export interface AuthedToken {
   id: string;

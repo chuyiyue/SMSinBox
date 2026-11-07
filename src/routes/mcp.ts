@@ -4,13 +4,16 @@
 
 import { resolveContentKey } from "../crypto";
 import {
+  findDeviceGroup,
   getExtDevice,
+  getExtDevicePush,
   getExtMessage,
   getLastMessageTimeForDevice,
   getLatestExtOtp,
   listExtDevices,
   listExtMessages,
   listExtOtp,
+  setDeviceGroup,
 } from "../db";
 import { json } from "../http";
 import { compileLikeQuery } from "../search";
@@ -23,6 +26,7 @@ import {
   type AuthedToken,
   type ExtPermission,
 } from "./ext-auth";
+import { createDeviceForUser, rotateDevicePushForUser } from "./api";
 import { formatExtMessage } from "./ext-api";
 
 type WaitCtx = { waitUntil(promise: Promise<unknown>): void };
@@ -105,6 +109,44 @@ const MCP_TOOLS = [
   {
     name: "get_device_status",
     description: "Get current status, last seen time, and latest message time of a specific device",
+    inputSchema: {
+      type: "object",
+      required: ["id"],
+      properties: {
+        id: { type: "string", description: "The UUID of the device" },
+      },
+    },
+  },
+  {
+    name: "create_device",
+    description:
+      "Create a new device for the token owner and return it together with its full push URL (requires the devices:create permission)",
+    inputSchema: {
+      type: "object",
+      required: ["name"],
+      properties: {
+        name: { type: "string", description: "Device name, 1-64 characters" },
+        platform: { type: "string", description: "Platform/type, e.g. android, ios, openwrt (default other)" },
+        group_id: { type: "string", description: "Optional device group ID owned by the token owner" },
+      },
+    },
+  },
+  {
+    name: "get_device_push_url",
+    description:
+      "Get the full push URL of a device inside the authorized scope (requires the devices:push permission)",
+    inputSchema: {
+      type: "object",
+      required: ["id"],
+      properties: {
+        id: { type: "string", description: "The UUID of the device" },
+      },
+    },
+  },
+  {
+    name: "rotate_device_push_url",
+    description:
+      "Rotate a device's push URL: a new URL is issued and the old one stops working at once (requires the devices:push permission)",
     inputSchema: {
       type: "object",
       required: ["id"],
@@ -202,7 +244,7 @@ export async function handleMcp(request: Request, env: Env, _ctx: WaitCtx = { wa
     const toolName = typeof params?.name === "string" ? params.name : "";
     const args = (params?.arguments && typeof params.arguments === "object" ? params.arguments : {}) as Record<string, unknown>;
 
-    const callResult = await executeMcpTool(toolName, args, env, token);
+    const callResult = await executeMcpTool(toolName, args, env, token, new URL(request.url).origin);
     return json({
       jsonrpc: "2.0",
       id,
@@ -234,6 +276,7 @@ async function executeMcpTool(
   args: Record<string, unknown>,
   env: Env,
   token: AuthedToken,
+  origin: string,
 ): Promise<ToolCallResult> {
   switch (toolName) {
     case "list_messages":
@@ -250,6 +293,12 @@ async function executeMcpTool(
       return toolListDevices(env, token);
     case "get_device_status":
       return toolGetDeviceStatus(args, env, token);
+    case "create_device":
+      return toolCreateDevice(args, env, token, origin);
+    case "get_device_push_url":
+      return toolGetDevicePushUrl(args, env, token, origin);
+    case "rotate_device_push_url":
+      return toolRotateDevicePushUrl(args, env, token, origin);
     default:
       return {
         content: [{ type: "text", text: `Error: Unknown tool "${toolName}"` }],
@@ -630,6 +679,184 @@ async function toolGetDeviceStatus(
       status,
       last_message_at: lastMessageAt,
     },
+  };
+}
+
+async function toolCreateDevice(
+  args: Record<string, unknown>,
+  env: Env,
+  token: AuthedToken,
+  origin: string,
+): Promise<ToolCallResult> {
+  if (!hasPermission(token, "devices:create")) {
+    return permDenied("devices:create");
+  }
+
+  // Same normalization as the REST endpoint; validation itself is the
+  // shared console one inside createDeviceForUser.
+  const body: Record<string, unknown> = { name: args.name };
+  const platform = typeof args.platform === "string" ? args.platform : typeof args.type === "string" ? args.type : undefined;
+  if (platform !== undefined) body.platform = platform;
+
+  let groupId: string | null = null;
+  if (typeof args.group_id === "string" && args.group_id.trim()) {
+    groupId = args.group_id.trim();
+    const group = await findDeviceGroup(env.DB, token.user_id, groupId);
+    if (!group) {
+      return {
+        content: [{ type: "text", text: "参数错误: 分组不存在或不属于当前账号" }],
+        isError: true,
+      };
+    }
+  }
+
+  const created = await createDeviceForUser(env, token.user_id, body);
+  if (!created.ok) {
+    return {
+      content: [{ type: "text", text: `创建设备失败: ${created.error}` }],
+      isError: true,
+    };
+  }
+
+  // Like REST: creation is allowed for scope-limited tokens too, and the
+  // new device is not silently added to the token's device scope.
+  let appliedGroupId: string | null = null;
+  if (groupId) {
+    appliedGroupId = (await setDeviceGroup(env.DB, token.user_id, created.id, groupId)) ? groupId : null;
+  }
+
+  const pushUrl = `${origin}/api/v1/ingest/${created.pushToken}`;
+  const device = {
+    id: created.id,
+    name: created.name,
+    platform: created.platform,
+    created_at: created.createdAt,
+    last_seen_at: null,
+    group_id: appliedGroupId,
+    push: "active",
+  };
+  const text = [
+    `设备已创建: ${created.name}`,
+    `设备 ID: ${created.id}`,
+    `平台: ${created.platform}`,
+    `推送链接: ${pushUrl}`,
+  ].join("\n");
+
+  return {
+    content: [{ type: "text", text }],
+    structuredContent: {
+      device,
+      push_url: pushUrl,
+      token: created.token,
+      token_type: "Bearer",
+      token_expires_at: created.tokenExpiresAt,
+    },
+  };
+}
+
+async function toolGetDevicePushUrl(
+  args: Record<string, unknown>,
+  env: Env,
+  token: AuthedToken,
+  origin: string,
+): Promise<ToolCallResult> {
+  if (!hasPermission(token, "devices:push")) {
+    return permDenied("devices:push");
+  }
+
+  const id = typeof args.id === "string" ? args.id.trim() : "";
+  if (!id) {
+    return {
+      content: [{ type: "text", text: "参数错误: 缺少 id" }],
+      isError: true,
+    };
+  }
+
+  const contentKey = resolveContentKey(env.CONTENT_KEY);
+  const row = await getExtDevicePush(env.DB, token.user_id, id, token.device_scope, contentKey);
+  if (!row) {
+    return {
+      content: [{ type: "text", text: "未找到设备，或该设备不在授权范围内" }],
+      isError: true,
+    };
+  }
+  if (row.push === "none") {
+    return {
+      content: [{ type: "text", text: "该设备还没有推送链接" }],
+      isError: true,
+    };
+  }
+  if (row.push === "revoked") {
+    return {
+      content: [{ type: "text", text: "该设备的推送链接已被撤销，可调用 rotate_device_push_url 重新签发" }],
+      isError: true,
+    };
+  }
+  if (!row.pushUrl) {
+    return {
+      content: [{ type: "text", text: "该设备的推送链接未保存明文（旧设备），请先调用 rotate_device_push_url 轮换" }],
+      isError: true,
+    };
+  }
+
+  const pushUrl = `${origin}${row.pushUrl}`;
+  return {
+    content: [{ type: "text", text: `设备 ${row.name} 的推送链接: ${pushUrl}` }],
+    structuredContent: { id: row.id, name: row.name, push: "active", push_url: pushUrl },
+  };
+}
+
+async function toolRotateDevicePushUrl(
+  args: Record<string, unknown>,
+  env: Env,
+  token: AuthedToken,
+  origin: string,
+): Promise<ToolCallResult> {
+  if (!hasPermission(token, "devices:push")) {
+    return permDenied("devices:push");
+  }
+
+  const id = typeof args.id === "string" ? args.id.trim() : "";
+  if (!id) {
+    return {
+      content: [{ type: "text", text: "参数错误: 缺少 id" }],
+      isError: true,
+    };
+  }
+
+  // Scope gate first, mirroring REST: out-of-scope reads as not found.
+  const device = await getExtDevice(env.DB, token.user_id, id, token.device_scope);
+  if (!device) {
+    return {
+      content: [{ type: "text", text: "未找到设备，或该设备不在授权范围内" }],
+      isError: true,
+    };
+  }
+
+  const rotated = await rotateDevicePushForUser(env, token.user_id, id);
+  if (!rotated.ok) {
+    if (rotated.reason === "no_push") {
+      return {
+        content: [{ type: "text", text: "该设备还没有推送链接，无法轮换" }],
+        isError: true,
+      };
+    }
+    if (rotated.reason === "not_found") {
+      return {
+        content: [{ type: "text", text: "未找到设备，或该设备不在授权范围内" }],
+        isError: true,
+      };
+    }
+    return {
+      content: [{ type: "text", text: "推送链接状态已变化，请重试" }],
+      isError: true,
+    };
+  }
+
+  const pushUrl = `${origin}/api/v1/ingest/${rotated.pushToken}`;
+  return {
+    content: [{ type: "text", text: `设备 ${device.name} 的新推送链接: ${pushUrl}（旧链接已失效）` }],
+    structuredContent: { id, push: "active", push_url: pushUrl },
   };
 }
 
