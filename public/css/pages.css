@@ -464,6 +464,10 @@
   margin: 0;
 }
 
+/* Device cards put the SMS count (20%) beside the push ID (remaining 80%);
+   the detail drawer keeps the generic facts grid above. */
+.device .device-facts { grid-template-columns: 20% minmax(0, 1fr); }
+
 .device-facts dt { color: var(--text-3); font-size: var(--fs-xs); }
 .device-facts dd { margin: 2px 0 0; }
 .device-facts .span-2 { grid-column: 1 / -1; }
@@ -737,10 +741,10 @@
   .time-inline { display: inline; margin-left: auto; white-space: nowrap; flex: none; font-variant-numeric: tabular-nums; }
   .chip-slot { justify-self: start; margin-top: var(--space-1); }
   .device-facts { grid-template-columns: 1fr; }
-  /* Device cards keep the two-half facts row on phones too (Roye):
-     platform and message count sit side by side, each left-aligned;
-     the detail drawer and doc examples keep the single column. */
-  .device .device-facts { grid-template-columns: 1fr 1fr; }
+  /* Device cards keep the count + push ID row on phones too (Roye),
+     with the same 20% / 80% split; the detail drawer and doc examples
+     keep the single column. */
+  .device .device-facts { grid-template-columns: 20% minmax(0, 1fr); }
   .system-facts { grid-template-columns: 1fr; }
   .session-row { align-items: stretch; flex-direction: column; }
   .session-row button { width: 100%; }

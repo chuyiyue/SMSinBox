@@ -683,13 +683,24 @@ function renderDevice(device, entry) {
 
   const facts = document.createElement("dl");
   facts.className = "device-facts";
-  addFact(facts, t("devices.platform"), view.platformDetail);
   if (total !== null) addFact(facts, t("devices.messageCountLabel"), t("devices.messageCount", { count: total }));
-  addFact(facts, t("devices.pushId"), null, { wide: true, node: pushLine(device, view) });
+  addFact(facts, t("devices.pushId"), null, { wide: total === null, node: pushLine(device, view) });
 
   const actions = document.createElement("div");
   actions.className = "actions device-actions";
   actions.append(testButton(device));
+
+  if (view.pushUrl) {
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "secondary";
+    copy.textContent = t("devices.copyLink");
+    copy.addEventListener("click", (event) => {
+      event.stopPropagation();
+      flashLabel(event.currentTarget, view.pushUrl, t("devices.copyLink"));
+    });
+    actions.append(copy);
+  }
 
   const more = document.createElement("button");
   more.type = "button";
@@ -736,17 +747,6 @@ function renderDevice(device, entry) {
     openMenu(more, items);
   });
   actions.append(more);
-
-  if (view.pushUrl) {
-    const copy = document.createElement("button");
-    copy.type = "button";
-    copy.textContent = t("devices.copyLink");
-    copy.addEventListener("click", (event) => {
-      event.stopPropagation();
-      flashLabel(event.currentTarget, view.pushUrl, t("devices.copyLink"));
-    });
-    actions.append(copy);
-  }
 
   if (isStale(view.received)) {
     const note = document.createElement("p");
@@ -796,7 +796,7 @@ function testButton(device) {
   const test = document.createElement("button");
   test.type = "button";
   test.className = "secondary";
-  test.textContent = t("devices.sendTest");
+  test.textContent = t("devices.sendTestShort");
   test.addEventListener("click", async (event) => {
     event.stopPropagation();
     test.disabled = true;
