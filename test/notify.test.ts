@@ -129,6 +129,7 @@ describe("notification text and config", () => {
     expect(note).toEqual({
       title: "来自pixel的新短信 · 验证码 123456",
       text: "pixel · 10086\n2026-01-02T03:04:05.000Z\n您的验证码是 123456",
+      code: "123456",
     });
     const blank = renderNotification({
       from: "10086",
@@ -764,6 +765,49 @@ describe("delivery", () => {
     expect(results[3]?.error).not.toContain("AAHabc");
     expect(calls.some((url) => url.startsWith(`https://api.telegram.org/bot${encodeURIComponent(TOKEN)}/sendMessage`))).toBe(true);
     expect(calls.some((url) => url === "https://api.day.app/push")).toBe(true);
+  });
+
+  it("adds a copy_text button for the verification code on Telegram", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const results = await deliverChannels(
+      [channel({ kind: "telegram", config: { bot_token: TOKEN, chat_id: "1" } })],
+      { title: "验证码 123456", text: "正文", code: "123456" },
+      {
+        fetch: async (_input, init) => {
+          bodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+          return Response.json({ ok: true });
+        },
+        openSmtp: async () => {
+          throw new Error("unused");
+        },
+      },
+    );
+    expect(results[0]?.ok).toBe(true);
+    expect(bodies[0]).toMatchObject({
+      reply_markup: { inline_keyboard: [[{ text: "📋 123456", copy_text: { text: "123456" } }]] },
+    });
+    expect(
+      (bodies[0]?.reply_markup as { inline_keyboard: Array<Array<{ copy_text: { text: string } }>> })
+        .inline_keyboard[0]?.[0]?.copy_text.text,
+    ).toBe("123456");
+  });
+
+  it("omits the copy button when the payload has no code", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    await deliverChannels(
+      [channel({ kind: "telegram", config: { bot_token: TOKEN, chat_id: "1" } })],
+      { title: "来自pixel的新短信", text: "正文", code: null },
+      {
+        fetch: async (_input, init) => {
+          bodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+          return Response.json({ ok: true });
+        },
+        openSmtp: async () => {
+          throw new Error("unused");
+        },
+      },
+    );
+    expect(bodies[0]).not.toHaveProperty("reply_markup");
   });
 
   it("treats provider redirects and wecom error codes as failures", async () => {
