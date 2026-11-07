@@ -76,6 +76,7 @@ export interface StoredChannel {
 export interface NotifyText {
   title: string;
   text: string;
+  code?: string | null;
 }
 
 export interface NotifyResult {
@@ -128,7 +129,7 @@ export function renderNotification(input: {
     `${input.deviceName || "设备"} · ${who}\n${new Date(input.receivedAt).toISOString()}\n${notificationBody(input)}`,
     500,
   );
-  return { title: truncate(title, 80), text };
+  return { title: truncate(title, 80), text, code: input.code };
 }
 
 // Translation on top, original underneath, one blank line between them.
@@ -368,11 +369,18 @@ async function deliverOne(channel: StoredChannel, payload: NotifyText, deps: Not
   if (channel.kind === "telegram") {
     const config = channel.config as TelegramConfig;
     const url = `https://api.telegram.org/bot${encodeURIComponent(config.bot_token)}/sendMessage`;
-    await postJson(deps, url, "Telegram", {
+    const body: Record<string, unknown> = {
       chat_id: config.chat_id,
       text: `${payload.title}\n\n${payload.text}`,
       disable_web_page_preview: true,
-    });
+    };
+    const code = payload.code;
+    if (typeof code === "string" && code !== "" && code.length <= 256) {
+      body.reply_markup = {
+        inline_keyboard: [[{ text: `📋 ${code}`, copy_text: { text: code } }]],
+      };
+    }
+    await postJson(deps, url, "Telegram", body);
     return;
   }
   if (channel.kind === "wecom") {
