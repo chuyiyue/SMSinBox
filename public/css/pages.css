@@ -392,6 +392,32 @@
   padding-top: var(--space-4);
 }
 
+/* Features panel: the blocks pair up in the same two-column grid as the
+   account panel (.account-pair) — translation | language on the first
+   row, install on the second, its empty cell keeping the half width so
+   a fourth feature can drop in. Inside a row there is no divider line
+   over the right cell; rows separate by the section's own spacing, and
+   min-width lets a half shrink instead of stretching its track. */
+#features-panel .feature-item { min-width: 0; }
+#features-panel .feature-item + .feature-item {
+  border-top: 0;
+  padding-top: 0;
+}
+/* Stacked again on narrow screens (the pairs collapse with the same
+   breakpoint as the account panel): the stacked dividers come back,
+   including across the pair boundary where the items are no longer
+   adjacent siblings. */
+@media (max-width: 767px) {
+  #features-panel .feature-item + .feature-item {
+    border-top: 1px solid var(--border);
+    padding-top: var(--space-4);
+  }
+  #features-panel .account-pair + .account-pair {
+    border-top: 1px solid var(--border);
+    padding-top: var(--space-4);
+  }
+}
+
 /* min-width: 0 lets the grid item shrink to the drawer instead of sizing
    to the pre's longest line, so the code block scrolls inside its own box. */
 .message-raw { background: var(--bg-sunken); min-width: 0; }
