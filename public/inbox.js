@@ -25,7 +25,7 @@ import { registerView, syncShellHistory } from "./shell.js";
 import { isTyping } from "./ui.js";
 import { t } from "./i18n.js";
 
-const PAGE_SIZE = 30;
+const PAGE_SIZE = 20;
 const FALLBACK_MS = 30_000;
 const UNREADABLE = "无法解密这条短信。请确认 CONTENT_KEY 与写入时一致。";
 const READ_KEY = "smsinbox-inbox-read";
@@ -34,7 +34,6 @@ const state = {
   page: 1,
   total: 0,
   loading: false,
-  hasMore: false,
   live: null,
   fallback: 0,
   cursor: "",
@@ -66,12 +65,13 @@ let qInput;
 let qCount;
 let queryError;
 let searchNote;
-let endNote;
-let sentinel;
+let pager;
+let pagerInfo;
+let pagerPrev;
+let pagerNext;
 let announcer;
 let filterToggle;
 let chips;
-let observer = null;
 let media = null;
 const messages = new Map();
 let viewToken = 0;
@@ -101,8 +101,10 @@ function startView() {
   qCount = document.querySelector("#q-count");
   queryError = document.querySelector("#query-error");
   searchNote = document.querySelector("#search-note");
-  endNote = document.querySelector("#list-end");
-  sentinel = document.querySelector("#list-sentinel");
+  pager = document.querySelector("#pager");
+  pagerInfo = document.querySelector("#pager-info");
+  pagerPrev = document.querySelector("#pager-prev");
+  pagerNext = document.querySelector("#pager-next");
   announcer = document.querySelector("#live-announcer");
   filterToggle = document.querySelector("#open-filters");
   chips = document.querySelector("#filter-chips");
@@ -161,11 +163,10 @@ function startView() {
     queueSearch();
   });
   document.addEventListener("keydown", onInboxKey, true);
-  observer = new IntersectionObserver((entries) => {
-    if (entries.some((entry) => entry.isIntersecting)) loadMore().catch(showError);
-  });
-  observer.observe(sentinel);
+  pagerPrev.addEventListener("click", () => turnPage(-1));
+  pagerNext.addEventListener("click", () => turnPage(1));
   paintSummary();
+  paintPager();
   setLive(t("inbox.liveConnecting"), "connecting");
   document.addEventListener("smsinbox:locale", onInboxLocale);
   showSkeleton();
@@ -177,8 +178,6 @@ function startView() {
     if (viewToken === token) viewToken += 1;
     state.listGen += 1;
     stopRealtime();
-    observer?.disconnect();
-    observer = null;
     document.removeEventListener("keydown", onInboxKey, true);
     document.removeEventListener("smsinbox:locale", onInboxLocale);
     document.removeEventListener("visibilitychange", onVisibility);
@@ -192,6 +191,7 @@ function onInboxLocale() {
   paintManageButton();
   repaintList();
   paintSummary();
+  paintPager();
   paintLive();
   paintNotes();
   paintChips();
@@ -202,7 +202,6 @@ function onInboxLocale() {
 function paintNotes() {
   const note = searchNote?.querySelector("span");
   if (note) note.textContent = t("inbox.searchNote");
-  if (endNote) endNote.textContent = t("inbox.listEnd");
   if (queryError) queryError.textContent = t("inbox.queryTooLong");
 }
 
@@ -271,7 +270,6 @@ function resetInbox() {
   state.page = 1;
   state.total = 0;
   state.loading = false;
-  state.hasMore = false;
   state.cursor = "";
   state.liveMode = "connecting";
   state.failures = 0;
@@ -370,16 +368,25 @@ function onLiveMessage(message) {
   if (cursorIsNewer(next, state.cursor)) state.cursor = next;
   if (!matchesFilters(message) || document.getElementById(`msg-${message.id}`)) return;
   announce(message);
+  state.total += 1;
+  if (state.page !== 1) {
+    // Later pages stay exactly as rendered; only the counts move, and
+    // the pager picks the new total up from paintPager.
+    paintSummary();
+    paintPager();
+    return;
+  }
   if (nearTop()) {
     prependMessage(message);
-    state.total += 1;
+    trimToPageSize();
     paintSummary();
+    paintPager();
     return;
   }
   state.pending.push(message);
-  state.total += 1;
   paintPending();
   paintSummary();
+  paintPager();
 }
 
 async function loadDevices(preferred = "") {
@@ -394,7 +401,6 @@ async function loadDevices(preferred = "") {
 }
 
 async function loadMessages(options = {}) {
-  const append = options.append === true;
   const silent = options.silent === true;
   if (queryTooLong()) {
     paintQueryGuard();
@@ -407,13 +413,16 @@ async function loadMessages(options = {}) {
   if (!silent) state.listGen = ticket + 1;
   const mine = silent ? ticket : state.listGen;
   if (!silent) state.loading = true;
-  const page = append ? state.page : 1;
-  if (!append && !silent) state.page = 1;
+  // Silent refreshes always probe page 1: on page 1 the fresh head rows
+  // merge in; on later pages only the total (and with it the pager)
+  // moves, so a page the user is reading never re-renders under them.
+  // Explicit loads render exactly one page, replace-style; state.page
+  // commits only on success, so a failed turn keeps the old page.
+  const page = silent ? 1 : Math.min(Math.max(1, options.page ?? state.page), totalPages());
   try {
     const result = await api(`/api/v1/messages?${queryParams(page)}`);
     if (state.listGen !== mine) return;
     if (!result.response.ok) {
-      if (append) state.page = Math.max(1, state.page - 1);
       showError(result.data.error || t("inbox.loadFailed"));
       return;
     }
@@ -424,20 +433,21 @@ async function loadMessages(options = {}) {
     const nextCursor = maxCursor(rows);
     if (nextCursor && cursorIsNewer(nextCursor, state.cursor)) state.cursor = nextCursor;
     else if (!state.cursor) state.cursor = `${Date.now()}:`;
-    if (silent) mergeHead(rows);
-    else if (append) appendMessages(rows);
-    else replaceMessages(rows);
-    state.hasMore = list.querySelectorAll(".message-row").length < state.total;
-    endNote.hidden = state.total === 0 || state.hasMore;
+    if (silent) {
+      if (state.page === 1) mergeHead(rows);
+    } else {
+      state.page = page;
+      replaceMessages(rows);
+    }
     paintSearchNote(Boolean(result.data.search_truncated));
     paintSummary();
+    paintPager();
     syncUrl();
     paintChips();
     setActiveId(deviceSelect.value);
   } catch (error) {
     if (state.listGen !== mine) return;
     if (isUnauthorized(error)) throw error;
-    if (append) state.page = Math.max(1, state.page - 1);
     showError(error);
   } finally {
     if (!silent && state.listGen === mine) {
@@ -447,10 +457,41 @@ async function loadMessages(options = {}) {
   }
 }
 
-async function loadMore() {
-  if (state.loading || !state.hasMore || queryTooLong()) return;
-  state.page += 1;
-  await loadMessages({ append: true });
+function totalPages() {
+  return Math.max(1, Math.ceil(state.total / PAGE_SIZE));
+}
+
+function paintPager() {
+  if (!pager) return;
+  pager.hidden = state.total === 0;
+  pagerInfo.textContent = t("inbox.pageInfo", { page: state.page, pages: totalPages(), total: state.total });
+  pagerPrev.disabled = state.page <= 1;
+  pagerNext.disabled = state.page >= totalPages();
+}
+
+async function turnPage(delta) {
+  const target = state.page + delta;
+  if (target < 1 || target > totalPages() || state.loading) return;
+  await loadMessages({ page: target }).catch(showError);
+  if (state.page === target) window.scrollTo({ top: 0 });
+}
+
+// Live prepends and head merges may push the rendered page past
+// PAGE_SIZE; the overflow belongs to the next page, so drop it from
+// the tail instead of letting the page grow.
+function trimToPageSize() {
+  const rows = list.querySelectorAll(".message-row");
+  for (let index = PAGE_SIZE; index < rows.length; index += 1) rows[index].remove();
+}
+
+// After a delete, reload the page the user is on; if the delete
+// emptied it, step back to the last page that still has rows.
+async function reloadCurrentPage() {
+  await loadMessages().catch(showError);
+  if (state.page > totalPages()) {
+    state.page = totalPages();
+    await loadMessages().catch(showError);
+  }
 }
 
 function replaceMessages(rows) {
@@ -467,20 +508,12 @@ function replaceMessages(rows) {
   for (const message of rows) list.append(renderMessage(message));
 }
 
-function appendMessages(rows) {
-  const empty = list.querySelector(".empty-state");
-  if (empty) empty.remove();
-  for (const message of rows) {
-    if (document.getElementById(`msg-${message.id}`)) continue;
-    list.append(renderMessage(message));
-  }
-}
-
 function mergeHead(rows) {
   const fresh = rows.filter((message) => !document.getElementById(`msg-${message.id}`));
   if (fresh.length === 0) return;
   if (nearTop()) {
     for (let index = fresh.length - 1; index >= 0; index -= 1) prependMessage(fresh[index]);
+    trimToPageSize();
     return;
   }
   state.pending.push(...[...fresh].reverse());
@@ -645,8 +678,7 @@ async function onManageToggle() {
     return;
   }
   exitManageMode();
-  state.page = 1;
-  await loadMessages().catch(showError);
+  await reloadCurrentPage();
   toast(t("inbox.deletedCount", { count: outcome.deleted }));
 }
 
@@ -754,8 +786,7 @@ function buildDetail(message) {
     state.checked.delete(message.id);
     paintManageButton();
     closeDrawer();
-    state.page = 1;
-    await loadMessages().catch(showError);
+    await reloadCurrentPage();
     toast(t("inbox.deletedCount", { count: outcome.deleted }));
   });
   wrap.append(del);
@@ -1236,6 +1267,7 @@ function paintTitle() {
 function flushPending() {
   const batch = state.pending.splice(0);
   for (const message of batch) prependMessage(message);
+  trimToPageSize();
   banner.hidden = true;
   paintTitle();
   paintSummary();

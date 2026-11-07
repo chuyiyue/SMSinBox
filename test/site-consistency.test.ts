@@ -832,6 +832,56 @@ describe("site consistency", () => {
     expectCopy(inbox, "inbox.deleteMessage", "删除这条短信");
     expect(css).toContain(".message-card-head");
     expect(css).toContain(".message-detail-delete");
+
+    // Deletes reload the page in place (falling back when it empties),
+    // instead of bouncing the user back to page 1.
+    expect(inbox).toContain("reloadCurrentPage()");
+  });
+
+  it("pages the inbox 20 at a time with a pager bar instead of infinite scroll", () => {
+    const html = readFileSync("public/index.html", "utf8");
+    const inbox = readFileSync("public/inbox.js", "utf8");
+    const css = readFileSync("public/css/pages.css", "utf8");
+
+    // The pager bar replaces the end note and the scroll sentinel.
+    expect(html).toContain('id="pager"');
+    expect(html).toContain('id="pager-prev"');
+    expect(html).toContain('id="pager-info"');
+    expect(html).toContain('id="pager-next"');
+    expect(html).not.toContain('id="list-end"');
+    expect(html).not.toContain('id="list-sentinel"');
+    expect(css).toContain(".pager {");
+    expect(css).toContain(".pager-info");
+
+    // One page of 20, replace-loaded through the paged endpoint params.
+    expect(inbox).toContain("const PAGE_SIZE = 20;");
+    expect(inbox).toContain('params.set("page", String(page))');
+    expect(inbox).toContain('params.set("page_size", String(PAGE_SIZE))');
+
+    // No observer-driven append path survives.
+    expect(inbox).not.toContain("IntersectionObserver");
+    expect(inbox).not.toContain("loadMore");
+    expect(inbox).not.toContain("appendMessages");
+    expect(inbox).not.toContain("hasMore");
+
+    // Pager state: hidden when empty, edges disabled, copy interpolated
+    // from the dictionary in both languages.
+    expect(inbox).toContain("function paintPager()");
+    expect(inbox).toContain("pager.hidden = state.total === 0");
+    expect(inbox).toContain("pagerPrev.disabled = state.page <= 1");
+    expect(inbox).toContain("pagerNext.disabled = state.page >= totalPages()");
+    expect(inbox).toContain('t("inbox.pageInfo"');
+    expect(MESSAGES["zh-CN"]["inbox.pageInfo"]).toBe("第 {page} / {pages} 页 · 共 {total} 条");
+    expect(MESSAGES.en["inbox.pageInfo"]).toBe("Page {page} of {pages} · {total} messages");
+    expect(MESSAGES["zh-CN"]["inbox.prevPage"]).toBe("上一页");
+    expect(MESSAGES.en["inbox.nextPage"]).toBe("Next");
+    expect(MESSAGES["zh-CN"]["inbox.listEnd"]).toBeUndefined();
+    expect(MESSAGES.en["inbox.listEnd"]).toBeUndefined();
+
+    // Live arrivals never re-render later pages; page-1 prepends keep
+    // the page capped at PAGE_SIZE rows.
+    expect(inbox).toMatch(/if \(state\.page !== 1\) \{\n    \/\/ Later pages stay exactly as rendered/);
+    expect(inbox).toContain("trimToPageSize()");
   });
 
   it("shortens log errors the same way everywhere", () => {

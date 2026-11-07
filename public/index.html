@@ -77,8 +77,11 @@
           <button id="live-banner" class="new-pill" type="button" hidden>↑ 1 条新短信</button>
           <div id="inbox-error" class="callout danger" role="alert" hidden></div>
           <div id="list" class="list message-list"></div>
-          <p id="list-end" class="end-note" hidden data-i18n="inbox.listEnd">没有更多了 · 已到底</p>
-          <div id="list-sentinel" class="sentinel"></div>
+          <nav id="pager" class="pager" aria-label="分页" data-i18n-attr="aria-label:inbox.pagerLabel" hidden>
+            <button id="pager-prev" class="secondary" type="button" data-i18n="inbox.prevPage">上一页</button>
+            <span id="pager-info" class="pager-info" role="status"></span>
+            <button id="pager-next" class="secondary" type="button" data-i18n="inbox.nextPage">下一页</button>
+          </nav>
           <div id="live-announcer" class="sr-only" aria-live="polite"></div>
         </div>
       </div>
