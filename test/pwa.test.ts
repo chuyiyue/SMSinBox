@@ -91,12 +91,15 @@ describe("PWA shell", () => {
     }
   });
 
-  it("places the Create PWA control before the version card", () => {
+  it("places the Create PWA control inside the features card, before the version card", () => {
     const html = readFileSync("public/users.html", "utf8");
     const buttonAt = html.indexOf('id="create-pwa"');
     const cardAt = html.indexOf('id="system-panel"');
     expect(buttonAt).toBeGreaterThan(-1);
     expect(cardAt).toBeGreaterThan(buttonAt);
+    expect(html.indexOf('id="features-panel"')).toBeLessThan(buttonAt);
+    expect(html).toContain('id="pwa-setting"');
+    expect(html).not.toContain('id="pwa-panel"');
     const card = html.slice(cardAt);
     expect(card).toContain('data-i18n="users.version"');
     expect(card).not.toContain('id="create-pwa"');
