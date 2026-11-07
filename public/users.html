@@ -6,6 +6,10 @@
     <meta name="robots" content="noindex, nofollow" />
     <title data-i18n="users.documentTitle">系统管理 · SMSinBox</title>
     <link rel="icon" href="/logo.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/logo.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#f7f7f8" />
+    <script src="/pwa.js"></script>
     <script src="/theme-boot.js"></script>
     <link rel="stylesheet" href="/style.css" />
   </head>
@@ -147,6 +151,13 @@
                   <p class="subtle" data-i18n="users.languageHint">选择界面显示语言。保存后立即生效，并在重新登录后保持</p>
                   <div id="locale-select"></div>
                   <p id="locale-error" class="callout danger" hidden></p>
+                </div>
+              </section>
+
+              <section id="pwa-panel" class="settings-section panel stack">
+                <p class="subtle" data-i18n="users.pwaHint">把 SMSinBox 加到主屏幕，像独立应用一样打开</p>
+                <div class="actions">
+                  <button id="create-pwa" class="secondary" type="button" data-i18n="users.createPwa">创建 PWA</button>
                 </div>
               </section>
 

@@ -69,6 +69,7 @@ let factSessions;
 let pageError;
 let pageRetry;
 let pageRetryButton;
+let createPwaButton;
 
 function showKeyed(element, key) {
   if (!element) return;
@@ -130,6 +131,7 @@ function startView() {
   pageError = document.querySelector("#page-error");
   pageRetry = document.querySelector("#page-retry");
   pageRetryButton = document.querySelector("#page-retry-button");
+  createPwaButton = document.querySelector("#create-pwa");
 
   initShell({
     onLogout: () => logout().catch(() => setAccountError("", "users.logoutFailed")),
@@ -163,6 +165,11 @@ function startView() {
       showRetry("", "users.pageLoadFailed");
     });
   });
+  createPwaButton?.addEventListener("click", () => {
+    void onCreatePwa();
+  });
+  window.addEventListener("appinstalled", paintPwa);
+  paintPwa();
   avatarFile.addEventListener("change", () => {
     const file = avatarFile.files?.[0];
     avatarFile.value = "";
@@ -208,6 +215,7 @@ function startView() {
     }
     if (profileSubmit?.dataset.busy) profileSubmit.textContent = t("users.saving");
     if (passwordSubmit?.dataset.busy) passwordSubmit.textContent = t("users.saving");
+    paintPwa();
   };
   document.addEventListener("smsinbox:locale", onLocale);
 
@@ -219,8 +227,57 @@ function startView() {
   return () => {
     if (viewToken === token) viewToken += 1;
     document.removeEventListener("smsinbox:locale", onLocale);
+    window.removeEventListener("appinstalled", paintPwa);
     cleanupTotp();
   };
+}
+
+function pwaInstall() {
+  const api = window.__pwaInstall;
+  if (!api || typeof api.canInstall !== "function" || typeof api.promptInstall !== "function") return null;
+  return api;
+}
+
+function paintPwa() {
+  if (!createPwaButton) return;
+  let installed = false;
+  try {
+    installed = !!pwaInstall()?.isInstalled();
+  } catch {
+    installed = false;
+  }
+  const key = installed ? "users.pwaInstalled" : "users.createPwa";
+  createPwaButton.disabled = installed;
+  createPwaButton.setAttribute("data-i18n", key);
+  createPwaButton.textContent = t(key);
+}
+
+function isIosDevice() {
+  try {
+    const ua = navigator.userAgent || "";
+    if (/iPad|iPhone|iPod/.test(ua)) return true;
+    return navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+  } catch {
+    return false;
+  }
+}
+
+async function onCreatePwa() {
+  try {
+    const api = pwaInstall();
+    if (api?.isInstalled()) {
+      paintPwa();
+      return;
+    }
+    if (api?.canInstall()) {
+      await api.promptInstall();
+      paintPwa();
+      return;
+    }
+  } catch {
+    // The manual hint below still tells the user how to install.
+  }
+  toast(t(isIosDevice() ? "users.pwaIosHint" : "users.pwaManualHint"));
 }
 
 async function saveLocale(next) {
