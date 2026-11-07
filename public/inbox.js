@@ -1133,7 +1133,7 @@ function rangeSince() {
 
 function queryParams(page) {
   const params = new URLSearchParams();
-  if (deviceSelect.value) params.set("device", deviceSelect.value);
+  if (deviceSelect.value) params.set("device_id", deviceSelect.value);
   const from = String(filters.elements.from.value || "").trim();
   if (from) params.set("from", from);
   const query = String(qInput.value || "").trim();

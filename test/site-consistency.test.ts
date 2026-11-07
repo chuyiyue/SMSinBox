@@ -859,6 +859,15 @@ describe("site consistency", () => {
     expect(inbox).toContain("reloadCurrentPage()");
   });
 
+  it("filters the inbox by device with the device_id parameter the API reads", () => {
+    const inbox = readFileSync("public/inbox.js", "utf8");
+    // The messages API reads device_id; sending it as "device" silently
+    // disables the device filter (regression: the dropdown looked alive
+    // but the server returned every device's messages).
+    expect(inbox).toContain('params.set("device_id", deviceSelect.value)');
+    expect(inbox).not.toContain('params.set("device",');
+  });
+
   it("pages the inbox 20 at a time with a pager bar instead of infinite scroll", () => {
     const html = readFileSync("public/index.html", "utf8");
     const inbox = readFileSync("public/inbox.js", "utf8");
