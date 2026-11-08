@@ -463,20 +463,6 @@
   overflow: hidden;
 }
 
-.auth-body::before {
-  content: "信";
-  position: fixed;
-  right: -0.15em;
-  bottom: -0.28em;
-  font-family: var(--font-serif);
-  font-size: 42vw;
-  line-height: 1;
-  color: var(--text);
-  opacity: 0.03;
-  pointer-events: none;
-  user-select: none;
-}
-
 .auth-card {
   position: relative;
   width: min(400px, 100%);
