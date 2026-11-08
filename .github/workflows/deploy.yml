@@ -22,6 +22,8 @@ jobs:
       GH_CLIENT_ID_SECRET: ${{ secrets.GH_CLIENT_ID }}
       GH_CLIENT_SECRET_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
       AI_MODEL_SECRET: ${{ secrets.AI_MODEL }}
+      ADMIN_USERNAME_SECRET: ${{ secrets.ADMIN_USERNAME }}
+      ADMIN_PASSWORD_SECRET: ${{ secrets.ADMIN_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -60,3 +62,18 @@ jobs:
 
       - name: Deploy Worker
         run: npx wrangler deploy
+
+      - name: Sync admin secrets to Worker
+        shell: bash
+        run: |
+          if [[ -n "$ADMIN_USERNAME_SECRET" && -n "$ADMIN_PASSWORD_SECRET" ]]; then
+            printf '%s' "$ADMIN_USERNAME_SECRET" | npx wrangler secret put ADMIN_USERNAME
+            printf '%s' "$ADMIN_PASSWORD_SECRET" | npx wrangler secret put ADMIN_PASSWORD
+          fi
+
+      - name: Sync admin row
+        shell: bash
+        run: |
+          if [[ -n "$ADMIN_USERNAME_SECRET" && -n "$ADMIN_PASSWORD_SECRET" ]]; then
+            ADMIN_USERNAME="$ADMIN_USERNAME_SECRET" ADMIN_PASSWORD="$ADMIN_PASSWORD_SECRET" npm run sync-admin
+          fi

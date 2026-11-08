@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Miniflare } from "miniflare";
 import { sha256Hex } from "../src/auth";
+import { seedAdmin } from "./seed-admin";
 import worker from "../src/index";
 import { APP_VERSION } from "../src/version";
 
@@ -140,8 +141,8 @@ beforeAll(async () => {
   };
 
   await applyMigrations(db);
+  await seedAdmin(db, { username: "admin", password: ADMIN_PASSWORD });
 
-  // Bootstrap Admin
   const loginRes = await call("/api/v1/auth/login", jsonInit({ username: "admin", password: ADMIN_PASSWORD }));
   expect(loginRes.status).toBe(200);
   adminCookie = sessionCookie(loginRes);

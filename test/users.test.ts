@@ -140,11 +140,10 @@ describe("pickDesignatedUser", () => {
     created_at: 0,
   });
 
-  it("matches ADMIN_USERNAME ignoring case", () => {
-    const users = [row("1", "alice"), row("2", "ChuYiyue")];
-    expect(pickDesignatedUser(users, "chuyiyue")?.id).toBe("2");
-    expect(pickDesignatedUser(users, "CHUYIYUE")?.id).toBe("2");
-    expect(pickDesignatedUser(users, "mallory")).toBeNull();
+  it("returns the only row and refuses every other count", () => {
+    expect(pickDesignatedUser([row("1", "alice")])?.id).toBe("1");
+    expect(pickDesignatedUser([])).toBeNull();
+    expect(pickDesignatedUser([row("1", "alice"), row("2", "ChuYiyue")])).toBeNull();
   });
 });
 
@@ -209,9 +208,26 @@ describe("single admin", () => {
     expect(blocked.calls.some((call) => call.sql.includes("INSERT INTO sessions"))).toBe(false);
   });
 
-  it("promotes the configured admin and merges other rows without deleting messages", async () => {
+  it("merges other rows when the single admin signs in, and does not revive a disabled row", async () => {
+    const hash = await hashPassword("s3cret-pass");
     const recovery = makeDb();
     recovery.state.users = [
+      {
+        id: ADMIN_ID,
+        username: "root",
+        password_hash: hash,
+        role: "admin",
+        disabled_at: null,
+        created_at: 1,
+      },
+    ];
+    const restored = await handleApi(loginRequest("root", "s3cret-pass"), envFor(recovery.db));
+    expect(restored.status).toBe(200);
+    expect(await restored.json()).toMatchObject({ user: { role: "admin", username: "root" } });
+    expect(recovery.calls.some((call) => call.sql.includes("role = 'admin'"))).toBe(false);
+
+    const blocked = makeDb();
+    blocked.state.users = [
       {
         id: ADMIN_ID,
         username: "root",
@@ -221,10 +237,11 @@ describe("single admin", () => {
         created_at: 1,
       },
     ];
-    const restored = await handleApi(loginRequest("root", "secret"), envFor(recovery.db));
-    expect(restored.status).toBe(200);
-    expect(await restored.json()).toMatchObject({ user: { role: "admin", username: "root" } });
-    expect(recovery.calls.some((call) => call.sql.includes("role = 'admin'"))).toBe(true);
+    const denied = await handleApi(loginRequest("root", "secret"), envFor(blocked.db));
+    expect(denied.status).toBe(401);
+    expect(await denied.json()).toMatchObject({ error: "密码错误" });
+    expect(blocked.calls.some((call) => call.sql.includes("role = 'admin'"))).toBe(false);
+    expect(blocked.calls.some((call) => call.sql.includes("INSERT INTO sessions"))).toBe(false);
 
     const mergeSql = recovery.calls
       .map((call) => call.sql)
@@ -255,27 +272,27 @@ describe("single admin", () => {
   });
 
   it("does not merge again after the marker is set, and still logs in if the table is missing", async () => {
+    const hash = await hashPassword("s3cret-pass");
+    const row = {
+      id: ADMIN_ID,
+      username: "root",
+      password_hash: hash,
+      role: "admin",
+      disabled_at: null,
+      created_at: 1,
+    };
     const marked = makeDb();
     marked.state.schemaMarker = "1";
-    marked.state.users = [
-      {
-        id: ADMIN_ID,
-        username: "root",
-        password_hash: "nope",
-        role: "admin",
-        disabled_at: null,
-        created_at: 1,
-      },
-    ];
-    const again = await handleApi(loginRequest("root", "secret"), envFor(marked.db));
+    marked.state.users = [row];
+    const again = await handleApi(loginRequest("root", "s3cret-pass"), envFor(marked.db));
     expect(again.status).toBe(200);
     expect(marked.calls.some((call) => call.sql.startsWith("UPDATE devices"))).toBe(false);
     expect(marked.calls.some((call) => call.sql.startsWith("DELETE FROM users"))).toBe(false);
 
     const legacy = makeDb();
     legacy.state.schemaMissing = true;
-    legacy.state.users = marked.state.users;
-    const loggedIn = await handleApi(loginRequest("root", "secret"), envFor(legacy.db));
+    legacy.state.users = [{ ...row }];
+    const loggedIn = await handleApi(loginRequest("root", "s3cret-pass"), envFor(legacy.db));
     expect(loggedIn.status).toBe(200);
     expect(legacy.calls.some((call) => call.sql.startsWith("DELETE FROM users"))).toBe(false);
   });

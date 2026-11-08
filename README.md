@@ -89,7 +89,7 @@
 git clone https://github.com/chuyiyue/SMSinBox.git
 cd SMSinBox
 npm ci
-cp .dev.vars.example .dev.vars   # 填本地用的 ADMIN_USERNAME / ADMIN_PASSWORD
+cp .dev.vars.example .dev.vars   # 本地占位；登录不读这两个变量，需自行插入管理员行
 npm run db:migrate:local
 npm run dev
 ```
@@ -102,7 +102,7 @@ npm run dev
 | API 与 MCP | http://localhost:8787/api-mcp.html |
 | 系统管理 | http://localhost:8787/users.html |
 
-`.dev.vars` 里可放本地用的 `ADMIN_USERNAME`、`ADMIN_PASSWORD`、`DEVICE_JWT_SECRET`，可选 `CONTENT_KEY`、`GH_CLIENT_ID`、`GH_CLIENT_SECRET`。改了 `wrangler.jsonc` 的绑定后，运行 `npm run cf-typegen` 重新生成 `worker-configuration.d.ts`。
+`.dev.vars` 里可放本地用的 `DEVICE_JWT_SECRET`，可选 `CONTENT_KEY`、`GH_CLIENT_ID`、`GH_CLIENT_SECRET`。`ADMIN_USERNAME` / `ADMIN_PASSWORD` 只是与仓库机密同名的占位，运行时登录不读它们，也不会在第一次登录时创建管理员；本地库要自己插入管理员行后才能登录。改了 `wrangler.jsonc` 的绑定后，运行 `npm run cf-typegen` 重新生成 `worker-configuration.d.ts`。
 
 ### 常用命令
 
@@ -115,6 +115,7 @@ npm run dev
 | `npm run cf-typegen` | 按 `wrangler.jsonc` 重新生成 Worker 类型 |
 | `npm run db:migrate:local` | 对本地 D1 应用迁移 |
 | `npm run db:migrate:remote` | 对远程 D1 应用迁移 |
+| `npm run sync-admin` | 把 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 同步进远程 D1 的唯一管理员行。缺任一变量则失败。不打印密码或哈希 |
 
 测试覆盖验证码提取（含分隔符分组码、Workers AI 兜底与防幻觉校验）、上报解析、去重、登录与限流、会话、TOTP、推送、翻译、加密、单用户归并与页面结构一致性。
 
@@ -145,9 +146,9 @@ npm run dev
 
 | 变量 | 必填 | 设置方式 | 说明 |
 |------|------|----------|------|
-| `ADMIN_USERNAME` | **是** | `wrangler secret put ADMIN_USERNAME` | 管理员用户名。第一次用它加密码登录成功时创建管理员账号；启用 GitHub 登录后，它同时是 GitHub 管理员校验名（不区分大小写） |
-| `ADMIN_PASSWORD` | **是** | `wrangler secret put ADMIN_PASSWORD` | 管理员密码，建议足够长且随机 |
-| `DEVICE_JWT_SECRET` | 建议 | `wrangler secret put DEVICE_JWT_SECRET` | 设备 JWT 的签名密钥，32 字节 base64。不设时从 `CONTENT_KEY`、再从 `ADMIN_PASSWORD` 派生；更换它会让已签发的设备 JWT 立即失效（旧设备仍可用随机 Bearer 上报） |
+| `ADMIN_USERNAME` | **是** | 仓库机密，流水线 `wrangler secret put` 后写入管理员行 | 管理员用户名的唯一来源。运行时登录不读它，只和库里唯一一行做不区分大小写比较。GitHub 登录不使用这个名字 |
+| `ADMIN_PASSWORD` | **是** | 同上 | 管理员密码的唯一来源。改密码就是改仓库机密后重新部署。没有忘记密码工具，系统内改密码入口已隐藏 |
+| `DEVICE_JWT_SECRET` | 建议 | `wrangler secret put DEVICE_JWT_SECRET` | 设备 JWT 的签名密钥，至少 16 个字符，建议 32 字节 base64。未设置时使用 `schema_meta` 里已生成的值，还没有就生成 32 字节随机值写入后再用。不从 `CONTENT_KEY` 或管理员密码派生。更换它会让已签发的设备 JWT 立即失效（旧设备仍可用随机 Bearer 上报） |
 | `CONTENT_KEY` | 否 | `wrangler secret put CONTENT_KEY` | 32 字节 base64 的 AES-GCM 密钥。设置后短信正文、验证码、原始请求体、推送与 Token 密钥、TOTP 密钥都加密存储。**更换或清空后，之前加密的内容无法解密**，请先备份再改 |
 | `GH_CLIENT_ID` | 否 | `wrangler secret put GH_CLIENT_ID` | GitHub OAuth App 的 Client ID。与下一项同时设置才启用 GitHub 登录 |
 | `GH_CLIENT_SECRET` | 否 | `wrangler secret put GH_CLIENT_SECRET` | GitHub OAuth App 的 Client Secret |
@@ -162,12 +163,14 @@ npm run dev
 | `GH_CLIENT_ID` | 否 | 非空时由流水线同步为同名 Worker 机密；为空则跳过，不覆盖已有值 |
 | `GH_CLIENT_SECRET` | 否 | 同上 |
 | `AI_MODEL` | 否 | 非空时由流水线同步为同名 Worker 机密；为空则跳过 |
+| `ADMIN_USERNAME` | 部署管理员时需要 | 与 `ADMIN_PASSWORD` 同时非空时，流水线在部署后同步为 Worker 机密并写入管理员行。缺一则整段跳过，不报错 |
+| `ADMIN_PASSWORD` | 同上 | 同上。这是改密码的唯一路径 |
 
-> Worker 上的 `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `DEVICE_JWT_SECRET` / `CONTENT_KEY` 须提前单独设置，流水线**不会**同步这几项。
+> `DEVICE_JWT_SECRET` 与 `CONTENT_KEY` 仍须单独设置，流水线不会同步这两项。`ADMIN_USERNAME` / `ADMIN_PASSWORD` 在两个仓库机密都已配置时由流水线同步；还没配置时部署照常成功，已有登录不受影响。
 
 ### 5. 本地开发（`.dev.vars`，gitignored）
 
-复制自 [`.dev.vars.example`](./.dev.vars.example)：`ADMIN_USERNAME`、`ADMIN_PASSWORD` 必填，`CONTENT_KEY` 留空即明文存储。
+复制自 [`.dev.vars.example`](./.dev.vars.example)。`CONTENT_KEY` 留空即明文存储。`ADMIN_USERNAME` / `ADMIN_PASSWORD` 不会被本地登录读取。
 
 ---
 
@@ -201,8 +204,10 @@ npx wrangler login
 npx wrangler d1 create smsinbox            # 已有则跳过
 npx wrangler d1 migrations apply smsinbox --remote
 
-printf '%s' '你的用户名'        | npx wrangler secret put ADMIN_USERNAME
-printf '%s' '一段足够长的密码'   | npx wrangler secret put ADMIN_PASSWORD
+export ADMIN_USERNAME='你的用户名'
+export ADMIN_PASSWORD='一段足够长的密码'
+printf '%s' "$ADMIN_USERNAME" | npx wrangler secret put ADMIN_USERNAME
+printf '%s' "$ADMIN_PASSWORD" | npx wrangler secret put ADMIN_PASSWORD
 openssl rand -base64 32 | npx wrangler secret put DEVICE_JWT_SECRET
 openssl rand -base64 32 | npx wrangler secret put CONTENT_KEY
 # 启用 GitHub 登录时再加：
@@ -210,9 +215,10 @@ printf '%s' 'OAuth App 的 Client ID'     | npx wrangler secret put GH_CLIENT_ID
 printf '%s' 'OAuth App 的 Client Secret' | npx wrangler secret put GH_CLIENT_SECRET
 
 npx wrangler deploy
+npm run sync-admin
 ```
 
-`secret put` 从标准输入读值，避免密钥出现在 shell 历史里。`CONTENT_KEY` 一行可选，不设则短信明文存入你自己的 D1。
+`secret put` 从标准输入读值，避免密钥出现在 shell 历史里。`CONTENT_KEY` 一行可选，不设则短信明文存入你自己的 D1。`npm run sync-admin` 读取上面导出的两个变量，把它们写入远程 D1 的管理员行；不要把密码或哈希打到日志里。脚本只接受 `--remote`。
 
 ### 方式 B：GitHub Actions 自动部署
 
@@ -221,10 +227,10 @@ npx wrangler deploy
 **一次性准备（流水线不会替你做）：**
 
 1. 按「公共准备」创建好 D1 数据库 `smsinbox`。
-2. 先给 Worker 设置好流水线**不会同步**的机密（用方式 A 的命令，或在 Cloudflare 控制台里设置）：`ADMIN_USERNAME`、`ADMIN_PASSWORD`，以及建议设置的 `DEVICE_JWT_SECRET`、可选的 `CONTENT_KEY`。
+2. 建议先设置流水线**不会同步**的机密：`DEVICE_JWT_SECRET`，以及可选的 `CONTENT_KEY`。`ADMIN_USERNAME` 与 `ADMIN_PASSWORD` 配成仓库机密后，由流水线在部署后写入；还没配时可以先部署，登录保持原样。
 3. 在 GitHub 仓库 **Settings → Secrets and variables → Actions** 里添加[第 4 类仓库机密](#环境变量一览)。
 
-流水线每次运行依次做：安装依赖 → `npm test` → 把非空的 `GH_*` / `AI_MODEL` 仓库机密同步到 Worker → `wrangler d1 migrations apply smsinbox --remote` → `wrangler deploy`。
+流水线每次运行依次做：安装依赖 → `npm test` → 把非空的 `GH_*` / `AI_MODEL` 仓库机密同步到 Worker → `wrangler d1 migrations apply smsinbox --remote` → `wrangler deploy` → 两个管理员仓库机密都非空时，再同步 Worker 机密并执行 `npm run sync-admin`。
 
 ### 方式 C：AI Agent 代部署
 
@@ -234,7 +240,7 @@ npx wrangler deploy
 
 - 本仓库地址（或让 Agent 克隆你的分支）。
 - Cloudflare 访问（二选一）：在 Agent 的浏览器里登录你的 Cloudflare 账号，或给一个 API Token（需 Workers 与 D1 编辑权限）加账号 ID。
-- 变量值：`ADMIN_USERNAME`、`ADMIN_PASSWORD` 由你定；`DEVICE_JWT_SECRET`、`CONTENT_KEY` 可以让 Agent 生成随机值（生成后应写入你的密码管理器，不要把明文留在聊天记录里）。
+- 变量值：`ADMIN_USERNAME`、`ADMIN_PASSWORD` 由你定，并写成仓库机密，部署后同步进管理员行；`DEVICE_JWT_SECRET`、`CONTENT_KEY` 可以让 Agent 生成随机值（生成后应写入你的密码管理器，不要把明文留在聊天记录里）。
 
 Agent 执行的步骤与方式 A 相同，只是它来敲命令。
 
@@ -242,7 +248,7 @@ Agent 执行的步骤与方式 A 相同，只是它来敲命令。
 
 ### 部署之后
 
-1. 打开 Worker 的 `*.workers.dev` 地址（或你绑定的自定义域名），用 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 登录——第一次成功登录会在 D1 里创建管理员账号。
+1. 打开 Worker 的 `*.workers.dev` 地址（或你绑定的自定义域名），用仓库机密里的用户名和密码登录。管理员行由部署同步写入，登录本身不会创建账号。若还没同步，登录会提示先完成部署。
 2. 在「设备列表」里添加设备，把生成的推送链接填进手机上的转发工具，发一条测试短信确认收件箱能收到。iOS 点 [导入快捷指令](https://www.icloud.com/shortcuts/f7880f724c5443aebffc1ab5c5b7788f)（已签名，在 Apple 设备上会直接跳到快捷指令 App 导入），把推送链接填到指令里预留的位置即可；Android 用 SmsForwarder 的 Webhook 通道填推送链接。设备页的「接入指引」里有分平台的完整步骤，另见 [docs/ios-setup.md](docs/ios-setup.md)。
 3. 按需在「推送渠道」里加通知渠道，在「API 与 MCP」里签发对外 Token。
 
@@ -250,7 +256,7 @@ Agent 执行的步骤与方式 A 相同，只是它来敲命令。
 
 1. 在 GitHub **Settings → Developer settings → OAuth Apps** 新建一个 OAuth App，回调地址填 `https://<你的域名>/api/v1/auth/github/callback`。
 2. 把它的 Client ID / Client Secret 设置为 Worker 机密 `GH_CLIENT_ID` / `GH_CLIENT_SECRET`（方式 B 则填同名仓库机密，等流水线同步）。
-3. 管理员就是 `ADMIN_USERNAME` 同名的 GitHub 账号（不区分大小写）；已绑定过的账号也可登录。GitHub 登录跳过两步验证，密码登录规则不变。
+3. 在系统设置里绑定 GitHub 账号。之后只有这个数字 ID 能用 GitHub 登录，同名但 ID 不同的账号会被拒绝。GitHub 登录跳过两步验证，密码登录规则不变。解除绑定后，该 GitHub 账号不能再登录。
 
 ---
 
@@ -296,7 +302,7 @@ wrangler.jsonc       # Worker 配置：绑定、变量、定时任务
 
 ## 生产加固建议
 
-- 给 `ADMIN_PASSWORD` 用足够长的随机密码，并开启 TOTP 两步验证（恢复码离线保存）。
+- 给仓库机密 `ADMIN_PASSWORD` 用足够长的随机密码。要换密码就改这个机密并重新部署。开启 TOTP 两步验证（恢复码离线保存）。没有忘记密码工具。
 - 设置 `CONTENT_KEY`，让短信正文、验证码、渠道与 Token 密钥加密存储；注意它**更换或清空后旧数据无法解密**，改之前先备份。
 - 密钥一律用 `wrangler secret put` 从标准输入传入，不要写进仓库文件；GitHub Actions 方案也同理，只放仓库机密。
 - 登录失败限流已内置（15 分钟窗口：用户名 8 次、来源 IP 30 次）；想要第二层防护，可再用 [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/) 把整个站点保护起来。
@@ -314,7 +320,7 @@ wrangler.jsonc       # Worker 配置：绑定、变量、定时任务
 - 去重键是设备、发件人、压成单行空格后的正文，以及接收时间所在的那一分钟；一分钟后再收到同样内容，会记成新短信。
 - 管理员口令使用 PBKDF2-SHA256（10000 次迭代，受免费套餐 CPU 限制）。
 - Workers / D1 免费套餐额度决定实际吞吐：每条新短信大约写入 3 行，收件箱页面一直开着时 SSE 与补拉会持续产生读取，请按自己的用量评估。
-- 没有公开注册，也没有第二个管理员。`ADMIN_USERNAME` / `ADMIN_PASSWORD` 只引导或认领唯一管理员。
+- 没有公开注册，也没有第二个管理员。用户名和密码只来自仓库机密，部署时同步进唯一管理员行。登录只查库。
 
 ---
 

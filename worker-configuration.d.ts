@@ -7,6 +7,8 @@ interface __BaseEnv_Env {
 	AI?: Ai;
 	RETENTION_DAYS: "90";
 	CONTENT_KEY: string;
+	// Deploy sync only. The Worker runtime does not read these for login;
+	// the admin row in D1 is the credential. `wrangler types` may drop this comment.
 	ADMIN_USERNAME: string;
 	ADMIN_PASSWORD: string;
 	DEVICE_JWT_SECRET: string;

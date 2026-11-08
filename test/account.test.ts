@@ -381,25 +381,19 @@ describe("admin account", () => {
     expect(await deniedPassword.json()).toMatchObject({ error: "密码错误" });
   });
 
-  it("bootstraps the first admin from the configured variables only", async () => {
-    // envFor pins ADMIN_USERNAME=root and ADMIN_PASSWORD=secret.
+  it("refuses login when no admin row has been synced", async () => {
     const script = makeDb({ users: [], sessions: [] });
     const wrongName = await handleApi(loginRequest("someone-else", "secret"), envFor(script.db));
-    expect(wrongName.status).toBe(401);
-    expect(await wrongName.json()).toMatchObject({ error: "密码错误" });
+    expect(wrongName.status).toBe(503);
+    expect(await wrongName.json()).toMatchObject({ error: "管理员尚未同步，请先完成部署" });
     expect(script.users).toHaveLength(0);
     expect(script.calls.some((call) => call.sql.includes("INSERT INTO users"))).toBe(false);
 
     const created = await handleApi(loginRequest("root", "secret"), envFor(script.db));
-    expect(created.status).toBe(200);
-    expect(await created.json()).toMatchObject({ user: { username: "root", role: "admin" } });
-    expect(script.users).toHaveLength(1);
-    expect(script.users[0]?.username).toBe("root");
-    expect(await verifyPassword("secret", script.users[0]?.password_hash ?? "")).toBe(true);
-
-    // The bootstrapped row is now the login target for later sign-ins.
-    const again = await handleApi(loginRequest("ROOT", "secret"), envFor(script.db));
-    expect(again.status).toBe(200);
+    expect(created.status).toBe(503);
+    expect(await created.json()).toMatchObject({ error: "管理员尚未同步，请先完成部署" });
+    expect(script.users).toHaveLength(0);
+    expect(script.calls.some((call) => call.sql.includes("INSERT INTO sessions"))).toBe(false);
   });
 
   it("changes the password, revokes every session, and clears the cookie", async () => {
@@ -666,24 +660,25 @@ describe("login rate limit", () => {
     expect(script.calls.some((call) => call.sql.includes("INSERT INTO rate_limits"))).toBe(false);
   });
 
-  it("recovers the single existing row with ADMIN_PASSWORD without creating a second admin", async () => {
+  it("rejects an env password that does not match the stored hash", async () => {
     const script = makeDb({
       users: [{ ...adminUser(), id: OTHER_USER, username: "alice", password_hash: "stale" }],
       sessions: [],
     });
-    // The env password is a recovery path, not a username bypass: the
-    // submitted name still has to match the surviving row ("alice"), even
-    // though ADMIN_USERNAME points at "root" for row selection.
     const mismatched = await handleApi(loginRequest("root", "secret"), envFor(script.db));
     expect(mismatched.status).toBe(401);
     expect(await mismatched.json()).toMatchObject({ error: "密码错误" });
     expect(script.users[0]?.password_hash).toBe("stale");
 
     const response = await handleApi(loginRequest("alice", "secret"), envFor(script.db));
-    expect(response.status).toBe(200);
-    expect(await verifyPassword("secret", script.users[0]?.password_hash ?? "")).toBe(true);
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({ error: "密码错误" });
+    expect(script.users[0]?.password_hash).toBe("stale");
     expect(script.users.map((item) => item.username)).toEqual(["alice"]);
     expect(script.calls.some((call) => call.sql.includes("INSERT INTO users"))).toBe(false);
+    expect(script.calls.some((call) => call.sql.includes("UPDATE users SET password_hash"))).toBe(false);
+    expect(script.calls.some((call) => call.sql.includes("UPDATE users SET role"))).toBe(false);
+    expect(script.calls.some((call) => call.sql.includes("INSERT INTO sessions"))).toBe(false);
     expect((await handleApi(authed("/api/v1/users", "POST", { username: "mina", password: "mina-pass-1" }), envFor(script.db))).status).toBe(410);
   });
 });

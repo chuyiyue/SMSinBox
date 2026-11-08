@@ -27,14 +27,14 @@ users(id, username UNIQUE, password_hash, created_at)
 devices(id, user_id, name, token_hash UNIQUE, secret, last_seen_at, created_at)
 messages(id, device_id, from_number, to_number, content, content_hash, code, raw_payload, received_at, created_at)
 索引：messages(device_id, received_at DESC)、messages(code)、messages(content_hash)。
-放在 migrations/。管理员账号通过环境变量 ADMIN_USERNAME / ADMIN_PASSWORD（secret）首次引导创建。
+放在 migrations/。管理员账号不在登录时创建：仓库机密 ADMIN_USERNAME / ADMIN_PASSWORD 由部署流水线同步进唯一 users 行，登录只查库。
 
 ## 网页
 - 登录：用户名密码，PBKDF2（WebCrypto），HttpOnly + Secure 会话 Cookie。
 - 收件箱：最新在前、分页、按设备/号码筛选、关键词搜索（LIKE）。
 - 验证码：后端正则提取 4–8 位验证码（中英文提示词），前端高亮 + 一键复制。
 - 设备管理页：新建设备并显示一次 token，附 iOS/Android 配置说明。
-- 系统管理页：唯一管理员账号（改用户名/密码）、会话管理、两步验证、系统信息。
+- 系统管理页：唯一管理员账号（显示名、GitHub 绑定）、会话管理、两步验证、系统信息。系统内改密码入口隐藏，接口仍保留；改密码是改仓库机密后重新部署。
 - 刷新：MVP 用 5–10 秒短轮询。
 - 前端轻量：纯 HTML + Alpine.js 或原生 JS，无需复杂构建。
 
@@ -69,4 +69,4 @@ iOS 只能转发匹配快捷指令触发条件的短信，需开机联网、重�
 - 登录失败写入已有 `rate_limits`：用户名 8 次 / 15 分钟，`CF-Connecting-IP` 30 次 / 15 分钟，超出 429。成功登录清掉当前窗口。改当前密码另有 8 次 / 15 分钟。
 - Cookie：`HttpOnly`、`Path=/`、主机级（无 `Domain`）、`SameSite=Lax`，HTTPS 加 `Secure`，7 天。跨站 POST 不带 Cookie。
 - 敏感写在 `isCrossSite` 之外，还拒绝 `Origin: null` 和除 `same-origin` / `none` 以外的 `Sec-Fetch-Site`。没有单独的 CSRF token。`logout` 仍只做原来的跨站拒绝，并且只删当前会话。
-- 用户名仍等于 `ADMIN_USERNAME` 时，用 `ADMIN_PASSWORD` 登录会把库里的哈希写回该密钥。
+- 登录只校验管理员行里的密码哈希。环境变量里的密码不能登录，也不能改写哈希或复活被禁用的行。没有忘记密码工具。

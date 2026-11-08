@@ -4,6 +4,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Miniflare } from "miniflare";
 import worker from "../src/index";
+import { seedAdmin } from "./seed-admin";
 
 const ORIGIN = "http://smsinbox.test";
 const ADMIN_USERNAME = "admin";
@@ -109,6 +110,7 @@ beforeAll(async () => {
       await env.DB.prepare(statement).run();
     }
   }
+  await seedAdmin(env.DB, { username: ADMIN_USERNAME, password: ADMIN_PASSWORD });
   const login = await call("/api/v1/auth/login", jsonInit("POST", { username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
   expect(login.status).toBe(200);
   const raw = login.headers.get("set-cookie") ?? "";

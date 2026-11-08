@@ -5,7 +5,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import pkg from "../package.json";
 import { Miniflare } from "miniflare";
-import { bytesToBase64Url, hashPassword, sha256Hex } from "../src/auth";
+import { bytesToBase64Url, hashPassword, sha256Hex, verifyPassword } from "../src/auth";
+import { seedAdmin } from "./seed-admin";
 import { LOGIN_FAILURE_LIMIT, loginRateKey } from "../src/db";
 import { ENCRYPTED_PREFIX } from "../src/crypto";
 import worker from "../src/index";
@@ -95,6 +96,10 @@ async function resetSchema(until?: string): Promise<void> {
   for (const table of TABLES) await runSql(env.DB, `DROP TABLE IF EXISTS ${table}`);
   const files = migrationFiles().filter((file) => !until || file <= until);
   await applyFiles(files);
+}
+
+async function seedConfiguredAdmin(): Promise<void> {
+  await seedAdmin(env.DB, { username: ADMIN_USERNAME, password: ADMIN_PASSWORD });
 }
 
 async function countOf(sql: string, args: Array<string | number | null> = []): Promise<number> {
@@ -310,6 +315,18 @@ describe("release migrations", () => {
       .bind(LEGACY_DEVICE)
       .first<{ platform: string; token_version: number }>();
     expect(legacyIdentity).toEqual({ platform: "other", token_version: 0 });
+
+    const stale = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
+    expect(stale.status).toBe(401);
+    expect((await expectStatus(stale, 401)).error).toBe("密码错误");
+    const stillMember = await env.DB.prepare("SELECT role, password_hash FROM users WHERE id = ?")
+      .bind(LEGACY_USER)
+      .first<{ role: string; password_hash: string }>();
+    expect(stillMember).toEqual({ role: "member", password_hash: "not-a-password-hash" });
+    await runSql(env.DB, "UPDATE users SET password_hash = ?, role = 'admin', disabled_at = NULL WHERE id = ?", [
+      await hashPassword(ADMIN_PASSWORD),
+      LEGACY_USER,
+    ]);
 
     const login = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
     const cookie = sessionCookie(login);
@@ -540,13 +557,21 @@ describe("release journey", () => {
     await resetSchema();
   });
 
-  it("rejects a logged-out reader and a cross-site login, then bootstraps the admin", async () => {
+  it("rejects a logged-out reader and an empty database, then signs in the seeded admin", async () => {
     expect((await call("/api/v1/devices")).status).toBe(401);
     const cross = await call(
       "/api/v1/auth/login",
       jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }, { origin: "https://evil.test" }),
     );
     expect((await expectStatus(cross, 403)).error).toBe("跨站请求被拒绝");
+
+    const empty = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
+    expect((await expectStatus(empty, 503)).error).toBe("管理员尚未同步，请先完成部署");
+    expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(0);
+    await seedConfiguredAdmin();
+    const wrongName = await call("/api/v1/auth/login", jsonInit({ username: "someone-else", password: ADMIN_PASSWORD }));
+    expect((await expectStatus(wrongName, 401)).error).toBe("密码错误");
+    expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
 
     const login = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
     state.cookie = sessionCookie(login);
@@ -966,7 +991,7 @@ describe("single user convergence", () => {
     await resetSchema();
   });
 
-  it("keeps messages and credentials when the configured admin logs in", async () => {
+  it("refuses to guess an admin when more than one user row exists", async () => {
     const adminId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const elderId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
     const deviceId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
@@ -1017,68 +1042,40 @@ describe("single user convergence", () => {
     expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(2);
 
     const elderLogin = await call("/api/v1/auth/login", jsonInit({ username: "elder", password: "elder-pass-1" }));
-    // The username is checked against the administrator row, so a member's
-    // own credentials fail with the plain credential error.
-    expect((await expectStatus(elderLogin, 401)).error).toBe("密码错误");
+    expect((await expectStatus(elderLogin, 409)).error).toContain("无法确定管理员");
     expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(2);
     expect(await countOf("SELECT COUNT(*) AS total FROM devices WHERE user_id = ?", [elderId])).toBe(1);
+    expect(await countOf("SELECT COUNT(*) AS total FROM sessions WHERE id = ?", ["elder-session"])).toBe(1);
+    expect(await countOf("SELECT COUNT(*) AS total FROM messages WHERE id = ?", [messageId])).toBe(1);
+    expect(await countOf("SELECT COUNT(*) AS total FROM notify_channels WHERE id = ? AND user_id = ?", [channelId, elderId])).toBe(1);
+    expect(await countOf("SELECT COUNT(*) AS total FROM schema_meta WHERE key = ?", ["single_user_merged_at"])).toBe(0);
+    const adminHash = await env.DB.prepare("SELECT password_hash FROM users WHERE id = ?")
+      .bind(adminId)
+      .first<{ password_hash: string }>();
+    expect(adminHash?.password_hash).toBe("not-a-password-hash");
+    const elderRow = await env.DB.prepare("SELECT password_hash FROM users WHERE id = ?")
+      .bind(elderId)
+      .first<{ password_hash: string }>();
+    expect(await verifyPassword("elder-pass-1", elderRow?.password_hash ?? "")).toBe(true);
 
     const login = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
-    const cookie = sessionCookie(login);
-    expect((await expectStatus(login, 200)).user).toMatchObject({ username: ADMIN_USERNAME, role: "admin" });
-
-    expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
-    expect(await countOf("SELECT COUNT(*) AS total FROM users WHERE id = ?", [adminId])).toBe(1);
-    expect(await countOf("SELECT COUNT(*) AS total FROM users WHERE id = ?", [elderId])).toBe(0);
-    expect(await countOf("SELECT COUNT(*) AS total FROM sessions WHERE id = ?", ["elder-session"])).toBe(0);
-    expect(await countOf("SELECT COUNT(*) AS total FROM messages WHERE id = ?", [messageId])).toBe(1);
-    expect(await countOf("SELECT COUNT(*) AS total FROM notify_channels WHERE id = ? AND user_id = ?", [channelId, adminId])).toBe(1);
-    expect(await countOf("SELECT COUNT(*) AS total FROM rate_limits WHERE token_hash = ?", [tokenHash])).toBe(1);
-    expect(await countOf("SELECT COUNT(*) AS total FROM schema_meta WHERE key = ?", ["single_user_merged_at"])).toBe(1);
+    expect(login.status).toBe(409);
+    expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(2);
     const device = await env.DB.prepare("SELECT user_id, token_hash, push_token_hash FROM devices WHERE id = ?")
       .bind(deviceId)
       .first<{ user_id: string; token_hash: string; push_token_hash: string }>();
-    expect(device).toEqual({ user_id: adminId, token_hash: tokenHash, push_token_hash: pushHash });
-
-    const inbox = await expectStatus(await call("/api/v1/messages", {}, cookie), 200);
-    expect(JSON.stringify(inbox.messages)).toContain("旧成员短信 246810");
-    const stored = await expectStatus(
-      await call("/api/v1/sms", {
-        method: "POST",
-        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-        body: JSON.stringify({ from: "10086", content: "验证码 135790", device: "Android" }),
-      }),
-      200,
-    );
-    expect(stored).toMatchObject({ ok: true, code: "135790" });
-    const still = await env.DB.prepare("SELECT token_hash, push_token_hash FROM devices WHERE id = ?")
-      .bind(deviceId)
-      .first<{ token_hash: string; push_token_hash: string }>();
-    expect(still).toEqual({ token_hash: tokenHash, push_token_hash: pushHash });
-
-    const again = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
-    expect(again.status).toBe(200);
-    expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
-    expect(await countOf("SELECT COUNT(*) AS total FROM messages WHERE id = ?", [messageId])).toBe(1);
+    expect(device).toEqual({ user_id: elderId, token_hash: tokenHash, push_token_hash: pushHash });
 
     const previous = env.ADMIN_USERNAME;
     try {
       env.ADMIN_USERNAME = "second-admin";
-      // ADMIN_USERNAME only selects the row; the login name is checked
-      // against the row itself. The renamed hint no longer logs anyone in,
-      // while the row's own name plus ADMIN_PASSWORD still recovers it —
-      // and neither attempt spawns a second row.
       const mismatched = await call(
         "/api/v1/auth/login",
         jsonInit({ username: "second-admin", password: ADMIN_PASSWORD }),
       );
-      expect(mismatched.status).toBe(401);
-      const recovered = await call(
-        "/api/v1/auth/login",
-        jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
-      );
-      expect((await expectStatus(recovered, 200)).user).toMatchObject({ username: ADMIN_USERNAME, role: "admin" });
-      expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
+      expect(mismatched.status).toBe(409);
+      expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(2);
+      expect(await countOf("SELECT COUNT(*) AS total FROM messages WHERE id = ?", [messageId])).toBe(1);
     } finally {
       env.ADMIN_USERNAME = previous;
     }
@@ -1088,6 +1085,7 @@ describe("single user convergence", () => {
 describe("admin account", () => {
   beforeAll(async () => {
     await resetSchema();
+    await seedConfiguredAdmin();
   });
 
   it("rotates the password, tombstones rename, and revokes sessions without dropping devices", async () => {
@@ -1211,20 +1209,25 @@ describe("admin account", () => {
     expect(cleared.status).toBe(200);
     expect(await countOf("SELECT COUNT(*) AS total FROM rate_limits WHERE token_hash = ?", [userKey])).toBe(0);
 
-    // ADMIN_PASSWORD remains the recovery key and resets the stored hash.
     const recovered = await call(
       "/api/v1/auth/login",
       jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
     );
-    expect(recovered.status).toBe(200);
+    expect(recovered.status).toBe(401);
     expect(
       (await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: "replacement-pass-1" }))).status,
-    ).toBe(401);
+    ).toBe(200);
     expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
+    const storedHash = await env.DB.prepare("SELECT password_hash FROM users WHERE username = ?")
+      .bind(ADMIN_USERNAME)
+      .first<{ password_hash: string }>();
+    expect(await verifyPassword(ADMIN_PASSWORD, storedHash?.password_hash ?? "")).toBe(false);
+    expect(await verifyPassword("replacement-pass-1", storedHash?.password_hash ?? "")).toBe(true);
   }, 30_000);
 
-  it("lets the configured password replace a hash set through the API", async () => {
+  it("keeps the hash set through the API when the env password no longer matches", async () => {
     await resetSchema();
+    await seedConfiguredAdmin();
     const login = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
     const cookie = sessionCookie(login);
     const changed = await call(
@@ -1234,8 +1237,8 @@ describe("admin account", () => {
     );
     expect(changed.status).toBe(200);
     expect((await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: "replacement-pass-1" }))).status).toBe(200);
-    expect((await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }))).status).toBe(200);
-    expect((await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: "replacement-pass-1" }))).status).toBe(401);
+    expect((await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }))).status).toBe(401);
+    expect((await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: "replacement-pass-1" }))).status).toBe(200);
     expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
   }, 30_000);
 });
@@ -1273,6 +1276,7 @@ describe("two-factor login", () => {
 
   beforeAll(async () => {
     await resetSchema();
+    await seedConfiguredAdmin();
     const key = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
     env.CONTENT_KEY = key;
     const login = await call(
@@ -1655,6 +1659,7 @@ describe("two-factor login", () => {
 describe("release storage edges", () => {
   beforeAll(async () => {
     await resetSchema();
+    await seedConfiguredAdmin();
   });
 
   it("stores ciphertext when CONTENT_KEY is set and refuses a bad key without writing", async () => {
@@ -1700,6 +1705,7 @@ describe("release storage edges", () => {
 
   it("lists authenticated push history newest first with pagination and a total", async () => {
     await resetSchema();
+    await seedConfiguredAdmin();
     const login = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
     const cookie = sessionCookie(login);
     const session = await expectStatus(login, 200);
@@ -1794,6 +1800,7 @@ describe("release storage edges", () => {
     const flag = users.results.find((column) => column.name === "translate_enabled");
     expect(flag?.dflt_value).toBe("0");
 
+    await seedConfiguredAdmin();
     const login = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
     const cookie = sessionCookie(login);
     const me = await expectStatus(await call("/api/v1/me", {}, cookie), 200);
@@ -1855,6 +1862,7 @@ describe("release storage edges", () => {
     const column = users.results.find((item) => item.name === "locale");
     expect(column?.dflt_value).toBe("'zh-CN'");
 
+    await seedConfiguredAdmin();
     const login = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }));
     const cookie = sessionCookie(login);
     const me = await expectStatus(await call("/api/v1/me", {}, cookie), 200);
