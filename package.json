@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "cf-typegen": "wrangler types",
     "db:migrate:local": "wrangler d1 migrations apply smsinbox --local",
-    "db:migrate:remote": "wrangler d1 migrations apply smsinbox --remote"
+    "db:migrate:remote": "wrangler d1 migrations apply smsinbox --remote",
+    "sync-admin": "node scripts/sync-admin.mjs"
   },
   "engines": {
     "node": ">=20"

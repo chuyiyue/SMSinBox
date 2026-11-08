@@ -12,6 +12,7 @@
 // migration window.
 
 import { base64UrlToBytes, bytesToBase64Url, equalBytes, sha256Hex } from "./auth";
+import { readSchemaMeta, writeSchemaMeta } from "./db";
 
 export const DEVICE_TOKEN_TTL_SECONDS = 365 * 24 * 60 * 60;
 const JWT_ALG = "HS256";
@@ -34,15 +35,23 @@ export type DeviceTokenResult =
   | { ok: true; claims: DeviceTokenClaims }
   | { ok: false; error: string };
 
-// DEVICE_JWT_SECRET is the intended key. Older deployments that only set
-// CONTENT_KEY or ADMIN_PASSWORD still get a domain-separated fallback so a
-// plain upgrade does not immediately break device creation. Rotating the
-// fallback secret invalidates every issued JWT; an explicit secret is safer.
-export function resolveDeviceJwtSecret(env: Env): string | null {
+// Persisted only when DEVICE_JWT_SECRET is absent. Production sets the secret,
+// so this row is a local/dev fallback and is never derived from CONTENT_KEY
+// or the admin password.
+export const DEVICE_JWT_META_KEY = "device_jwt_secret";
+
+// DEVICE_JWT_SECRET (>= 16 characters) wins. Otherwise reuse the value stored
+// in schema_meta, or generate 32 random bytes, store them, and return that.
+export async function resolveDeviceJwtSecret(env: Env): Promise<string> {
   const explicit = env.DEVICE_JWT_SECRET?.trim() ?? "";
   if (explicit.length >= 16) return explicit;
-  const fallback = env.CONTENT_KEY?.trim() || env.ADMIN_PASSWORD?.trim() || "";
-  return fallback.length >= 16 ? `smsinbox-device-jwt:${fallback}` : null;
+  const stored = (await readSchemaMeta(env.DB, DEVICE_JWT_META_KEY))?.trim() ?? "";
+  if (stored.length >= 16) return stored;
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  const generated = bytesToBase64Url(bytes);
+  await writeSchemaMeta(env.DB, DEVICE_JWT_META_KEY, generated);
+  return generated;
 }
 
 export function looksLikeDeviceJwt(token: string): boolean {

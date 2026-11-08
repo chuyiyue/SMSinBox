@@ -107,7 +107,8 @@
                 </div>
                 </div>
 
-                <form id="password-form" class="stack" novalidate>
+                <!-- 凭据以仓库机密为准，系统内改密码入口先隐藏；接口与表单代码保留 -->
+                <form id="password-form" class="stack" hidden novalidate>
                   <h3 data-i18n="users.changePassword">改密码</h3>
                   <label data-i18n="users.currentPassword">当前密码
                     <input id="password-current" name="current_password" type="password" required maxlength="256" autocomplete="current-password" />
@@ -120,9 +121,11 @@
                   <p id="password-error" class="field-error" hidden></p>
                   <div class="actions">
                     <button id="password-submit" type="submit" data-i18n="users.savePassword">保存密码</button>
-                    <button id="logout" class="secondary" type="button" data-logout data-i18n="nav.logout">退出登录</button>
                   </div>
                 </form>
+                <div class="actions">
+                  <button id="logout" class="secondary" type="button" data-logout data-i18n="nav.logout">退出登录</button>
+                </div>
               </section>
 
               <section id="sessions-panel" class="settings-section panel stack" aria-labelledby="sessions-title">

@@ -1,20 +1,20 @@
 import { pickDesignatedUser } from "../admin-user";
-import { hashPassword, randomToken, requestIsSecure, secretsEqual } from "../auth";
+import { requestIsSecure, secretsEqual, verifyPassword } from "../auth";
 import { parseAvatarDataUrl, AVATAR_BODY_MAX } from "../avatar";
 import {
+  accountPasswordLimited,
   AVATAR_DATA_KEY,
+  clearAccountPasswordFailures,
   deleteSchemaMeta,
-  ensureAdmin,
-  getProfileUsername,
+  findUserRecordById,
   GITHUB_AVATAR_URL_KEY,
   GITHUB_ID_KEY,
   GITHUB_LOGIN_KEY,
-  insertUser,
-  isUniqueViolation,
   listUserRecords,
+  loginRetryAfterSeconds,
   mergeIntoAdmin,
   readSchemaMeta,
-  setProfileUsername,
+  recordAccountPasswordFailure,
   writeSchemaMeta,
 } from "../db";
 import { json, readCookie, readLimitedBytes } from "../http";
@@ -27,21 +27,33 @@ import {
   GH_STATE_COOKIE,
   githubOAuthCookie,
   githubSettings,
-  GITHUB_LOGIN_RE,
   newOauthState,
   type GithubIdentity,
 } from "../github-oauth";
 import { findRequestSession, issueSessionCookie, requireSensitiveUser, requireUser } from "../session";
-import type { UserRecord } from "../types";
 
 const LOGIN_STATE = "/login?error=github_state";
 const LOGIN_EXCHANGE = "/login?error=github_exchange";
 const LOGIN_FORBIDDEN = "/login?error=github_forbidden";
 const USERS_BOUND = "/users?github=bound";
 const USERS_ERROR = "/users?github=error";
+// Proof that the signed-in admin re-entered the current password before a
+// bind may replace an existing GitHub id. Ten minutes covers the OAuth round trip.
+const GITHUB_REBIND_UNTIL_KEY = "github_rebind_until";
+const GITHUB_REBIND_TTL_MS = 10 * 60 * 1000;
 
-export function githubConfig(env: Env): Response {
-  return json({ ok: true, github_enabled: githubSettings(env) !== null });
+// The login page shows its GitHub button only when signing in could actually
+// succeed: OAuth configured AND an account bound in settings. The settings
+// panel keeps using the plain configured flag (see systemInfo in api.ts), so
+// a fresh deployment can still create the first binding.
+export async function githubLoginEnabled(env: Env): Promise<boolean> {
+  if (!githubSettings(env)) return false;
+  const bound = (await readSchemaMeta(env.DB, GITHUB_ID_KEY))?.trim() ?? "";
+  return bound.length > 0;
+}
+
+export async function githubConfig(env: Env): Promise<Response> {
+  return json({ ok: true, github_enabled: await githubLoginEnabled(env) });
 }
 
 export async function githubStart(request: Request, env: Env): Promise<Response> {
@@ -90,7 +102,24 @@ export async function githubCallback(request: Request, env: Env): Promise<Respon
   });
   if (!identity) return redirect(LOGIN_EXCHANGE, clears);
   if (intent === "bind") return finishBind(request, env, identity, clears);
-  return finishLogin(request, env, identity, settings.adminUsername, clears);
+  return finishLogin(request, env, identity, clears);
+}
+
+// Replacing a bound GitHub id requires the current password again. The OAuth
+// callback itself cannot carry that password, so the settings client confirms
+// it here and finishBind consumes the short-lived grant.
+export async function githubRebindConfirm(request: Request, env: Env): Promise<Response> {
+  const user = await requireSensitiveUser(request, env);
+  if (user instanceof Response) return user;
+  const body = await readJsonObject(request);
+  if (!body.ok) return body.response;
+  const password = readCurrentPassword(body.value);
+  if (typeof password !== "string") return json({ ok: false, error: password.error }, 400);
+  const check = await confirmCurrentPassword(env, user.id, password);
+  if (check !== "ok") return passwordCheckResponse(check);
+  await writeSchemaMeta(env.DB, GITHUB_REBIND_UNTIL_KEY, String(Date.now() + GITHUB_REBIND_TTL_MS));
+  logInfo({ message: "github_rebind_confirmed", user_id: user.id });
+  return json({ ok: true });
 }
 
 export async function githubUnbind(request: Request, env: Env): Promise<Response> {
@@ -147,94 +176,110 @@ async function finishBind(
 ): Promise<Response> {
   const user = await findRequestSession(request, env);
   if (!user) return redirect(USERS_ERROR, clears);
-  await syncGithubProfile(env.DB, identity);
+  const existingId = (await readSchemaMeta(env.DB, GITHUB_ID_KEY))?.trim() ?? "";
+  if (existingId && existingId !== identity.id.trim()) {
+    const until = Number((await readSchemaMeta(env.DB, GITHUB_REBIND_UNTIL_KEY)) ?? "");
+    if (!Number.isFinite(until) || until < Date.now()) return redirect(USERS_ERROR, clears);
+    await deleteSchemaMeta(env.DB, GITHUB_REBIND_UNTIL_KEY);
+  }
+  await syncGithubBinding(env.DB, identity);
   logInfo({ message: "github_bound", user_id: user.id });
   return redirect(USERS_BOUND, clears);
 }
 
 // A successful GitHub callback is already a second factor, so this path issues
-// the session cookie directly and never opens a TOTP ticket.
+// the session cookie directly and never opens a TOTP ticket. The bound numeric
+// id is the only allow-list; an empty users table is refused, not bootstrapped.
 async function finishLogin(
   request: Request,
   env: Env,
   identity: GithubIdentity,
-  adminUsername: string,
   clears: string[],
 ): Promise<Response> {
   const decision = decideGithubAccess(
     { login: identity.login, id: identity.id },
-    { adminUsername, boundId: await readSchemaMeta(env.DB, GITHUB_ID_KEY) },
+    { boundId: await readSchemaMeta(env.DB, GITHUB_ID_KEY) },
   );
   if (!decision.ok) {
     logInfo({ message: "github_login_denied", login: identity.login });
     return redirect(LOGIN_FORBIDDEN, clears);
   }
 
-  const users = await listUserRecords(env.DB);
-  let user: UserRecord | null;
-  if (users.length === 0) {
-    if (decision.reason !== "admin_username") return redirect(LOGIN_FORBIDDEN, clears);
-    user = await createGithubAdmin(env, identity.login);
-    if (!user) return redirect(LOGIN_EXCHANGE, clears);
-  } else {
-    user = pickDesignatedUser(users, env.ADMIN_USERNAME?.trim() ?? "");
-    if (!user) return redirect(LOGIN_FORBIDDEN, clears);
-    if (decision.reason === "admin_username") {
-      if (user.role !== "admin" || user.disabled_at != null) {
-        await ensureAdmin(env.DB, user.id);
-        user = { ...user, role: "admin", disabled_at: null };
-      }
-    } else if (user.role !== "admin" || user.disabled_at != null) {
-      return redirect(LOGIN_FORBIDDEN, clears);
-    }
+  const user = pickDesignatedUser(await listUserRecords(env.DB));
+  if (!user || user.role !== "admin" || user.disabled_at != null) {
+    return redirect(LOGIN_FORBIDDEN, clears);
   }
 
-  await syncGithubProfile(env.DB, identity);
+  await syncGithubDisplay(env.DB, identity);
   await mergeIntoAdmin(env.DB, user);
   const sessionCookie = await issueSessionCookie(request, env, user);
   logInfo({ message: "github_login", user_id: user.id, login: identity.login });
   return redirect("/", [...clears, sessionCookie]);
 }
 
-async function createGithubAdmin(env: Env, login: string): Promise<UserRecord | null> {
-  const username = env.ADMIN_USERNAME?.trim() || login;
-  const createdAt = Date.now();
-  const user: UserRecord = {
-    id: crypto.randomUUID(),
-    username,
-    password_hash: await hashPassword(randomToken()),
-    role: "admin",
-    disabled_at: null,
-    created_at: createdAt,
-  };
-  try {
-    await insertUser(env.DB, {
-      id: user.id,
-      username: user.username,
-      passwordHash: user.password_hash,
-      role: "admin",
-      createdAt,
-    });
-    // The account was born from this GitHub login, so the display name
-    // starts as the GitHub login. This runs only at creation; later binds
-    // and sign-ins leave the profile username alone (see syncGithubProfile).
-    const profile = await getProfileUsername(env.DB);
-    if (!profile && GITHUB_LOGIN_RE.test(login)) await setProfileUsername(env.DB, login);
-    return user;
-  } catch (error) {
-    if (!isUniqueViolation(error)) throw error;
-    const again = await listUserRecords(env.DB);
-    return pickDesignatedUser(again, username) ?? again[0] ?? null;
-  }
+async function syncGithubBinding(db: D1Database, identity: GithubIdentity): Promise<void> {
+  await writeSchemaMeta(db, GITHUB_ID_KEY, identity.id);
+  await syncGithubDisplay(db, identity);
 }
 
-async function syncGithubProfile(db: D1Database, identity: GithubIdentity): Promise<void> {
-  await writeSchemaMeta(db, GITHUB_ID_KEY, identity.id);
+// Sign-in refreshes the display name and avatar only. The bound id changes
+// solely through finishBind, so a login cannot take the binding over.
+async function syncGithubDisplay(db: D1Database, identity: GithubIdentity): Promise<void> {
   await writeSchemaMeta(db, GITHUB_LOGIN_KEY, identity.login);
   await writeSchemaMeta(db, GITHUB_AVATAR_URL_KEY, identity.avatarUrl);
-  // Binding or signing in never touches the profile username: the display
-  // name is independent of GitHub. The single exception is account
-  // creation, which seeds it in createGithubAdmin above.
+}
+
+async function confirmCurrentPassword(
+  env: Env,
+  userId: string,
+  password: string,
+): Promise<"ok" | "bad" | "limited" | "missing"> {
+  const now = Date.now();
+  if (await accountPasswordLimited(env.DB, userId, now)) return "limited";
+  const record = await findUserRecordById(env.DB, userId);
+  if (!record) return "missing";
+  if (!(await verifyPassword(password, record.password_hash))) {
+    await recordAccountPasswordFailure(env.DB, userId, now);
+    return "bad";
+  }
+  await clearAccountPasswordFailures(env.DB, userId, now);
+  return "ok";
+}
+
+function passwordCheckResponse(status: "bad" | "limited" | "missing"): Response {
+  if (status === "limited") {
+    return json({ ok: false, error: "尝试过多，请稍后再试" }, 429, {
+      "retry-after": String(loginRetryAfterSeconds(Date.now())),
+    });
+  }
+  if (status === "missing") return json({ ok: false, error: "未登录" }, 401);
+  return json({ ok: false, error: "当前密码不正确" }, 401);
+}
+
+function readCurrentPassword(value: Record<string, unknown>): string | { error: string } {
+  if (typeof value.current_password !== "string" || value.current_password.length === 0) {
+    return { error: "请填写当前密码" };
+  }
+  if (value.current_password.length > 256) return { error: "当前密码需要 1 到 256 个字符" };
+  return value.current_password;
+}
+
+async function readJsonObject(
+  request: Request,
+): Promise<{ ok: true; value: Record<string, unknown> } | { ok: false; response: Response }> {
+  const bytes = await readLimitedBytes(request, 8 * 1024);
+  if (bytes === null) return { ok: false, response: json({ ok: false, error: "请求体过大" }, 413) };
+  if (bytes.byteLength === 0) return { ok: false, response: json({ ok: false, error: "请求体为空" }, 400) };
+  let value: unknown;
+  try {
+    value = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+  } catch {
+    return { ok: false, response: json({ ok: false, error: "JSON 无法解析" }, 400) };
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { ok: false, response: json({ ok: false, error: "请求体无效" }, 400) };
+  }
+  return { ok: true, value: value as Record<string, unknown> };
 }
 
 async function readAvatarBody(

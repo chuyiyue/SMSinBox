@@ -28,9 +28,18 @@ export { mountSelect, openHelp, openMenu, openModal, passwordScore, generatePass
 const URL_RE = /https?:\/\/[^\s<>"']+/gi;
 
 export function safeNext(value) {
-  if (!value || !value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) return "/";
-  if (value.startsWith("/login")) return "/";
-  return value;
+  if (typeof value !== "string" || value.length === 0) return "/";
+  if (/[\\\u0000-\u001F\u007F]/.test(value)) return "/";
+  let url;
+  try {
+    url = new URL(value, location.origin);
+  } catch {
+    return "/";
+  }
+  if (url.origin !== location.origin) return "/";
+  const next = `${url.pathname}${url.search}${url.hash}`;
+  if (/[\\\u0000-\u001F\u007F]/.test(next) || next.includes("/login")) return "/";
+  return next;
 }
 
 export function formatTime(ms) {

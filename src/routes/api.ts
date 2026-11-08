@@ -3,7 +3,6 @@ import {
   bytesToBase64Url,
   hashPassword,
   requestIsSecure,
-  secretsEqual,
   SESSION_COOKIE,
   sessionCookieHeader,
   sha256Hex,
@@ -25,7 +24,6 @@ import {
   deleteUserSessionById,
   deleteUserSessions,
   deleteUserTotpTickets,
-  ensureAdmin,
   findDeviceForUser,
   findMessageByHash,
   findNotifyChannel,
@@ -41,7 +39,6 @@ import {
   listPushLogs,
   updateNotifyChannelConfig,
   updateNotifyChannelNote,
-  insertUser,
   isUniqueViolation,
   countPinnedDevices,
   createDeviceGroup,
@@ -96,6 +93,8 @@ import {
   deleteAvatar,
   githubCallback,
   githubConfig,
+  githubLoginEnabled,
+  githubRebindConfirm,
   githubStart,
   githubUnbind,
   uploadAvatar,
@@ -180,6 +179,10 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
   if (path === "/api/v1/auth/github/unbind") {
     if (method !== "POST") return methodNotAllowed("POST");
     return githubUnbind(request, env);
+  }
+  if (path === "/api/v1/auth/github/rebind") {
+    if (method !== "POST") return methodNotAllowed("POST");
+    return githubRebindConfirm(request, env);
   }
   if (path === "/api/v1/auth/avatar") {
     if (method === "POST") return uploadAvatar(request, env);
@@ -374,39 +377,18 @@ async function login(request: Request, env: Env): Promise<Response> {
   if (await loginIsLimited(env, userKey, ipKey, now)) return loginLimited(now);
 
   const users = await listUserRecords(env.DB);
-  const adminPassword = env.ADMIN_PASSWORD ?? "";
-  const hasEnvPassword = adminPassword.length > 0;
   if (users.length === 0) {
-    if (!hasEnvPassword) {
-      return json({ ok: false, error: "尚未配置管理员密码。请设置 ADMIN_PASSWORD" }, 503);
-    }
-    // First deploy: the configured variables are the credentials. The new
-    // administrator row takes ADMIN_USERNAME (or the "admin" fallback), so
-    // the submitted username has to match that name before the env password
-    // is even compared.
-    const bootstrapName = env.ADMIN_USERNAME?.trim() || "admin";
-    const envPasswordOk = await secretsEqual(password, adminPassword);
-    if (username.toLowerCase() !== bootstrapName.toLowerCase() || !envPasswordOk) {
-      await recordLoginFailure(env.DB, userKey, now);
-      if (ipKey) await recordLoginFailure(env.DB, ipKey, now);
-      return json({ ok: false, error: "密码错误" }, 401);
-    }
-    const created = await bootstrapAdmin(env, password);
-    if (!created) return json({ ok: false, error: "无法创建管理员，请重试" }, 500);
-    await finishLogin(env, created, { userKey, ipKey, now });
-    return issueSessionFor(request, env, created);
+    return json({ ok: false, error: "管理员尚未同步，请先完成部署" }, 503);
   }
 
-  // Only one row is the administrator. ADMIN_USERNAME stays a read-only
-  // hint for selecting that row while production databases still contain
-  // pre-merge rows; the login username is then checked against the row
-  // itself, never against the hint.
-  const designated = pickDesignatedUser(users, env.ADMIN_USERNAME?.trim() ?? "");
+  // The administrator is the only users row. A larger set is refused rather
+  // than guessed. The submitted name is then checked against that row.
+  const designated = pickDesignatedUser(users);
   if (!designated) {
     return json(
       {
         ok: false,
-        error: "存在多个账号，无法确定管理员。请先只保留一个 users 行，或用 ADMIN_USERNAME 指向现有管理员",
+        error: "存在多个账号，无法确定管理员。请先只保留一个 users 行",
       },
       409,
     );
@@ -418,8 +400,7 @@ async function login(request: Request, env: Env): Promise<Response> {
   }
 
   const rowPasswordOk = await verifyPassword(password, designated.password_hash);
-  const envPasswordOk = hasEnvPassword && (await secretsEqual(password, adminPassword));
-  if (!rowPasswordOk && !envPasswordOk) {
+  if (!rowPasswordOk) {
     await recordLoginFailure(env.DB, userKey, now);
     if (ipKey) await recordLoginFailure(env.DB, ipKey, now);
     // A password that belongs to another pre-merge row gets a clear refusal
@@ -432,23 +413,11 @@ async function login(request: Request, env: Env): Promise<Response> {
     );
   }
 
-  let user = designated;
-  if (envPasswordOk) {
-    // ADMIN_PASSWORD stays a recovery path: a successful env-password login
-    // writes that password back into the row so later UI changes win, and can
-    // revive the surviving row if it was disabled or demoted.
-    if (!rowPasswordOk) {
-      const hash = await hashPassword(password);
-      await updatePasswordHash(env.DB, user.id, hash);
-      user = { ...user, password_hash: hash };
-    }
-    if (user.role !== "admin" || user.disabled_at != null) {
-      await ensureAdmin(env.DB, user.id);
-      user = { ...user, role: "admin", disabled_at: null };
-    }
-  } else if (user.disabled_at != null) {
+  const user = designated;
+  if (user.disabled_at != null) {
     return json({ ok: false, error: "账号已停用" }, 401);
-  } else if (user.role !== "admin") {
+  }
+  if (user.role !== "admin") {
     return json({ ok: false, error: "仅管理员可以登录" }, 401);
   }
 
@@ -471,33 +440,6 @@ async function findMatchingUser(
   return null;
 }
 
-async function bootstrapAdmin(env: Env, password: string): Promise<UserRecord | null> {
-  const username = env.ADMIN_USERNAME?.trim() || "admin";
-  const createdAt = Date.now();
-  const user: UserRecord = {
-    id: crypto.randomUUID(),
-    username,
-    password_hash: await hashPassword(password),
-    role: "admin",
-    disabled_at: null,
-    created_at: createdAt,
-  };
-  try {
-    await insertUser(env.DB, {
-      id: user.id,
-      username: user.username,
-      passwordHash: user.password_hash,
-      role: "admin",
-      createdAt,
-    });
-    return user;
-  } catch (error) {
-    if (!isUniqueViolation(error)) throw error;
-    const again = await listUserRecords(env.DB);
-    return pickDesignatedUser(again, username) ?? again[0] ?? null;
-  }
-}
-
 async function finishLogin(
   env: Env,
   user: UserRecord,
@@ -510,8 +452,7 @@ async function finishLogin(
   await mergeIntoAdmin(env.DB, user);
 }
 
-// Session issuance stays in one place so the bootstrap path and the normal
-// path cannot drift apart (including the TOTP challenge).
+// Session issuance stays in one place, including the TOTP challenge.
 async function issueSessionFor(request: Request, env: Env, user: UserRecord): Promise<Response> {
   const totp = await findTotpUser(env.DB, user.id);
   logInfo({ message: "login", user_id: user.id });
@@ -603,11 +544,13 @@ async function updateProfile(request: Request, env: Env): Promise<Response> {
 async function systemInfo(request: Request, env: Env): Promise<Response> {
   // The login page reads github_enabled before signing in (to decide
   // whether to show the GitHub button), so that one flag is public; the
-  // version/runtime details stay behind the session.
-  const enabled = githubSettings(env) !== null;
+  // version/runtime details stay behind the session. Anonymous readers get
+  // the login-ready flag (configured AND bound); the signed-in settings page
+  // gets the plain configured flag so the first binding can still be made.
+  const configured = githubSettings(env) !== null;
   const user = await findRequestSession(request, env);
-  if (!user) return json({ ok: true, github_enabled: enabled });
-  return json({ ok: true, version: APP_VERSION, runtime: "Cloudflare Workers + D1", github_enabled: enabled });
+  if (!user) return json({ ok: true, github_enabled: await githubLoginEnabled(env) });
+  return json({ ok: true, version: APP_VERSION, runtime: "Cloudflare Workers + D1", github_enabled: configured });
 }
 
 async function changePassword(request: Request, env: Env): Promise<Response> {
@@ -843,7 +786,7 @@ export async function createDeviceForUser(
     return { ok: false, status: 400, error: "设备数量已达上限" };
   }
 
-  const secret = resolveDeviceJwtSecret(env);
+  const secret = await resolveDeviceJwtSecret(env);
   if (!secret) {
     return {
       ok: false,

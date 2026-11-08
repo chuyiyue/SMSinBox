@@ -82,7 +82,7 @@ async function authenticateDevice(
   now: number,
 ): Promise<DeviceAuth | Response> {
   if (looksLikeDeviceJwt(token)) {
-    const secret = resolveDeviceJwtSecret(env);
+    const secret = await resolveDeviceJwtSecret(env);
     if (!secret) return json({ ok: false, error: "设备认证尚未配置，请联系管理员" }, 503);
     const verified = await verifyDeviceToken(token, secret, now);
     if (!verified.ok) return json({ ok: false, error: verified.error }, 401);

@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { sha256Hex, verifyPassword } from "../src/auth";
+import { hashPassword, sha256Hex } from "../src/auth";
 import { parseAvatarDataUrl } from "../src/avatar";
 import { decideGithubAccess } from "../src/github-oauth";
 import { handleApi } from "../src/routes/api";
@@ -48,6 +48,7 @@ function makeDb(options?: { users?: UserRow[]; sessions?: SessionRow[]; meta?: R
   ];
   const meta = new Map<string, string>([["single_user_merged_at", "1"], ...Object.entries(options?.meta ?? {})]);
   const calls: string[] = [];
+  const rates: Array<{ token_hash: string; window_start: number; count: number }> = [];
   let totpTickets = 0;
 
   const db = {
@@ -79,6 +80,20 @@ function makeDb(options?: { users?: UserRow[]; sessions?: SessionRow[]; meta?: R
           }
           if (sql.includes("FROM users") && sql.includes("WHERE id")) {
             return users.find((item) => item.id === args[0]) ?? null;
+          }
+          if (sql.includes("SELECT count FROM rate_limits")) {
+            const row = rates.find((item) => item.token_hash === args[0] && item.window_start === args[1]);
+            return row ? { count: row.count } : null;
+          }
+          if (sql.includes("INSERT INTO rate_limits")) {
+            const key = String(args[0]);
+            const windowStart = Number(args[1]);
+            const existing = rates.find((item) => item.token_hash === key && item.window_start === windowStart);
+            if (existing) existing.count += 1;
+            else rates.push({ token_hash: key, window_start: windowStart, count: 1 });
+            return {
+              count: rates.find((item) => item.token_hash === key && item.window_start === windowStart)?.count ?? 1,
+            };
           }
           throw new Error(`unhandled first: ${sql}`);
         },
@@ -138,6 +153,11 @@ function makeDb(options?: { users?: UserRow[]; sessions?: SessionRow[]; meta?: R
             if (index >= 0) sessions.splice(index, 1);
             return { meta: { changes: index >= 0 ? 1 : 0 } };
           }
+          if (sql.startsWith("DELETE FROM rate_limits")) {
+            const index = rates.findIndex((item) => item.token_hash === args[0] && item.window_start === args[1]);
+            if (index >= 0) rates.splice(index, 1);
+            return { meta: { changes: index >= 0 ? 1 : 0 } };
+          }
           throw new Error(`unhandled run: ${sql}`);
         },
       };
@@ -193,34 +213,31 @@ function sessionCookie(response: Response): string | null {
 }
 
 describe("decideGithubAccess", () => {
-  it("allows the configured admin login, ignoring case and surrounding space", () => {
-    expect(decideGithubAccess({ login: "OctoCat", id: "9" }, { adminUsername: " octocat ", boundId: null })).toEqual({
+  it("allows only an exact bound id", () => {
+    expect(decideGithubAccess({ login: "renamed", id: "42" }, { boundId: "42" })).toEqual({
       ok: true,
-      reason: "admin_username",
+      reason: "bound_id",
     });
-    expect(decideGithubAccess({ login: " octocat ", id: "9" }, { adminUsername: "OCTOCAT", boundId: "1" })).toEqual({
-      ok: true,
-      reason: "admin_username",
-    });
-  });
-
-  it("allows a previously bound id when the login is no longer the admin name", () => {
-    expect(decideGithubAccess({ login: "renamed", id: "42" }, { adminUsername: "octocat", boundId: "42" })).toEqual({
+    expect(decideGithubAccess({ login: "octocat", id: " 42 " }, { boundId: "42" })).toEqual({
       ok: true,
       reason: "bound_id",
     });
   });
 
-  it("refuses when neither the login nor the id matches", () => {
-    expect(decideGithubAccess({ login: "stranger", id: "7" }, { adminUsername: "octocat", boundId: "42" })).toEqual({
+  it("rejects the same login when the id differs or nothing is bound", () => {
+    expect(decideGithubAccess({ login: "octocat", id: "9" }, { boundId: "42" })).toEqual({
       ok: false,
       reason: "not_authorized",
     });
-    expect(decideGithubAccess({ login: "octocat", id: "42" }, { adminUsername: "", boundId: null })).toEqual({
+    expect(decideGithubAccess({ login: "octocat", id: "42" }, { boundId: null })).toEqual({
       ok: false,
       reason: "not_authorized",
     });
-    expect(decideGithubAccess({ login: "other", id: "042" }, { adminUsername: "octocat", boundId: "42" })).toEqual({
+    expect(decideGithubAccess({ login: "octocat", id: "42" }, { boundId: "  " })).toEqual({
+      ok: false,
+      reason: "not_authorized",
+    });
+    expect(decideGithubAccess({ login: "other", id: "042" }, { boundId: "42" })).toEqual({
       ok: false,
       reason: "not_authorized",
     });
@@ -256,26 +273,35 @@ describe("github oauth and avatar http", () => {
   });
 
   it("reports github_enabled from the public login config", async () => {
-    const enabled = await handleApi(new Request(`${ORIGIN}/api/v1/auth/config`), envFor(makeDb().db));
+    const enabled = await handleApi(
+      new Request(`${ORIGIN}/api/v1/auth/config`),
+      envFor(makeDb({ meta: { github_id: "7" } }).db),
+    );
     expect(enabled.status).toBe(200);
     expect(await enabled.json()).toEqual({ ok: true, github_enabled: true });
+
+    const unbound = await handleApi(new Request(`${ORIGIN}/api/v1/auth/config`), envFor(makeDb().db));
+    expect(await unbound.json()).toEqual({ ok: true, github_enabled: false });
 
     const disabledCases: Array<Record<string, string>> = [
       { GH_CLIENT_ID: "" },
       { GH_CLIENT_SECRET: "  " },
-      { ADMIN_USERNAME: "" },
     ];
     for (const extra of disabledCases) {
       const disabled = await handleApi(new Request(`${ORIGIN}/api/v1/auth/config`), envFor(makeDb().db, extra));
       expect(await disabled.json()).toEqual({ ok: true, github_enabled: false });
     }
+    const withoutAdminName = await handleApi(
+      new Request(`${ORIGIN}/api/v1/auth/config`),
+      envFor(makeDb({ meta: { github_id: "7" } }).db, { ADMIN_USERNAME: "" }),
+    );
+    expect(await withoutAdminName.json()).toEqual({ ok: true, github_enabled: true });
   });
 
   it("hides the start endpoint when GitHub is not configured", async () => {
     const missing: Array<Record<string, string>> = [
       { GH_CLIENT_ID: "" },
       { GH_CLIENT_SECRET: "" },
-      { ADMIN_USERNAME: "" },
     ];
     for (const extra of missing) {
       const response = await handleApi(
@@ -285,6 +311,11 @@ describe("github oauth and avatar http", () => {
       expect(response.status).toBe(404);
       expect(await response.json()).toEqual({ ok: false, error: "GitHub 登录未启用" });
     }
+    const withoutAdminName = await handleApi(
+      new Request(`${ORIGIN}/api/v1/auth/github/start?intent=login`),
+      envFor(makeDb().db, { ADMIN_USERNAME: "" }),
+    );
+    expect(withoutAdminName.status).toBe(302);
   });
 
   it("rejects a bad intent and requires a session to bind", async () => {
@@ -399,30 +430,22 @@ describe("github oauth and avatar http", () => {
     expect(script.totpTickets).toBe(0);
   });
 
-  it("creates the admin on the first authorized login, binds GitHub, and skips TOTP", async () => {
+  it("refuses a same-name GitHub account with a different id, and an empty users table", async () => {
     const calls = installGithub({
       id: 42,
       login: "OctoCat",
       avatar_url: "https://avatars.githubusercontent.com/u/42",
       name: "Mona",
     });
-    const script = makeDb({ users: [], sessions: [] });
-    const response = await callback(script, "login", "state-token");
-    expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe("/");
-    expect(response.headers.get("set-cookie") ?? "").not.toContain("totp");
-    const cookie = sessionCookie(response);
-    expect(cookie).toBeTruthy();
-    expect(cookiePairs(response).smsinbox_session?.header).toContain("HttpOnly");
-    expect(script.totpTickets).toBe(0);
-    expect(script.users).toHaveLength(1);
-    expect(script.users[0]).toMatchObject({ username: "octocat", role: "admin", disabled_at: null });
-    expect(script.users[0]?.password_hash.startsWith("pbkdf2-sha256$")).toBe(true);
-    expect(await verifyPassword("secret", script.users[0]?.password_hash ?? "")).toBe(false);
-    expect(script.meta.get("github_id")).toBe("42");
-    expect(script.meta.get("github_login")).toBe("OctoCat");
-    expect(script.meta.get("github_avatar_url")).toBe("https://avatars.githubusercontent.com/u/42");
-    expect(script.meta.get("profile_username")).toBe("OctoCat");
+    const named = makeDb({ meta: { github_id: "7", github_login: "other" } });
+    const denied = await callback(named, "login", "state-token");
+    expect(denied.status).toBe(302);
+    expect(denied.headers.get("location")).toBe("/login?error=github_forbidden");
+    expect(sessionCookie(denied)).toBeNull();
+    expect(named.meta.get("github_id")).toBe("7");
+    expect(named.meta.get("github_login")).toBe("other");
+    expect(named.users).toHaveLength(1);
+    expect(named.totpTickets).toBe(0);
 
     const tokenCall = calls[0];
     expect(String(tokenCall?.input)).toBe("https://github.com/login/oauth/access_token");
@@ -433,43 +456,46 @@ describe("github oauth and avatar http", () => {
     expect(String(calls[1]?.input)).toBe("https://api.github.com/user");
     expect(new Headers(calls[1]?.init.headers).get("authorization")).toBe("Bearer gho_test_token");
 
-    const me = await handleApi(new Request(`${ORIGIN}/api/v1/auth/me`, { headers: { cookie: cookie ?? "" } }), envFor(script.db));
-    expect(me.status).toBe(200);
-    expect(await me.json()).toMatchObject({
-      user: {
-        username: "octocat",
-        profile_username: "OctoCat",
-        github: { login: "OctoCat", avatar_url: "https://avatars.githubusercontent.com/u/42" },
-        avatar_data: null,
-      },
-    });
+    const empty = makeDb({ users: [], sessions: [], meta: { github_id: "42" } });
+    const refused = await callback(empty, "login", "empty-state");
+    expect(refused.headers.get("location")).toBe("/login?error=github_forbidden");
+    expect(empty.users).toHaveLength(0);
+    expect(empty.sessions).toHaveLength(0);
+    expect(empty.meta.get("github_id")).toBe("42");
+    expect(empty.meta.has("github_login")).toBe(false);
+    expect(empty.meta.has("profile_username")).toBe(false);
+    expect(sessionCookie(refused)).toBeNull();
   });
 
-  it("does not seed the profile username when an existing admin signs in with GitHub", async () => {
+  it("refreshes the display name when the bound id signs in and does not rewrite the id", async () => {
     installGithub({ id: 42, login: "OctoCat", avatar_url: "https://avatars.githubusercontent.com/u/42" });
-    const script = makeDb();
+    const script = makeDb({ meta: { github_id: "42", github_login: "old-name" } });
     const response = await callback(script, "login", "state-token");
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe("/");
+    expect(sessionCookie(response)).toBeTruthy();
     expect(script.meta.get("github_id")).toBe("42");
-    // Only an account created by GitHub sign-up gets the login as its
-    // initial display name; an existing account keeps its own (empty) one.
+    expect(script.meta.get("github_login")).toBe("OctoCat");
+    expect(script.meta.get("github_avatar_url")).toBe("https://avatars.githubusercontent.com/u/42");
     expect(script.meta.has("profile_username")).toBe(false);
   });
 
-  it("matches the shared ADMIN_USERNAME case-insensitively and names the row after it", async () => {
+  it("does not create an admin row from a GitHub login when the table is empty", async () => {
     installGithub({ id: 42, login: "OctoCat", avatar_url: "https://avatars.githubusercontent.com/u/42" });
     const script = makeDb({ users: [], sessions: [] });
     const response = await callback(script, "login", "state-token", { ADMIN_USERNAME: "OCTOCAT" });
     expect(response.status).toBe(302);
-    expect(script.users[0]?.username).toBe("OCTOCAT");
+    expect(response.headers.get("location")).toBe("/login?error=github_forbidden");
+    expect(script.users).toHaveLength(0);
+    expect(script.meta.has("github_id")).toBe(false);
+    expect(script.meta.has("profile_username")).toBe(false);
   });
 
   it("signs in an admin who already has TOTP without a challenge and keeps a custom profile", async () => {
     installGithub({ id: 42, login: "OctoCat", avatar_url: "https://avatars.githubusercontent.com/u/42" });
     const script = makeDb({
       users: [adminUser({ totp_secret: "sealed", totp_enabled_at: 1_700_000_000_000 })],
-      meta: { profile_username: "KeptName" },
+      meta: { github_id: "42", profile_username: "KeptName" },
     });
     const response = await callback(script, "login", "state-token");
     expect(response.status).toBe(302);
@@ -488,17 +514,17 @@ describe("github oauth and avatar http", () => {
     expect(me.status).toBe(200);
   });
 
-  it("revives a disabled configured admin when the GitHub login matches", async () => {
+  it("does not revive a disabled or non-admin row even when the GitHub id matches", async () => {
     installGithub({ id: 42, login: "octocat", avatar_url: "https://avatars.githubusercontent.com/u/42" });
-    const script = makeDb({ users: [adminUser({ role: "member", disabled_at: 50 })] });
+    const script = makeDb({
+      users: [adminUser({ role: "member", disabled_at: 50 })],
+      meta: { github_id: "42" },
+    });
     const response = await callback(script, "login", "state-token");
-    expect(response.status).toBe(302);
-    expect(script.users[0]).toMatchObject({ role: "admin", disabled_at: null });
-    const me = await handleApi(
-      new Request(`${ORIGIN}/api/v1/auth/me`, { headers: { cookie: sessionCookie(response) ?? "" } }),
-      envFor(script.db),
-    );
-    expect(me.status).toBe(200);
+    expect(response.headers.get("location")).toBe("/login?error=github_forbidden");
+    expect(sessionCookie(response)).toBeNull();
+    expect(script.users[0]).toMatchObject({ role: "member", disabled_at: 50 });
+    expect(script.meta.get("github_id")).toBe("42");
   });
 
   it("does not bind when the callback has no session", async () => {
@@ -562,20 +588,86 @@ describe("github oauth and avatar http", () => {
     expect(script.meta.has("github_id")).toBe(false);
   });
 
-  it("replaces an existing binding when the admin GitHub account signs in", async () => {
+  it("does not replace the bound id when a different GitHub account signs in", async () => {
     const script = makeDb({
       meta: { github_id: "7", github_login: "other-dev", github_avatar_url: "https://avatars.githubusercontent.com/u/7" },
     });
     installGithub({ id: 99, login: "octocat", avatar_url: "https://avatars.githubusercontent.com/u/99" });
     const response = await callback(script, "login", "state-token");
-    expect(response.headers.get("location")).toBe("/");
+    expect(response.headers.get("location")).toBe("/login?error=github_forbidden");
+    expect(sessionCookie(response)).toBeNull();
+    expect(script.meta.get("github_id")).toBe("7");
+    expect(script.meta.get("github_login")).toBe("other-dev");
+
+    installGithub({ id: 7, login: "renamed-dev", avatar_url: "https://avatars.githubusercontent.com/u/7?v=2" });
+    const same = await callback(script, "login", "same-id");
+    expect(same.headers.get("location")).toBe("/");
+    expect(script.meta.get("github_id")).toBe("7");
+    expect(script.meta.get("github_login")).toBe("renamed-dev");
+    expect(script.meta.get("github_avatar_url")).toBe("https://avatars.githubusercontent.com/u/7?v=2");
+  });
+
+  it("requires a session and the current password before a bind may replace the id", async () => {
+    const hash = await hashPassword("row-password");
+    const script = makeDb({
+      users: [adminUser({ password_hash: hash })],
+      meta: { github_id: "7", github_login: "other-dev" },
+    });
+    const anonymous = await handleApi(
+      new Request(`${ORIGIN}/api/v1/auth/github/rebind`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ current_password: "row-password" }),
+      }),
+      envFor(script.db),
+    );
+    expect(anonymous.status).toBe(401);
+    expect(await anonymous.json()).toEqual({ ok: false, error: "未登录" });
+    expect(script.meta.get("github_id")).toBe("7");
+
+    installGithub({ id: 99, login: "octocat", avatar_url: "https://avatars.githubusercontent.com/u/99" });
+    const replaced = await handleApi(
+      new Request(`${ORIGIN}/api/v1/auth/github/callback?code=abc&state=rebind-state`, {
+        headers: { cookie: `gh_oauth_state=rebind-state; gh_oauth_intent=bind; ${SESSION_COOKIE}` },
+      }),
+      envFor(script.db),
+    );
+    expect(replaced.headers.get("location")).toBe("/users?github=error");
+    expect(script.meta.get("github_id")).toBe("7");
+
+    const wrong = await handleApi(
+      new Request(`${ORIGIN}/api/v1/auth/github/rebind`, {
+        method: "POST",
+        headers: { cookie: SESSION_COOKIE, "content-type": "application/json" },
+        body: JSON.stringify({ current_password: "nope" }),
+      }),
+      envFor(script.db),
+    );
+    expect(wrong.status).toBe(401);
+    expect(script.meta.has("github_rebind_until")).toBe(false);
+
+    const confirmed = await handleApi(
+      new Request(`${ORIGIN}/api/v1/auth/github/rebind`, {
+        method: "POST",
+        headers: { cookie: SESSION_COOKIE, "content-type": "application/json" },
+        body: JSON.stringify({ current_password: "row-password" }),
+      }),
+      envFor(script.db),
+    );
+    expect(confirmed.status).toBe(200);
+    expect(await confirmed.json()).toEqual({ ok: true });
+    expect(script.meta.get("github_rebind_until")).toBeTruthy();
+
+    const bound = await handleApi(
+      new Request(`${ORIGIN}/api/v1/auth/github/callback?code=abc&state=rebind-ok`, {
+        headers: { cookie: `gh_oauth_state=rebind-ok; gh_oauth_intent=bind; ${SESSION_COOKIE}` },
+      }),
+      envFor(script.db),
+    );
+    expect(bound.headers.get("location")).toBe("/users?github=bound");
     expect(script.meta.get("github_id")).toBe("99");
     expect(script.meta.get("github_login")).toBe("octocat");
-
-    installGithub({ id: 7, login: "other-dev", avatar_url: "https://avatars.githubusercontent.com/u/7" });
-    const stale = await callback(script, "login", "stale");
-    expect(stale.headers.get("location")).toBe("/login?error=github_forbidden");
-    expect(script.meta.get("github_id")).toBe("99");
+    expect(script.meta.has("github_rebind_until")).toBe(false);
   });
 
   it("stores a custom avatar and returns it from me", async () => {

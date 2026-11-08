@@ -36,6 +36,7 @@
     "CONTENT_KEY": ""
   },
   "secrets": {
+    // Synced from repository secrets on deploy. Runtime login does not read them.
     "required": ["ADMIN_USERNAME", "ADMIN_PASSWORD"]
   },
   "observability": {

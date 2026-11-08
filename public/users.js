@@ -140,8 +140,9 @@ function startView() {
   const cleanupTotp = initTotpSettings();
 
   profileForm.addEventListener("submit", submitProfile);
-  passwordForm.addEventListener("submit", submitPassword);
-  passwordInput.addEventListener("input", () => paintPassword(true));
+  // 凭据以仓库机密为准，改密码表单保持在 DOM 里但默认 hidden；初始化不能假设节点被移除。
+  passwordForm?.addEventListener("submit", submitPassword);
+  passwordInput?.addEventListener("input", () => paintPassword(true));
   document.querySelector("#sessions-refresh").addEventListener("click", () => {
     Promise.resolve(loadSessions()).catch((error) => {
       if (isUnauthorized(error)) return;
@@ -463,6 +464,7 @@ async function loadSystemInfo() {
 }
 
 function paintPassword(silent) {
+  if (!passwordInput || !passwordStrength || !passwordError) return false;
   const value = passwordInput.value;
   const ok = value.length >= 8 && value.length <= 256;
   passwordStrength.dataset.score = String(passwordScore(value));

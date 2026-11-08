@@ -1,9 +1,7 @@
 import { bytesToHex } from "./auth";
 
-// Optional Worker secrets. Missing either disables GitHub login
-// entirely. The admin username is shared with password login: the
-// existing ADMIN_USERNAME secret doubles as the GitHub admin login
-// (compared case-insensitively) once the two GH_ secrets are set.
+// Optional Worker secrets. Missing either disables GitHub login entirely.
+// Who may sign in is the numeric GitHub id bound in settings, not a username.
 declare global {
   interface Env {
     GH_CLIENT_ID?: string;
@@ -19,30 +17,23 @@ export const GH_COOKIE_TTL_SECONDS = 600;
 // Same syntax the profile username accepts. GitHub's own logins fit it.
 export const GITHUB_LOGIN_RE = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/;
 
-export type GithubSettings = { clientId: string; clientSecret: string; adminUsername: string };
+export type GithubSettings = { clientId: string; clientSecret: string };
 
 export function githubSettings(env: Env): GithubSettings | null {
   const clientId = env.GH_CLIENT_ID?.trim() ?? "";
   const clientSecret = env.GH_CLIENT_SECRET?.trim() ?? "";
-  const adminUsername = env.ADMIN_USERNAME?.trim() ?? "";
-  if (!clientId || !clientSecret || !adminUsername) return null;
-  return { clientId, clientSecret, adminUsername };
+  if (!clientId || !clientSecret) return null;
+  return { clientId, clientSecret };
 }
 
-export type GithubAccess =
-  | { ok: true; reason: "admin_username" | "bound_id" }
-  | { ok: false; reason: "not_authorized" };
+export type GithubAccess = { ok: true; reason: "bound_id" } | { ok: false; reason: "not_authorized" };
 
-// Login allow-list. The configured admin login wins even when an older binding
-// points at someone else, so a later admin sign-in can take the binding over.
-// Comparison of the login is case-insensitive; the numeric id is exact.
+// Login allow-list. Only the numeric id stored by the settings bind is accepted.
+// The GitHub login name is display-only and never grants access.
 export function decideGithubAccess(
   github: { login: string; id: string },
-  policy: { adminUsername: string; boundId: string | null },
+  policy: { boundId: string | null },
 ): GithubAccess {
-  const login = github.login.trim().toLowerCase();
-  const admin = policy.adminUsername.trim().toLowerCase();
-  if (admin.length > 0 && login === admin) return { ok: true, reason: "admin_username" };
   const bound = policy.boundId?.trim() ?? "";
   const id = github.id.trim();
   if (bound.length > 0 && id === bound) return { ok: true, reason: "bound_id" };

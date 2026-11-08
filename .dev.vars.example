@@ -1,3 +1,5 @@
+# 与仓库机密同名的本地占位。运行时登录不读这两个变量，也不会用它们创建管理员。
+# 本地登录前需要自己在本地 D1 里插入管理员行。scripts/sync-admin.mjs 只写远程库。
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=change-me-please
 # 留空表示短信明文存储。填写 32 字节密钥的 base64 后启用 AES-GCM。
