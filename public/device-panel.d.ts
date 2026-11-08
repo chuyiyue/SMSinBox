@@ -95,3 +95,5 @@ export function describeDevice(
   latest: PanelMessage | null | undefined,
 ): DeviceCardModel;
 
+export function pushIdOf(pushUrl: string): string;
+
