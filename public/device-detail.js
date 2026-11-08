@@ -15,7 +15,7 @@ import {
   toast,
 } from "./common.js";
 import { deviceStateOf, getDevices, noteDeviceSeen, refreshDevices } from "./device-store.js";
-import { addFact, describeDevice, DEVICE_TYPES, deviceTypeOf, isStale, presenceDot, presenceLabel, pushConfirm } from "./device-panel.js";
+import { addFact, describeDevice, DEVICE_TYPES, deviceTypeOf, isStale, presenceDot, presenceLabel, pushConfirm, pushIdOf } from "./device-panel.js";
 import { t } from "./i18n.js";
 
 function emitDevicesChanged() {
@@ -307,7 +307,7 @@ function buildPushPanel(device, view) {
     label.textContent = t("devices.pushLink");
     const code = document.createElement("code");
     code.className = "code-block";
-    code.textContent = view.pushUrl;
+    code.textContent = pushIdOf(view.pushUrl);
     code.addEventListener("click", () => selectContents(code));
     const copyRow = document.createElement("div");
     copyRow.className = "actions";

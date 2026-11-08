@@ -163,6 +163,15 @@ export function describeDevice(device, latest) {
   };
 }
 
+// The UI shows only the push ID (the credential segment of the push URL);
+// the full link is what the copy actions copy.
+export function pushIdOf(pushUrl) {
+  const match = /\/ingest\/([^/?#]+)/.exec(pushUrl);
+  if (match) return match[1];
+  const segments = String(pushUrl).split("/").filter(Boolean);
+  return segments.length ? segments[segments.length - 1] : String(pushUrl);
+}
+
 export function presenceDot(presence) {
   const status = presence.key === "recent" ? "ok" : presence.key === "stale" ? "warn" : "idle";
   const dot = document.createElement("span");

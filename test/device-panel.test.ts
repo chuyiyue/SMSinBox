@@ -11,6 +11,7 @@ import {
   sidebarDeviceIcon,
   pushActions,
   pushConfirm,
+  pushIdOf,
   receiveTime,
 } from "../public/device-panel.js";
 
@@ -261,7 +262,7 @@ describe("devices page", () => {
     expect(html).toContain('class="topbar"');
     expect(html).toContain('id="token-box" class="token-box stack"');
     expect(html).toContain("只显示这一次");
-    expect(html).toContain("可随时在设备详情「推送配置」里查看");
+    expect(html).toContain("界面只显示 ID，点复制得到完整链接");
     expect(html).toContain('href="/api/v1/ios/shortcut?variant=all"');
     expect(html).not.toMatch(/href="[^"]*variant=code/);
     expect(html).not.toContain("再显示一次");
@@ -276,7 +277,7 @@ describe("devices page", () => {
     expect(js).toContain("/api/v1/devices/${device.id}/test");
     expect(js).toContain("/api/v1/messages?device_id=");
     expect(js).toContain('t("devices.copyPushUrl")');
-    expect(MESSAGES["zh-CN"]["devices.copyPushUrl"]).toBe("复制推送链接");
+    expect(MESSAGES["zh-CN"]["devices.copyPushUrl"]).toBe("复制完整链接");
     expect(js).toContain('t("devices.copyId")');
     expect(MESSAGES["zh-CN"]["devices.copyId"]).toBe("复制 ID");
     expect(js).toContain('t("devices.sendTest")');
@@ -310,3 +311,61 @@ describe("devices page", () => {
     expect(css).not.toContain("--paper: #f3ecdf");
   });
 });
+
+describe("push link display", () => {
+  const ID = "psh_abc123";
+  const FULL = `https://sms.example/api/v1/ingest/${ID}`;
+  const html = readFileSync("public/devices.html", "utf8");
+  const detailJs = readFileSync("public/device-detail.js", "utf8");
+  const devicesJs = readFileSync("public/devices.js", "utf8");
+
+  it("extracts the push ID from the full link", () => {
+    expect(pushIdOf(FULL)).toBe(ID);
+    expect(pushIdOf(FULL)).not.toContain("/api/v1/ingest/");
+    expect(pushIdOf(`${FULL}/`)).toBe(ID);
+    expect(pushIdOf(`${FULL}?x=1`)).toBe(ID);
+    expect(pushIdOf("")).toBe("");
+  });
+
+  it("shows only the ID in the device detail drawer and still copies the full link", () => {
+    const view = describeDevice({ ...DEVICE, push: "active", push_url: FULL }, null);
+    // What the drawer renders: the ID, never the full URL.
+    expect(pushIdOf(view.pushUrl)).toBe(ID);
+    expect(pushIdOf(view.pushUrl)).not.toContain("/api/v1/ingest/");
+    // What the copy button uses: the complete link, ending with that ID.
+    expect(view.pushUrl).toMatch(/^https:\/\//);
+    expect(view.pushUrl.endsWith(ID)).toBe(true);
+
+    expect(detailJs).toContain("code.textContent = pushIdOf(view.pushUrl)");
+    expect(detailJs).not.toContain("code.textContent = view.pushUrl");
+    expect(detailJs).toContain('flashLabel(event.currentTarget, view.pushUrl, t("devices.copyPushUrl"))');
+  });
+
+  it("shows only the ID in the add-device success view and copies the stored full link", () => {
+    expect(devicesJs).toContain('pushUrlValue.textContent = pushUrl ? pushIdOf(pushUrl) : ""');
+    expect(pushIdOf(FULL)).not.toContain("/api/v1/ingest/");
+    expect(devicesJs).toContain('pushUrlValue.dataset.fullUrl = pushUrl || ""');
+    // The copy handler reads the stored full link, not the rendered text.
+    expect(devicesJs).toContain('const fullUrl = pushUrlValue.dataset.fullUrl || ""');
+    expect(devicesJs).not.toContain("flashLabel(event.currentTarget, pushUrlValue.textContent");
+    const copied = devicesJs.match(/const fullUrl = [^;]+;/)?.[0] || "";
+    expect(copied).toContain("fullUrl");
+    expect(FULL).toMatch(/^https:\/\//);
+    expect(FULL.endsWith(ID)).toBe(true);
+  });
+
+  it("describes the ID-only display and full-link copy in both languages", () => {
+    for (const key of ["devices.pushLink", "devices.pushLinkHint", "devices.copyPushUrl", "devices.copyLink"]) {
+      expect(MESSAGES["zh-CN"][key], key).toBeTruthy();
+      expect(MESSAGES.en[key], key).toBeTruthy();
+      expect(MESSAGES["zh-CN"][key], key).not.toMatch(/[。.]$/);
+      expect(MESSAGES.en[key], key).not.toMatch(/[。.]$/);
+    }
+    expect(MESSAGES["zh-CN"]["devices.pushLinkHint"]).toContain("只显示 ID");
+    expect(MESSAGES["zh-CN"]["devices.pushLinkHint"]).toContain("完整链接");
+    expect(MESSAGES.en["devices.pushLinkHint"]).toContain("only the ID");
+    expect(MESSAGES.en["devices.pushLinkHint"]).toContain("full link");
+    expect(html).toContain('data-i18n="devices.copyPushUrl">复制完整链接');
+  });
+});
+

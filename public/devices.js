@@ -21,7 +21,7 @@ import {
 } from "./common.js";
 import { deviceStateOf, ensureDevices, getDevices, noteDeviceSeen, refreshDevices } from "./device-store.js";
 import { registerView } from "./shell.js";
-import { addFact, credentialBoxes, describeDevice, DEVICE_TYPES, isStale, presenceDot, presenceLabel, pushConfirm } from "./device-panel.js";
+import { addFact, credentialBoxes, describeDevice, DEVICE_TYPES, isStale, presenceDot, presenceLabel, pushConfirm, pushIdOf } from "./device-panel.js";
 import { closeDeviceDetail, openDeviceDetail, removeDevice, runPush } from "./device-detail.js";
 import { applyI18n, t } from "./i18n.js";
 
@@ -164,7 +164,8 @@ function buildAddBody() {
     if (copied) toast(t("devices.copied"));
   });
   section.querySelector("#copy-push-url").addEventListener("click", async (event) => {
-    const copied = await flashLabel(event.currentTarget, pushUrlValue.textContent || "", t("devices.copyPushUrl"));
+    const fullUrl = pushUrlValue.dataset.fullUrl || "";
+    const copied = await flashLabel(event.currentTarget, fullUrl, t("devices.copyPushUrl"));
     if (copied) toast(t("devices.copied"));
   });
   tokenValue.addEventListener("click", () => selectContents(tokenValue));
@@ -354,7 +355,10 @@ function openCreate() {
 function showCredentials({ deviceId, token, pushUrl }) {
   shownDeviceId = deviceId || "";
   tokenValue.textContent = token || "";
-  pushUrlValue.textContent = pushUrl || "";
+  // Only the ID is shown; the full link lives in the data attribute so the
+  // copy button still yields the complete URL.
+  pushUrlValue.dataset.fullUrl = pushUrl || "";
+  pushUrlValue.textContent = pushUrl ? pushIdOf(pushUrl) : "";
   const boxes = credentialBoxes({ token, pushUrl });
   bearerWrap.hidden = !boxes.showBearer;
   pushWrap.hidden = !boxes.showPush;
@@ -377,6 +381,7 @@ function showCredentials({ deviceId, token, pushUrl }) {
 function clearSecrets() {
   tokenValue.textContent = "";
   pushUrlValue.textContent = "";
+  delete pushUrlValue.dataset.fullUrl;
   bearerWrap.hidden = true;
   pushWrap.hidden = true;
   tokenBox.hidden = true;
@@ -762,13 +767,6 @@ function renderDevice(device, entry) {
 // The card shows only the push ID (the credential segment of the push
 // URL); the full link stays in the device detail's push settings and is
 // what the copy button in the actions row copies.
-function pushIdOf(pushUrl) {
-  const match = /\/ingest\/([^/?#]+)/.exec(pushUrl);
-  if (match) return match[1];
-  const segments = String(pushUrl).split("/").filter(Boolean);
-  return segments.length ? segments[segments.length - 1] : String(pushUrl);
-}
-
 function pushLine(device, view) {
   const line = document.createElement("div");
   line.className = "device-id";
