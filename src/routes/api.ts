@@ -2,6 +2,8 @@ import { pickDesignatedUser } from "../admin-user";
 import {
   bytesToBase64Url,
   hashPassword,
+  parseStoredHash,
+  PBKDF2_ITERATIONS,
   requestIsSecure,
   SESSION_COOKIE,
   sessionCookieHeader,
@@ -58,9 +60,8 @@ import {
   listUserRecords,
   listUserSessions,
   LOGIN_FAILURE_LIMIT,
-  LOGIN_IP_FAILURE_LIMIT,
   loginAttemptCount,
-  loginRateKey,
+  loginPairKey,
   loginRetryAfterSeconds,
   MAX_DEVICES,
   MAX_PINNED_DEVICES,
@@ -84,7 +85,7 @@ import {
 } from "../db";
 import { dedupHash } from "../dedup";
 import { recognizeCode } from "../code-recognition";
-import { clientAddress, isCrossSite, json, readCookie, readLimitedBytes, rejectsSensitiveWrite } from "../http";
+import { clientAddress, json, readCookie, readLimitedBytes, rejectsSensitiveWrite } from "../http";
 import { errorText, logError, logInfo } from "../log";
 import { findRequestSession, issueSession, publicUser, requireSensitiveUser, requireUser } from "../session";
 import { githubSettings } from "../github-oauth";
@@ -356,7 +357,7 @@ export async function handleApi(request: Request, env: Env, ctx: WaitCtx = { wai
 }
 
 async function login(request: Request, env: Env): Promise<Response> {
-  if (isCrossSite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const body = await readJson(request);
   if (!body.ok) return body.response;
   // Login takes a username and a password. The username must match the
@@ -369,12 +370,12 @@ async function login(request: Request, env: Env): Promise<Response> {
   if (password === null) return json({ ok: false, error: "请填写密码" }, 400);
 
   const now = Date.now();
-  // The account key is stable even before the user row is resolved, so failed
-  // passwords cannot reset the window by omitting or changing a username.
-  const userKey = await loginRateKey("user", "admin");
+  // The budget is keyed by the (username, client IP) pair: one pair's
+  // failures never lock another pair out, and the key is fixed before the
+  // user row is resolved, so attempts cannot dodge it by changing fields.
   const ip = clientAddress(request);
-  const ipKey = ip ? await loginRateKey("ip", ip) : null;
-  if (await loginIsLimited(env, userKey, ipKey, now)) return loginLimited(now);
+  const pairKey = await loginPairKey(username, ip);
+  if (await loginIsLimited(env, pairKey, now)) return loginLimited(now);
 
   const users = await listUserRecords(env.DB);
   if (users.length === 0) {
@@ -393,24 +394,16 @@ async function login(request: Request, env: Env): Promise<Response> {
       409,
     );
   }
-  if (username.toLowerCase() !== designated.username.toLowerCase()) {
-    await recordLoginFailure(env.DB, userKey, now);
-    if (ipKey) await recordLoginFailure(env.DB, ipKey, now);
-    return json({ ok: false, error: "密码错误" }, 401);
-  }
-
+  // The password check runs whether or not the username matched, so the
+  // time a refusal takes cannot reveal which of the two was wrong. The old
+  // "password belongs to another row" branch went away with it: login
+  // already refuses whenever there is more than one row, so by this point
+  // no other row exists that a password could belong to.
+  const usernameOk = username.toLowerCase() === designated.username.toLowerCase();
   const rowPasswordOk = await verifyPassword(password, designated.password_hash);
-  if (!rowPasswordOk) {
-    await recordLoginFailure(env.DB, userKey, now);
-    if (ipKey) await recordLoginFailure(env.DB, ipKey, now);
-    // A password that belongs to another pre-merge row gets a clear refusal
-    // instead of looking like a typo. Other rows never become a login path.
-    const other = await findMatchingUser(users, password, designated.id);
-    if (!other) return json({ ok: false, error: "密码错误" }, 401);
-    return json(
-      { ok: false, error: other.disabled_at != null ? "账号已停用" : "仅管理员可以登录" },
-      401,
-    );
+  if (!usernameOk || !rowPasswordOk) {
+    await recordLoginFailure(env.DB, pairKey, now);
+    return json({ ok: false, error: "密码错误" }, 401);
   }
 
   const user = designated;
@@ -421,32 +414,28 @@ async function login(request: Request, env: Env): Promise<Response> {
     return json({ ok: false, error: "仅管理员可以登录" }, 401);
   }
 
-  await clearLoginFailures(env.DB, userKey, now);
-  if (ipKey) await clearLoginFailures(env.DB, ipKey, now);
-
-  await finishLogin(env, user, { userKey, ipKey, now });
-  return issueSessionFor(request, env, user);
-}
-
-async function findMatchingUser(
-  users: UserRecord[],
-  password: string,
-  designatedId: string,
-): Promise<UserRecord | null> {
-  for (const candidate of users) {
-    if (candidate.id === designatedId) continue;
-    if (await verifyPassword(password, candidate.password_hash)) return candidate;
+  // Opportunistic hash upgrade (M3): a stored hash below the current
+  // iteration count is rehashed while the plaintext is at hand. A failed
+  // write never blocks a good login; the next login retries the upgrade.
+  const storedIterations = parseStoredHash(user.password_hash)?.iterations ?? 0;
+  if (storedIterations < PBKDF2_ITERATIONS) {
+    try {
+      await updatePasswordHash(env.DB, user.id, await hashPassword(password));
+    } catch {
+      // Best effort only.
+    }
   }
-  return null;
+
+  await finishLogin(env, user, { pairKey, now });
+  return issueSessionFor(request, env, user);
 }
 
 async function finishLogin(
   env: Env,
   user: UserRecord,
-  budget: { userKey: string; ipKey: string | null; now: number },
+  budget: { pairKey: string; now: number },
 ): Promise<void> {
-  await clearLoginFailures(env.DB, budget.userKey, budget.now);
-  if (budget.ipKey) await clearLoginFailures(env.DB, budget.ipKey, budget.now);
+  await clearLoginFailures(env.DB, budget.pairKey, budget.now);
   // Claim any devices/channels still attached to stale user rows, then remove
   // those rows and sessions. Messages are never touched here.
   await mergeIntoAdmin(env.DB, user);
@@ -463,7 +452,7 @@ async function issueSessionFor(request: Request, env: Env, user: UserRecord): Pr
 }
 
 async function logout(request: Request, env: Env): Promise<Response> {
-  if (isCrossSite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const token = readCookie(request.headers.get("cookie"), SESSION_COOKIE);
   if (token) await deleteSession(env.DB, await sha256Hex(token));
   const headers = new Headers();
@@ -704,6 +693,7 @@ async function detail(request: Request, env: Env, rawId: string): Promise<Respon
 }
 
 async function deleteMessagesHandler(request: Request, env: Env): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const body = await readJson(request);
@@ -831,6 +821,7 @@ export async function createDeviceForUser(
 }
 
 async function createDevice(request: Request, env: Env): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const body = await readJson(request);
@@ -859,6 +850,7 @@ async function createDevice(request: Request, env: Env): Promise<Response> {
 }
 
 async function updateDevicePush(request: Request, env: Env, rawId: string): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const body = await readJson(request);
@@ -1002,6 +994,7 @@ async function notifyHistory(request: Request, env: Env, url: URL): Promise<Resp
 }
 
 async function createNotification(request: Request, env: Env): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const body = await readJson(request);
@@ -1055,6 +1048,7 @@ function readChannelNote(value: unknown): string | null {
  * Both may arrive together.
  */
 async function updateNotification(request: Request, env: Env, rawId: string): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const id = decodePart(rawId);
@@ -1098,6 +1092,7 @@ async function updateNotification(request: Request, env: Env, rawId: string): Pr
 }
 
 async function removeNotification(request: Request, env: Env, rawId: string): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const id = decodePart(rawId);
@@ -1109,6 +1104,7 @@ async function removeNotification(request: Request, env: Env, rawId: string): Pr
 }
 
 async function setNotificationEnabled(request: Request, env: Env, rawId: string): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const id = decodePart(rawId);
@@ -1126,6 +1122,7 @@ async function setNotificationEnabled(request: Request, env: Env, rawId: string)
 }
 
 async function testNotification(request: Request, env: Env, rawId: string): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const id = decodePart(rawId);
@@ -1184,6 +1181,7 @@ async function iosShortcut(request: Request, env: Env, url: URL): Promise<Respon
 }
 
 async function testDevice(request: Request, env: Env, ctx: WaitCtx, rawId: string): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const body = await readJson(request);
@@ -1268,6 +1266,7 @@ async function testDevice(request: Request, env: Env, ctx: WaitCtx, rawId: strin
 }
 
 async function renameDevice(request: Request, env: Env, rawId: string): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const id = decodePart(rawId);
@@ -1326,6 +1325,7 @@ async function renameDevice(request: Request, env: Env, rawId: string): Promise<
 }
 
 async function setDevicePin(request: Request, env: Env, rawId: string, pin: boolean): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const id = decodePart(rawId);
@@ -1365,6 +1365,7 @@ function readGroupName(value: unknown): string | { error: string } {
 }
 
 async function createDeviceGroupEndpoint(request: Request, env: Env): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const body = await readJson(request);
@@ -1379,6 +1380,7 @@ async function createDeviceGroupEndpoint(request: Request, env: Env): Promise<Re
 }
 
 async function renameDeviceGroupEndpoint(request: Request, env: Env, rawId: string): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const id = decodePart(rawId);
@@ -1394,6 +1396,7 @@ async function renameDeviceGroupEndpoint(request: Request, env: Env, rawId: stri
 }
 
 async function moveDeviceGroupEndpoint(request: Request, env: Env, rawId: string): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const id = decodePart(rawId);
@@ -1414,6 +1417,7 @@ async function moveDeviceGroupEndpoint(request: Request, env: Env, rawId: string
 }
 
 async function removeDeviceGroup(request: Request, env: Env, rawId: string): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const id = decodePart(rawId);
@@ -1425,6 +1429,7 @@ async function removeDeviceGroup(request: Request, env: Env, rawId: string): Pro
 }
 
 async function removeDevice(request: Request, env: Env, rawId: string): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const id = decodePart(rawId);
@@ -1437,10 +1442,8 @@ async function removeDevice(request: Request, env: Env, rawId: string): Promise<
 
 type PasswordCheck = "ok" | "bad" | "limited" | "missing";
 
-async function loginIsLimited(env: Env, userKey: string, ipKey: string | null, now: number): Promise<boolean> {
-  if ((await loginAttemptCount(env.DB, userKey, now)) >= LOGIN_FAILURE_LIMIT) return true;
-  if (!ipKey) return false;
-  return (await loginAttemptCount(env.DB, ipKey, now)) >= LOGIN_IP_FAILURE_LIMIT;
+async function loginIsLimited(env: Env, pairKey: string, now: number): Promise<boolean> {
+  return (await loginAttemptCount(env.DB, pairKey, now)) >= LOGIN_FAILURE_LIMIT;
 }
 
 function loginLimited(now: number): Response {

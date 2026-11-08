@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Deploy-time sync of the repository admin secret into the single users row.
 // Password hashing must stay identical to src/auth.ts:
-//   pbkdf2-sha256$10000$<16-byte salt base64url>$<32-byte PBKDF2-SHA256 base64url>
+//   pbkdf2-sha256$100000$<16-byte salt base64url>$<32-byte PBKDF2-SHA256 base64url>
 // Runtime login does not read ADMIN_USERNAME / ADMIN_PASSWORD. This script does.
 // It never prints the password or the hash, and it never touches profile_username.
 
@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const HASH_PREFIX = "pbkdf2-sha256";
-const PBKDF2_ITERATIONS = 10_000;
+const PBKDF2_ITERATIONS = 100_000;
 
 export function equalBytes(left, right) {
   const subtle = crypto.subtle;
