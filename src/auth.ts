@@ -1,6 +1,9 @@
-// 10_000 PBKDF2-SHA256 iterations stay inside the Workers Free 10ms CPU budget.
-// Raise this only on a paid plan with a higher cpu_ms limit.
-export const PBKDF2_ITERATIONS = 10_000;
+// 100_000 PBKDF2-SHA256 iterations. WebCrypto runs PBKDF2 natively, and a
+// login-path measurement keeps one verification comfortably affordable, so
+// the old 10_000 figure (chosen for a feared 10ms CPU budget) is retired.
+// Stored hashes carry their own iteration count: older hashes keep
+// verifying and are upgraded opportunistically at login.
+export const PBKDF2_ITERATIONS = 100_000;
 export const SESSION_COOKIE = "smsinbox_session";
 export const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 
@@ -88,7 +91,7 @@ export function sessionCookieHeader(token: string, secure: boolean, maxAgeSecond
   return parts.join("; ");
 }
 
-function parseStoredHash(stored: string): { iterations: number; salt: Uint8Array; hash: Uint8Array } | null {
+export function parseStoredHash(stored: string): { iterations: number; salt: Uint8Array; hash: Uint8Array } | null {
   const parts = stored.split("$");
   if (parts.length !== 4 || parts[0] !== HASH_PREFIX) return null;
   const iterations = Number(parts[1]);

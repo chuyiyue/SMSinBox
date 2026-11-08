@@ -7,7 +7,7 @@ import pkg from "../package.json";
 import { Miniflare } from "miniflare";
 import { bytesToBase64Url, hashPassword, sha256Hex, verifyPassword } from "../src/auth";
 import { seedAdmin } from "./seed-admin";
-import { LOGIN_FAILURE_LIMIT, loginRateKey } from "../src/db";
+import { LOGIN_FAILURE_LIMIT, loginPairKey, loginRateKey } from "../src/db";
 import { ENCRYPTED_PREFIX } from "../src/crypto";
 import worker from "../src/index";
 import { base32Decode, hotp, totpCounter, TOTP_FAILURE_LIMIT, TOTP_FAILURE_WINDOW_MS } from "../src/totp";
@@ -1183,14 +1183,14 @@ describe("admin account", () => {
     expect(await countOf("SELECT COUNT(*) AS total FROM users")).toBe(1);
     expect((await call("/api/v1/users", jsonInit({ username: "mina", password: "mina-pass-1" }))).status).toBe(410);
 
-    const userKey = await loginRateKey("user", "admin");
+    const pairKey = await loginPairKey(ADMIN_USERNAME, null);
     const missed = await call("/api/v1/auth/login", jsonInit({ username: ADMIN_USERNAME, password: "wrong-pass-1" }));
     expect(missed.status).toBe(401);
     const row = await env.DB.prepare("SELECT count FROM rate_limits WHERE token_hash = ?")
-      .bind(userKey)
+      .bind(pairKey)
       .first<{ count: number }>();
     expect(row?.count).toBe(1);
-    await runSql(env.DB, "UPDATE rate_limits SET count = ? WHERE token_hash = ?", [LOGIN_FAILURE_LIMIT, userKey]);
+    await runSql(env.DB, "UPDATE rate_limits SET count = ? WHERE token_hash = ?", [LOGIN_FAILURE_LIMIT, pairKey]);
     const limited = await call(
       "/api/v1/auth/login",
       jsonInit({ username: ADMIN_USERNAME, password: "replacement-pass-1" }),
@@ -1198,16 +1198,16 @@ describe("admin account", () => {
     expect((await expectStatus(limited, 429)).error).toBe("登录尝试过多，请稍后再试");
     expect(limited.headers.get("retry-after")).toBeTruthy();
     expect(
-      (await env.DB.prepare("SELECT count FROM rate_limits WHERE token_hash = ?").bind(userKey).first<{ count: number }>())
+      (await env.DB.prepare("SELECT count FROM rate_limits WHERE token_hash = ?").bind(pairKey).first<{ count: number }>())
         ?.count,
     ).toBe(LOGIN_FAILURE_LIMIT);
-    await runSql(env.DB, "DELETE FROM rate_limits WHERE token_hash = ?", [userKey]);
+    await runSql(env.DB, "DELETE FROM rate_limits WHERE token_hash = ?", [pairKey]);
     const cleared = await call(
       "/api/v1/auth/login",
       jsonInit({ username: ADMIN_USERNAME, password: "replacement-pass-1" }),
     );
     expect(cleared.status).toBe(200);
-    expect(await countOf("SELECT COUNT(*) AS total FROM rate_limits WHERE token_hash = ?", [userKey])).toBe(0);
+    expect(await countOf("SELECT COUNT(*) AS total FROM rate_limits WHERE token_hash = ?", [pairKey])).toBe(0);
 
     const recovered = await call(
       "/api/v1/auth/login",
@@ -1570,8 +1570,8 @@ describe("two-factor login", () => {
     expect((await expectStatus(blocked, 429)).error).toBe("登录尝试过多，请稍后再试");
     expect(blocked.headers.get("set-cookie")).toBeNull();
 
-    const userKey = await loginRateKey("user", "admin");
-    await runSql(env.DB, "DELETE FROM rate_limits WHERE token_hash = ?", [userKey]);
+    const pairKey = await loginPairKey(ADMIN_USERNAME, null);
+    await runSql(env.DB, "DELETE FROM rate_limits WHERE token_hash = ?", [pairKey]);
     const right = await call(
       "/api/v1/auth/login",
       jsonInit({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),

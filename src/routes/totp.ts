@@ -26,7 +26,7 @@ import {
   replaceRecoveryCodes,
   setTotpPending,
 } from "../db";
-import { isCrossSite, json, readCookie, readLimitedBytes } from "../http";
+import { json, readCookie, readLimitedBytes, rejectsSensitiveWrite } from "../http";
 import { logInfo } from "../log";
 import { issueSession, requireUser } from "../session";
 import { SESSION_COOKIE } from "../auth";
@@ -84,6 +84,7 @@ export async function totpStatus(request: Request, env: Env): Promise<Response> 
 
 // POST /api/v1/auth/totp/setup -> create (or rotate) the pending secret.
 export async function beginTotpSetup(request: Request, env: Env): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const record = await findTotpUser(env.DB, user.id);
@@ -119,6 +120,7 @@ export async function beginTotpSetup(request: Request, env: Env): Promise<Respon
 // POST /api/v1/auth/totp/enable { code }: verify the pending secret, then
 // return one-time recovery codes.
 export async function enableTotpHandler(request: Request, env: Env): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const body = await readJson(request);
@@ -164,6 +166,7 @@ export async function enableTotpHandler(request: Request, env: Env): Promise<Res
 
 // POST /api/v1/auth/totp/disable { password, code }
 export async function disableTotp(request: Request, env: Env): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const body = await readJson(request);
@@ -206,6 +209,7 @@ export async function disableTotp(request: Request, env: Env): Promise<Response>
 // POST /api/v1/auth/totp/recovery { password, code }: replaces every recovery
 // code. The old list stops working immediately.
 export async function regenerateRecoveryCodes(request: Request, env: Env): Promise<Response> {
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const user = await requireUser(request, env);
   if (user instanceof Response) return user;
   const body = await readJson(request);
@@ -277,7 +281,7 @@ export async function startTotpChallenge(env: Env, user: { id: string; username:
 
 // POST /api/v1/auth/totp/verify { ticket, code }
 export async function verifyTotpLogin(request: Request, env: Env): Promise<Response> {
-  if (isCrossSite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
+  if (rejectsSensitiveWrite(request)) return json({ ok: false, error: "跨站请求被拒绝" }, 403);
   const body = await readJson(request);
   if (!body.ok) return body.response;
   const ticket = readTicket(body.value.ticket);

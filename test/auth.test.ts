@@ -12,7 +12,7 @@ import {
 describe("password hashing", () => {
   it("verifies the original password and rejects others", async () => {
     const stored = await hashPassword("correct horse battery");
-    expect(stored.startsWith("pbkdf2-sha256$10000$")).toBe(true);
+    expect(stored.startsWith("pbkdf2-sha256$100000$")).toBe(true);
     expect(stored).not.toContain("correct horse");
     expect(await verifyPassword("correct horse battery", stored)).toBe(true);
     expect(await verifyPassword("wrong password", stored)).toBe(false);

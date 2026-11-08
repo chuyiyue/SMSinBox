@@ -541,10 +541,9 @@ export async function consumeRateLimitWindow(
 }
 
 // Login and current-password failures share rate_limits with ingest.
-// Keys are `login:user|ip|account:` plus a SHA-256, so they cannot collide
+// Keys are `login:pair|account:` plus a SHA-256, so they cannot collide
 // with a device token hash. The window is 15 minutes, not one minute.
 export const LOGIN_FAILURE_LIMIT = 8;
-export const LOGIN_IP_FAILURE_LIMIT = 30;
 export const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 
 export function rateLimitWindowStart(now: number, windowMs: number): number {
@@ -564,8 +563,17 @@ export function loginRetryAfterSeconds(now: number): number {
   return rateLimitRetryAfterSeconds(now, LOGIN_WINDOW_MS);
 }
 
-export async function loginRateKey(kind: "user" | "ip" | "account", value: string): Promise<string> {
+export async function loginRateKey(kind: "pair" | "account", value: string): Promise<string> {
   return `login:${kind}:${await sha256Hex(value)}`;
+}
+
+// The login budget is keyed by the (username, client IP) pair, so failures
+// against one pair never lock another pair out, and one source cannot spray
+// guesses across usernames to reset the window. Without a client IP the
+// budget degrades to the username alone.
+export async function loginPairKey(username: string, ip: string | null): Promise<string> {
+  const name = username.toLowerCase();
+  return loginRateKey("pair", ip ? `${name}\n${ip}` : name);
 }
 
 export async function loginAttemptCount(db: D1Database, key: string, now: number): Promise<number> {
@@ -607,7 +615,7 @@ export async function clearLoginFailures(db: D1Database, key: string, now: numbe
 
 // Every endpoint that re-checks the current password (rename, password change,
 // turning two-factor off, new recovery codes) shares one `login:account:`
-// budget. The key is separate from `login:user:`/`login:ip:`, so a stolen
+// budget. The key is separate from the `login:pair:` login budget, so a stolen
 // session cannot lock the owner out of the login form.
 export async function accountPasswordLimited(db: D1Database, userId: string, now: number): Promise<boolean> {
   return (await loginAttemptCount(db, await loginRateKey("account", userId), now)) >= LOGIN_FAILURE_LIMIT;
