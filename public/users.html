@@ -73,7 +73,7 @@
                       <button id="avatar-remove" class="ghost" type="button" hidden data-i18n="users.removeAvatar">移除自定义头像</button>
                     </div>
                   </div>
-                  <p class="subtle" data-i18n="users.avatarHint">上传的图片会裁剪为正方形并缩小到 128×128。自定义头像优先于 GitHub 头像与按名生成的头像显示</p>
+                  <p class="subtle" data-i18n="users.avatarHint">上传的图片会裁剪为正方形并缩小到 128×128，自定义头像优先于 GitHub 头像与按名生成的头像显示</p>
                   <p id="avatar-error" class="field-error" hidden></p>
                 </div>
                 </div>
@@ -99,7 +99,7 @@
                       <p class="subtle" data-i18n="users.githubBoundNote">已绑定这个 GitHub 账号，可用它直接登录，登录时跳过两步验证</p>
                     </div>
                   </div>
-                  <p id="github-unbound-note" class="subtle" hidden data-i18n="users.githubUnboundNote">尚未绑定。绑定后可用 GitHub 账号登录本系统，登录时跳过两步验证；侧边栏会显示该账号的用户名与头像（用户名仍可自行修改）</p>
+                  <p id="github-unbound-note" class="subtle" hidden data-i18n="users.githubUnboundNote">尚未绑定。绑定后可用 GitHub 账号登录，登录时跳过两步验证；侧边栏会显示该账号的用户名与头像</p>
                   <div class="actions">
                     <a id="github-bind" class="button secondary" href="/api/v1/auth/github/start?intent=bind" hidden data-i18n="users.githubBind">绑定 GitHub</a>
                     <button id="github-unbind" class="secondary" type="button" hidden data-i18n="users.githubUnbind">解绑</button>
@@ -152,7 +152,7 @@
                 </div>
                 <div class="feature-item stack" id="locale-setting">
                   <h3 data-i18n="users.language">界面语言</h3>
-                  <p class="subtle" data-i18n="users.languageHint">选择界面显示语言。保存后立即生效，并在重新登录后保持</p>
+                  <p class="subtle" data-i18n="users.languageHint">保存后立即生效，并在重新登录后保持</p>
                   <div id="locale-select"></div>
                   <p id="locale-error" class="callout danger" hidden></p>
                 </div>
@@ -160,7 +160,7 @@
                 <div class="account-pair">
                 <div class="feature-item stack" id="pwa-setting">
                   <h3 data-i18n="users.pwaTitle">安装应用</h3>
-                  <p class="subtle" data-i18n="users.pwaHint">把 SMSinBox 加到主屏幕，像独立应用一样打开</p>
+                  <p class="subtle" data-i18n="users.pwaHint">把 SMSinBox 加到主屏幕</p>
                   <div class="actions">
                     <button id="create-pwa" class="secondary" type="button" data-i18n="users.createPwa">创建 PWA</button>
                   </div>
