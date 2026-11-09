@@ -57,7 +57,7 @@
                 <div id="bearer-wrap" class="stack" hidden>
                   <strong data-i18n="devices.bearerToken">Bearer token</strong>
                   <code id="token-value" class="code-block"></code>
-                  <p class="subtle"><span data-i18n="devices.tokenUsageBefore">用于请求头 </span><code>Authorization: Bearer &lt;token&gt;</code><span data-i18n="devices.tokenUsageAfter">，只显示这一次；丢失后删除设备并新建</span></p>
+                  <p class="subtle"><span data-i18n="devices.tokenUsageBefore">用于请求头 </span><code>Authorization: Bearer &lt;token&gt;</code><span data-i18n="devices.tokenUsageAfter">；丢失后删除设备并新建</span></p>
                   <div class="actions">
                     <button id="copy-token" class="secondary" type="button" data-i18n="devices.copyToken">复制 token</button>
                   </div>
@@ -148,7 +148,7 @@
           <template id="setup-guide-template">
             <details class="fold setup-details" id="setup-details">
               <summary id="setup-title" data-i18n="guide.title">接入指引（iOS / Android / 通用 API）</summary>
-              <p class="subtle" data-i18n="guide.intro">三种方式都是把短信 POST 到你的收件箱，区别只在手机端怎么发。先在「设备列表」里添加设备，再按平台看对应步骤。带底纹的值点一下就能复制</p>
+              <p class="subtle" data-i18n="guide.intro">先在「设备列表」里添加设备，再按平台看对应步骤。带底纹的值点一下就能复制</p>
               <div class="tabs" role="tablist" aria-label="配置平台" data-i18n-attr="aria-label:guide.platformTabs">
                 <button class="tab is-active" type="button" data-tab="ios" role="tab" aria-selected="true" data-i18n="guide.tab.ios">iOS</button>
                 <button class="tab" type="button" data-tab="android" role="tab" aria-selected="false" data-i18n="guide.tab.android">Android</button>
@@ -166,7 +166,7 @@
                       <li data-i18n="guide.ios.autoSwitch">打开自动化开关，关掉「运行前询问」；有「锁定时允许运行」也一并打开。手机重启后要先解锁一次，自动化才会恢复</li>
                     </ul>
                   </li>
-                  <li><strong data-i18n="guide.ios.testTitle">发一条短信测试</strong><span data-i18n="guide.ios.testBody">用另一台手机给这台 iPhone 发一条包含「验证码 123456」的短信：收件箱里能看到、设备卡的「最近活动」也更新了，就是接通了。设备卡上的「发送测试消息」只往服务器里写一条，不经过手机，没法用它验证自动化。设备类型以服务端保存的选择为准，短信上报不会改变它</span></li>
+                  <li><strong data-i18n="guide.ios.testTitle">发一条短信测试</strong><span data-i18n="guide.ios.testBody">用另一台手机给这台 iPhone 发一条包含「验证码 123456」的短信：收件箱里能看到、设备卡的「最近活动」也更新了，就是接通了。设备卡上的「发送测试消息」只往服务器里写一条，不经过手机，没法用它验证自动化</span></li>
                 </ol>
                 <h3 data-i18n="guide.ios.troubleTitle">出问题时</h3>
                 <ul>
