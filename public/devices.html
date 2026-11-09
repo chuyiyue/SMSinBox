@@ -57,7 +57,7 @@
                 <div id="bearer-wrap" class="stack" hidden>
                   <strong data-i18n="devices.bearerToken">Bearer token</strong>
                   <code id="token-value" class="code-block"></code>
-                  <p class="subtle"><span data-i18n="devices.tokenUsageBefore">用于请求头 </span><code>Authorization: Bearer &lt;token&gt;</code><span data-i18n="devices.tokenUsageAfter">，只显示这一次；丢失后删除设备并新建</span></p>
+                  <p class="subtle"><span data-i18n="devices.tokenUsageBefore">用于请求头 </span><code>Authorization: Bearer &lt;token&gt;</code><span data-i18n="devices.tokenUsageAfter">；丢失后删除设备并新建</span></p>
                   <div class="actions">
                     <button id="copy-token" class="secondary" type="button" data-i18n="devices.copyToken">复制 token</button>
                   </div>
@@ -148,7 +148,7 @@
           <template id="setup-guide-template">
             <details class="fold setup-details" id="setup-details">
               <summary id="setup-title" data-i18n="guide.title">接入指引（iOS / Android / 通用 API）</summary>
-              <p class="subtle" data-i18n="guide.intro">三种方式都是把短信 POST 到你的收件箱，区别只在手机端怎么发。先在「设备列表」里添加设备，再按平台看对应步骤。带底纹的值点一下就能复制</p>
+              <p class="subtle" data-i18n="guide.intro">先在「设备列表」里添加设备，再按平台看对应步骤。带底纹的值点一下就能复制</p>
               <div class="tabs" role="tablist" aria-label="配置平台" data-i18n-attr="aria-label:guide.platformTabs">
                 <button class="tab is-active" type="button" data-tab="ios" role="tab" aria-selected="true" data-i18n="guide.tab.ios">iOS</button>
                 <button class="tab" type="button" data-tab="android" role="tab" aria-selected="false" data-i18n="guide.tab.android">Android</button>

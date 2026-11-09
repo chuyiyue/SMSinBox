@@ -627,13 +627,11 @@ function emptyDevices() {
   const title = document.createElement("h2");
   title.className = "empty-title";
   title.textContent = t("devices.emptyTitle");
-  const text = document.createElement("p");
-  text.textContent = t("devices.emptyText");
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = t("devices.addFirst");
   button.addEventListener("click", openCreate);
-  wrap.append(title, text, button);
+  wrap.append(title, button);
   return wrap;
 }
 
