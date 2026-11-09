@@ -597,8 +597,9 @@ describe("MCP Server (/mcp)", () => {
       ),
       200,
     );
+    // No protocolVersion requested -> the server answers with its newest.
     expect(initRes.result).toMatchObject({
-      protocolVersion: "2024-11-05",
+      protocolVersion: "2025-06-18",
       capabilities: { tools: {} },
       serverInfo: { name: "smsinbox-mcp", version: APP_VERSION },
     });
@@ -811,7 +812,8 @@ describe("MCP Server (/mcp)", () => {
     );
     expect((devCall.result as { isError: boolean }).isError).toBe(true);
 
-    // Call unknown tool
+    // Call unknown tool -> protocol-level -32602 error over HTTP 200,
+    // not an isError tool result.
     const unknownTool = await expectStatus(
       await call(
         "/mcp",
@@ -826,9 +828,10 @@ describe("MCP Server (/mcp)", () => {
       ),
       200,
     );
-    expect((unknownTool.result as { isError: boolean }).isError).toBe(true);
+    expect(unknownTool.result).toBeUndefined();
+    expect(unknownTool.error).toMatchObject({ code: -32602 });
 
-    // Call unknown method
+    // Call unknown method -> -32601 over HTTP 200 (not a 404).
     const unknownMethod = await expectStatus(
       await call(
         "/mcp",
@@ -840,9 +843,134 @@ describe("MCP Server (/mcp)", () => {
         undefined,
         mcpToken,
       ),
-      404,
+      200,
     );
     expect(unknownMethod.error).toMatchObject({ code: -32601 });
+  });
+
+  it("negotiates the protocol version on initialize", async () => {
+    for (const [requested, expected] of [
+      ["2024-11-05", "2024-11-05"],
+      ["2025-03-26", "2025-03-26"],
+      ["2025-06-18", "2025-06-18"],
+      ["1999-01-01", "2025-06-18"], // unsupported -> newest
+    ] as const) {
+      const res = await expectStatus(
+        await call(
+          "/mcp",
+          jsonInit({
+            jsonrpc: "2.0",
+            method: "initialize",
+            id: 20,
+            params: { protocolVersion: requested, clientInfo: { name: "test-client" } },
+          }),
+          undefined,
+          mcpToken,
+        ),
+        200,
+      );
+      expect((res.result as { protocolVersion: string }).protocolVersion).toBe(expected);
+    }
+  });
+
+  it("acknowledges any id-less notification with an empty 202", async () => {
+    for (const method of ["notifications/cancelled", "notifications/progress", "notifications/initialized"]) {
+      const res = await call(
+        "/mcp",
+        jsonInit({ jsonrpc: "2.0", method, params: { requestId: 1, reason: "test" } }),
+        undefined,
+        mcpToken,
+      );
+      expect(res.status).toBe(202);
+      expect(await res.text()).toBe("");
+    }
+  });
+
+  it("renders message times as ISO strings and keeps ms timestamps in structuredContent", async () => {
+    const getCall = await expectStatus(
+      await call(
+        "/mcp",
+        jsonInit({
+          jsonrpc: "2.0",
+          method: "tools/call",
+          id: 21,
+          params: { name: "get_message", arguments: { id: msgA1Id } },
+        }),
+        undefined,
+        mcpToken,
+      ),
+      200,
+    );
+    const result = getCall.result as {
+      content: Array<{ text: string }>;
+      structuredContent: { received_at: unknown };
+    };
+    expect(result.content[0].text).toMatch(/接收时间: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/);
+    expect(typeof result.structuredContent.received_at).toBe("number");
+
+    const listCall = await expectStatus(
+      await call(
+        "/mcp",
+        jsonInit({
+          jsonrpc: "2.0",
+          method: "tools/call",
+          id: 22,
+          params: { name: "list_messages", arguments: { limit: 5 } },
+        }),
+        undefined,
+        mcpToken,
+      ),
+      200,
+    );
+    const listResult = listCall.result as { content: Array<{ text: string }> };
+    expect(listResult.content[0].text).toMatch(/\(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\)/);
+    expect(listResult.content[0].text).not.toMatch(/\d{4}\/\d{1,2}\/\d{1,2}/);
+  });
+
+  it("accepts since as ISO string, numeric string, and seconds like a number", async () => {
+    async function totalFor(since: unknown): Promise<number> {
+      const res = await expectStatus(
+        await call(
+          "/mcp",
+          jsonInit({
+            jsonrpc: "2.0",
+            method: "tools/call",
+            id: 23,
+            params: { name: "list_messages", arguments: { since } },
+          }),
+          undefined,
+          mcpToken,
+        ),
+        200,
+      );
+      return (res.result as { structuredContent: { total: number } }).structuredContent.total;
+    }
+
+    const hourAgo = Date.now() - 3_600_000;
+    expect(await totalFor(hourAgo)).toBe(3);
+    expect(await totalFor(String(hourAgo))).toBe(3);
+    expect(await totalFor(new Date(hourAgo).toISOString())).toBe(3);
+    expect(await totalFor(Math.floor(hourAgo / 1000))).toBe(3); // seconds are scaled to ms
+    expect(await totalFor(new Date(Date.now() + 60_000).toISOString())).toBe(0);
+
+    // Unparseable values are an explicit error, not silently ignored.
+    const bad = await expectStatus(
+      await call(
+        "/mcp",
+        jsonInit({
+          jsonrpc: "2.0",
+          method: "tools/call",
+          id: 24,
+          params: { name: "list_messages", arguments: { since: "not-a-time" } },
+        }),
+        undefined,
+        mcpToken,
+      ),
+      200,
+    );
+    const badResult = bad.result as { isError: boolean; content: Array<{ text: string }> };
+    expect(badResult.isError).toBe(true);
+    expect(badResult.content[0].text).toContain("ISO 8601");
   });
 });
 
