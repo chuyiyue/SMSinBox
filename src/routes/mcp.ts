@@ -16,6 +16,7 @@ import {
   setDeviceGroup,
 } from "../db";
 import { json } from "../http";
+import { errorText, logError } from "../log";
 import { compileLikeQuery } from "../search";
 import { APP_VERSION } from "../version";
 import {
@@ -157,6 +158,45 @@ const MCP_TOOLS = [
   },
 ];
 
+// Protocol versions this server can speak, newest first. initialize
+// echoes the client's version when supported, otherwise the newest.
+const MCP_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
+const MCP_LATEST_PROTOCOL_VERSION = MCP_PROTOCOL_VERSIONS[0];
+
+// Times are exchanged as ISO 8601 strings (UTC, "Z" suffix) so agents
+// never mistake them for local time; structuredContent keeps the raw
+// millisecond timestamps alongside.
+function iso(ms: number | null): string | null {
+  return ms == null ? null : new Date(ms).toISOString();
+}
+
+// Accepts a millisecond/second Unix timestamp as a number or numeric
+// string, or any Date.parse-able string (ISO 8601). Values below 1e11
+// are treated as seconds. Returns null for "not provided" and
+// "invalid" for values that cannot be parsed.
+export function parseTimestamp(value: unknown): number | null | "invalid" {
+  if (value == null || value === "") return null;
+  let n: number;
+  if (typeof value === "number") n = value;
+  else if (typeof value === "string" && /^\d+$/.test(value.trim())) n = Number(value);
+  else if (typeof value === "string") n = Date.parse(value);
+  else return "invalid";
+  if (!Number.isFinite(n) || n < 0) return "invalid";
+  return n < 1e11 ? n * 1000 : n;
+}
+
+function invalidTimestamp(field: string): ToolCallResult {
+  return {
+    content: [
+      {
+        type: "text",
+        text: `参数错误: ${field} 无法解析为时间，期望 Unix 时间戳（毫秒或秒）或 ISO 8601 时间字符串，如 2026-11-09T00:00:00.000Z`,
+      },
+    ],
+    isError: true,
+  };
+}
+
 export async function handleMcp(request: Request, env: Env, _ctx: WaitCtx = { waitUntil() {} }): Promise<Response> {
   const method = request.method.toUpperCase();
 
@@ -196,11 +236,13 @@ export async function handleMcp(request: Request, env: Env, _ctx: WaitCtx = { wa
   const rpcMethod = body.method;
 
   if (typeof rpcMethod !== "string") {
-    return json({ jsonrpc: "2.0", id, error: { code: -32600, message: "Invalid Request: missing method" } }, 400);
+    return json({ jsonrpc: "2.0", id, error: { code: -32600, message: "Invalid Request: missing method" } });
   }
 
-  // MCP protocol notifications
-  if (rpcMethod === "notifications/initialized") {
+  // JSON-RPC notifications carry no id and never get a response body:
+  // acknowledge any of them (notifications/initialized,
+  // notifications/cancelled, ...) with an empty 202.
+  if (body.id === undefined || body.id === null) {
     return new Response(null, { status: 202 });
   }
 
@@ -209,13 +251,19 @@ export async function handleMcp(request: Request, env: Env, _ctx: WaitCtx = { wa
     return json({ jsonrpc: "2.0", id, result: {} });
   }
 
-  // MCP initialize
+  // MCP initialize (with protocol version negotiation)
   if (rpcMethod === "initialize") {
+    const initParams = body.params as Record<string, unknown> | undefined;
+    const requestedVersion = typeof initParams?.protocolVersion === "string" ? initParams.protocolVersion : null;
+    const protocolVersion =
+      requestedVersion && MCP_PROTOCOL_VERSIONS.includes(requestedVersion)
+        ? requestedVersion
+        : MCP_LATEST_PROTOCOL_VERSION;
     return json({
       jsonrpc: "2.0",
       id,
       result: {
-        protocolVersion: "2024-11-05",
+        protocolVersion,
         capabilities: {
           tools: {},
         },
@@ -244,6 +292,16 @@ export async function handleMcp(request: Request, env: Env, _ctx: WaitCtx = { wa
     const toolName = typeof params?.name === "string" ? params.name : "";
     const args = (params?.arguments && typeof params.arguments === "object" ? params.arguments : {}) as Record<string, unknown>;
 
+    // Unknown tools are a protocol-level invalid-params error, not a
+    // tool result.
+    if (!MCP_TOOLS.some((tool) => tool.name === toolName)) {
+      return json({
+        jsonrpc: "2.0",
+        id,
+        error: { code: -32602, message: `Unknown tool: ${toolName}` },
+      });
+    }
+
     const callResult = await executeMcpTool(toolName, args, env, token, new URL(request.url).origin);
     return json({
       jsonrpc: "2.0",
@@ -252,17 +310,14 @@ export async function handleMcp(request: Request, env: Env, _ctx: WaitCtx = { wa
     });
   }
 
-  return json(
-    {
-      jsonrpc: "2.0",
-      id,
-      error: {
-        code: -32601,
-        message: `Method not found: ${rpcMethod}`,
-      },
+  return json({
+    jsonrpc: "2.0",
+    id,
+    error: {
+      code: -32601,
+      message: `Method not found: ${rpcMethod}`,
     },
-    404,
-  );
+  });
 }
 
 interface ToolCallResult {
@@ -272,6 +327,26 @@ interface ToolCallResult {
 }
 
 async function executeMcpTool(
+  toolName: string,
+  args: Record<string, unknown>,
+  env: Env,
+  token: AuthedToken,
+  origin: string,
+): Promise<ToolCallResult> {
+  try {
+    return await dispatchMcpTool(toolName, args, env, token, origin);
+  } catch (error) {
+    // Internal failures (DB errors etc.) are logged in full but only a
+    // generic message reaches the model.
+    logError({ message: "mcp_tool_failed", tool: toolName, error: errorText(error) });
+    return {
+      content: [{ type: "text", text: "工具执行失败，请稍后重试" }],
+      isError: true,
+    };
+  }
+}
+
+async function dispatchMcpTool(
   toolName: string,
   args: Record<string, unknown>,
   env: Env,
@@ -319,8 +394,10 @@ async function toolListMessages(
   const limit = parseBoundedNumber(args.limit, 20, 1, 100);
   const offset = parseBoundedNumber(args.offset, 0, 0, 1_000_000);
   const deviceId = typeof args.device_id === "string" ? args.device_id.trim() : null;
-  const since = typeof args.since === "number" ? args.since : null;
-  const until = typeof args.until === "number" ? args.until : null;
+  const since = parseTimestamp(args.since);
+  if (since === "invalid") return invalidTimestamp("since");
+  const until = parseTimestamp(args.until);
+  if (until === "invalid") return invalidTimestamp("until");
 
   if (deviceId && !deviceInScope(token, deviceId)) {
     return {
@@ -348,7 +425,7 @@ async function toolListMessages(
     `共 ${result.total} 条短信 (显示第 ${offset + 1} - ${offset + formattedMessages.length} 条):`,
     ...formattedMessages.map(
       (m) =>
-        `- [${m.id}] 来自 ${m.from} (${new Date(m.received_at).toLocaleString("zh-CN")}): ${m.content.slice(0, 80)}${m.content.length > 80 ? "…" : ""}${m.code ? ` [验证码: ${m.code}]` : ""}`,
+        `- [${m.id}] 来自 ${m.from} (${iso(m.received_at)}): ${m.content.slice(0, 80)}${m.content.length > 80 ? "…" : ""}${m.code ? ` [验证码: ${m.code}]` : ""}`,
     ),
   ];
 
@@ -413,7 +490,7 @@ async function toolSearchMessages(
     `搜索结果: 共 ${result.total} 条匹配短信 (显示第 ${offset + 1} - ${offset + formattedMessages.length} 条):`,
     ...formattedMessages.map(
       (m) =>
-        `- [${m.id}] 来自 ${m.from} (${new Date(m.received_at).toLocaleString("zh-CN")}): ${m.content.slice(0, 80)}${m.content.length > 80 ? "…" : ""}${m.code ? ` [验证码: ${m.code}]` : ""}`,
+        `- [${m.id}] 来自 ${m.from} (${iso(m.received_at)}): ${m.content.slice(0, 80)}${m.content.length > 80 ? "…" : ""}${m.code ? ` [验证码: ${m.code}]` : ""}`,
     ),
   ];
 
@@ -460,7 +537,7 @@ async function toolGetMessage(
     `发件号码: ${formatted.from}`,
     `收件号码: ${formatted.to ?? "无"}`,
     `设备: ${formatted.device_name} (${formatted.device_id})`,
-    `接收时间: ${new Date(formatted.received_at).toLocaleString("zh-CN")}`,
+    `接收时间: ${iso(formatted.received_at)}`,
     formatted.code ? `提取验证码: ${formatted.code}` : "未识别到验证码",
     `短信正文:\n${formatted.content}`,
   ].join("\n");
@@ -482,7 +559,8 @@ async function toolGetLatestOtp(
 
   const deviceId = typeof args.device_id === "string" ? args.device_id.trim() : null;
   const from = typeof args.from === "string" ? args.from.trim() : null;
-  const since = typeof args.since === "number" ? args.since : null;
+  const since = parseTimestamp(args.since);
+  if (since === "invalid") return invalidTimestamp("since");
 
   if (deviceId && !deviceInScope(token, deviceId)) {
     return {
@@ -512,7 +590,7 @@ async function toolGetLatestOtp(
     `最新验证码: ${message.code}`,
     `发件号码: ${message.from_number}`,
     `设备: ${message.device_name}`,
-    `接收时间: ${new Date(message.received_at).toLocaleString("zh-CN")}`,
+    `接收时间: ${iso(message.received_at)}`,
     `短信内容: ${message.content}`,
   ].join("\n");
 
@@ -540,8 +618,10 @@ async function toolSearchOtp(
     return permDenied("otp:read");
   }
 
-  const since = typeof args.since === "number" ? args.since : null;
-  const until = typeof args.until === "number" ? args.until : null;
+  const since = parseTimestamp(args.since);
+  if (since === "invalid") return invalidTimestamp("since");
+  const until = parseTimestamp(args.until);
+  if (until === "invalid") return invalidTimestamp("until");
   const deviceId = typeof args.device_id === "string" ? args.device_id.trim() : null;
   const from = typeof args.from === "string" ? args.from.trim() : null;
   const limit = parseBoundedNumber(args.limit, 20, 1, 100);
@@ -583,7 +663,7 @@ async function toolSearchOtp(
     `共 ${result.total} 条验证码 (显示第 ${offset + 1} - ${offset + otps.length} 条):`,
     ...otps.map(
       (o) =>
-        `- 验证码 [${o.code}] 来自 ${o.from} (${new Date(o.received_at).toLocaleString("zh-CN")}, 设备: ${o.device_name}): ${o.content.slice(0, 60)}`,
+        `- 验证码 [${o.code}] 来自 ${o.from} (${iso(o.received_at)}, 设备: ${o.device_name}): ${o.content.slice(0, 60)}`,
     ),
   ];
 
@@ -621,7 +701,7 @@ async function toolListDevices(
     `授权范围内共有 ${devices.length} 台设备:`,
     ...devices.map(
       (d) =>
-        `- ${d.name} (ID: ${d.id}, 平台: ${d.platform}, 状态: ${d.status}, 最后在线: ${d.last_seen_at ? new Date(d.last_seen_at).toLocaleString("zh-CN") : "从未上报"})`,
+        `- ${d.name} (ID: ${d.id}, 平台: ${d.platform}, 状态: ${d.status}, 最后在线: ${d.last_seen_at ? iso(d.last_seen_at) : "从未上报"})`,
     ),
   ];
 
@@ -665,8 +745,8 @@ async function toolGetDeviceStatus(
     `设备 ID: ${device.id}`,
     `平台: ${device.platform}`,
     `在线状态: ${status}`,
-    `最后上报时间: ${device.last_seen_at ? new Date(device.last_seen_at).toLocaleString("zh-CN") : "从未上报"}`,
-    `最新短信时间: ${lastMessageAt ? new Date(lastMessageAt).toLocaleString("zh-CN") : "无短信记录"}`,
+    `最后上报时间: ${device.last_seen_at ? iso(device.last_seen_at) : "从未上报"}`,
+    `最新短信时间: ${lastMessageAt ? iso(lastMessageAt) : "无短信记录"}`,
   ].join("\n");
 
   return {
@@ -868,6 +948,8 @@ function permDenied(perm: ExtPermission): ToolCallResult {
 }
 
 function parseBoundedNumber(val: unknown, fallback: number, min: number, max: number): number {
-  if (typeof val !== "number" || !Number.isFinite(val)) return fallback;
-  return Math.min(Math.max(Math.floor(val), min), max);
+  // LLMs often send numbers as strings; accept numeric strings too.
+  const n = typeof val === "string" && val.trim() !== "" ? Number(val) : val;
+  if (typeof n !== "number" || !Number.isFinite(n)) return fallback;
+  return Math.min(Math.max(Math.floor(n), min), max);
 }
