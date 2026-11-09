@@ -41,6 +41,9 @@ export interface AuthedToken {
 /** Rate limit for external API tokens: 120 requests per minute per token. */
 export const EXT_RATE_LIMIT = 120;
 
+/** Minimum interval between last_used_at writes for an external API token. */
+export const EXT_LAST_USED_UPDATE_INTERVAL_MS = 60_000;
+
 /**
  * Threshold for determining whether a device is considered "online".
  * A device is "online" if its last_seen_at timestamp is within the last 15 minutes (900,000 ms).
@@ -91,9 +94,12 @@ export async function requireExtToken(request: Request, env: Env): Promise<Authe
     return extError(429, "RATE_LIMITED", "Too many requests, please slow down");
   }
 
-  // Update last_used_at directly on every request.
-  // One DB write per external request provides immediate freshness with no in-memory state loss.
-  await touchApiTokenLastUsed(env.DB, record.id, Date.now());
+  // Refresh last_used_at at most once per interval to avoid a DB write on
+  // every request in an external API or MCP session.
+  const now = Date.now();
+  if (record.last_used_at == null || now - record.last_used_at > EXT_LAST_USED_UPDATE_INTERVAL_MS) {
+    await touchApiTokenLastUsed(env.DB, record.id, now);
+  }
 
   const permissions = safeParseJsonArray(record.permissions) as ExtPermission[];
   const deviceScope = safeParseJsonArray(record.device_scope);

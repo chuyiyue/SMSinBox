@@ -420,6 +420,37 @@ describe("External REST API (/api/ext/v1)", () => {
     });
   });
 
+  it("refreshes token last_used_at only once within 60 seconds", async () => {
+    const created = await expectStatus(
+      await call(
+        "/api/v1/api-tokens",
+        jsonInit({
+          name: "Last Used Throttle Token",
+          permissions: ["devices:read"],
+          device_scope: [],
+        }),
+        adminCookie,
+      ),
+      200,
+    );
+    const token = created.token as string;
+    const tokenId = (created.record as { id: string }).id;
+    const readLastUsedAt = async (): Promise<number | null> =>
+      (
+        await env.DB.prepare("SELECT last_used_at FROM api_tokens WHERE id = ?")
+          .bind(tokenId)
+          .first<{ last_used_at: number | null }>()
+      )?.last_used_at ?? null;
+
+    expect(await readLastUsedAt()).toBeNull();
+    await expectStatus(await call("/api/ext/v1/health", {}, undefined, token), 200);
+    const firstUsedAt = await readLastUsedAt();
+    expect(firstUsedAt).not.toBeNull();
+
+    await expectStatus(await call("/api/ext/v1/health", {}, undefined, token), 200);
+    expect(await readLastUsedAt()).toBe(firstUsedAt);
+  });
+
   it("serves OpenAPI 3.0 specification without authentication", async () => {
     const openapi = await expectStatus(await call("/api/ext/v1/openapi.json"), 200);
     expect(openapi.openapi).toBe("3.0.3");
